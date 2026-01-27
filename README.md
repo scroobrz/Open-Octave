@@ -1,2 +1,2 @@
-# SDP-project-UTOPIANO
-Workspace for SDP group 21 project; working name UTOPIANO.
+# SDP-Open-Octave
+Workspace for SDP group 21 project; working name Open Octave.
