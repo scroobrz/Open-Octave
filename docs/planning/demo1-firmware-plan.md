@@ -35,4 +35,8 @@ Everything else should already be connected.
 
 - Connect a new button, servo and LED stick for each key
 - Figure out how to accommodate enough buttons, and LED sticks (servos should be fine tho due to the motor control board)
-- Figure out how to set everything up with a breadboard for our first PCB prototype
+- Figure out how to set everything up with a breadboard (preferably the Grove breadboard but we also have a larger regular breadboard) for our first PCB prototype
+
+## General Notes
+
+Try to stay within the Grove ecosystem as much as possible with the electronics, this makes life a lot easier with their sort of plug-and-play nature
