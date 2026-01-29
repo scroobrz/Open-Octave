@@ -40,3 +40,14 @@ Everything else should already be connected.
 ## General Notes
 
 Try to stay within the Grove ecosystem as much as possible with the electronics, this makes life a lot easier with their sort of plug-and-play nature
+
+## Long-Term Plan
+
+- (Probably immediately) after demo 1, we will migrate to ESP32 rather than arduino. ESP32 has:
+    - Built in WiFi and bluetooth
+    - More pins
+    - More memory
+    - More processing power
+- The code will likely not need to be changed, and we can still work with ESP32 through the arduino IDE
+- Small, fairly simple changes will need to be made to the electronics architecture
+- After demo 1, we will start proper PCB design and stop using breadboards
