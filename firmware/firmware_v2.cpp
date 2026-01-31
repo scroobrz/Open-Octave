@@ -2,7 +2,7 @@
  * FIRMWARE V2
  */
 
-#include "PCA9685.h" // controls the Servo Motor driver
+#include "PCA9685.h"           // controls the Servo Motor driver
 #include <Adafruit_NeoPixel.h> // controls the LED stick/strip
 #include <Wire.h>              // allows communication with the Servo driver
 
@@ -15,6 +15,7 @@
 
 #define NUM_LEDS 10
 #define NUM_KEYS 3
+#define DEBOUNCE_DELAY 500
 
 #define KEY0_BUTTON_PIN 4
 #define KEY0_LED_PIN 5
@@ -54,6 +55,12 @@ Key keys[NUM_KEYS] = {
 
 ServoDriver servoDriver;
 Mode currentMode = MANUAL;
+unsigned long lastModeSwitchTime = 0; // tracks last mode switch for debouncing
+
+void checkModeSwitch();
+void handleManualMode();
+void handleAutomaticMode();
+void handleFullAutomaticMode();
 
 void setup() {
   pinMode(MODE_SWITCH_PIN, INPUT);
@@ -71,31 +78,37 @@ void setup() {
   }
 }
 
-// runs repeatedly forever.
-void loop() {
-  if (digitalRead(BUTTON_PIN) == HIGH) { // button being pressed
+void loop() { 
+    checkModeSwitch();
 
-    servoDriver.setAngle(0, 90); // move servo on channel 0 to 90 degrees
-
-    for (int i = 0; i < NUM_LEDS; i++) {
-      // makes a rainbow on the LED
-      int hue = i * (65536 / NUM_LEDS);
-      strip.setPixelColor(i, strip.ColorHSV(hue, 255, 255));
+    switch (currentMode) {
+        case MANUAL:
+            handleManualMode();
+            break;
+        case AUTOMATIC_LEDS:
+            handleAutomaticMode();
+            break;
+        case FULL_AUTOMATIC:
+            handleFullAutomaticMode();
+            break;
     }
-    strip.show();
+}
 
-    tone(SPEAKER_PIN, 262, 500); // play 262Hz (middle C) for 500 milliseconds
-                                 // (doesn't sound like middle C lol)
-
-  } else {
-    // button not being pressed; reset everything
-    servoDriver.setAngle(0, 0);
-
-    for (int i = 0; i < NUM_LEDS; i++) {
-      strip.setPixelColor(i, strip.Color(0, 0, 0));
+void checkModeSwitch() {
+  if (millis() - lastModeSwitchTime > DEBOUNCE_DELAY) {
+    if (digitalRead(MODE_SWITCH_PIN) == HIGH) {
+      switch (currentMode) {
+      case MANUAL:
+        currentMode = AUTOMATIC_LEDS;
+        break;
+      case AUTOMATIC_LEDS:
+        currentMode = FULL_AUTOMATIC;
+        break;
+      case FULL_AUTOMATIC:
+        currentMode = MANUAL;
+        break;
+      }
+      lastModeSwitchTime = millis();
     }
-    strip.show();
-
-    noTone(SPEAKER_PIN);
   }
 }
