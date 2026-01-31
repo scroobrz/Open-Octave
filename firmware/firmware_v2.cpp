@@ -112,3 +112,17 @@ void checkModeSwitch() {
     }
   }
 }
+
+void handleManualMode() {
+    for (int i = 0; i < NUM_KEYS; i++) {
+        bool buttonPressed = digitalRead(keys[i].buttonPin) == HIGH;
+        
+        if (buttonPressed && !keys[i].isPressed) {
+            keys[i].isPressed = true;
+            tone(SPEAKER_PIN, keys[i].noteFreq, 500);
+        } else if (!buttonPressed && keys[i].isPressed) {
+            keys[i].isPressed = false;
+            noTone(SPEAKER_PIN);
+        }
+    }
+}
