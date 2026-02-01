@@ -59,8 +59,8 @@
 // ============ HELPER MACROS ============
 
 #define LED_STICK(pin) Adafruit_NeoPixel(NUM_LEDS, pin, NEO_GRB + NEO_KHZ800)
-#define autoPressKey(keyIndex) servoDriver.setAngle(keys[keyIndex].servoChannel, constrain(SERVO_PRESS_ANGLE, SERVO_REST_ANGLE, 180))
-#define autoReleaseKey(keyIndex) servoDriver.setAngle(keys[keyIndex].servoChannel, constrain(SERVO_REST_ANGLE, 0, SERVO_PRESS_ANGLE))
+#define autoPressKey(keyIndex) servoDriver.setAngle(keys[keyIndex].servoChannel, constrain(SERVO_PRESS_ANGLE, 0, 180))
+#define autoReleaseKey(keyIndex) servoDriver.setAngle(keys[keyIndex].servoChannel, constrain(SERVO_REST_ANGLE, 0, 180))
 
 // ============ DATA TYPES ============
 
