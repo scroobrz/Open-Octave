@@ -2,7 +2,7 @@
 Workspace for SDP group 21 project; working name Open Octave.
 
 ## Project Overview
-**Open Octave** is a modular, robotically enhanced educational keyboard system designed to enhance piano learning in schools. **Hardware & Mechanics** which will be the specialised keys and frame, **Electronics & Firmware** which will be responsible for controlling and connecting hardware components in a meaningful way, and a **Software Application** which teachers can use to remotely configure and control a network of the keyboard modules.This repository serves as a central workspace for all project materials, including code, CAD files, marketing materials, planning documents, and anything else with any importance to the project. The system will consist of three main components: the keyboard, the robotic actuators, and the software interface.
+**Open Octave** is a modular, robotically enhanced educational keyboard system designed to enhance piano learning in schools. This repository serves as a central workspace for all project materials, including code, CAD files, marketing materials, planning documents, and anything else with any importance to the project. The system will consist of three main components: the keyboard, the robotic actuators, and the software interface.
 
 ## Team Instructions
 
