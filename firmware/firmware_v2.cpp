@@ -178,8 +178,7 @@ void handleAutomaticModes() {
   if (!sequenceRunning)
     return;
 
-  if (millis() - currentStepStartTime >=
-      sequence[currentSequenceStep].duration) {
+  if (millis() - currentStepStartTime >= sequence[currentSequenceStep].duration) {
     resetKey(sequence[currentSequenceStep].keyIndex);
 
     currentSequenceStep++;
@@ -287,6 +286,5 @@ void lightDownKey(int keyIndex) {
 
 void resetKey(int keyIndex) {
   lightDownKey(keyIndex);
-  keys[keyIndex].isPressed = false;
   autoReleaseKey(keyIndex);
 }
