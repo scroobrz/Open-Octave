@@ -59,8 +59,8 @@
 // ============ HELPER MACROS ============
 
 #define LED_STICK(pin) Adafruit_NeoPixel(NUM_LEDS, pin, NEO_GRB + NEO_KHZ800)
-#define autoPressKey(keyIndex) servoDriver.setAngle(keys[keyIndex].servoChannel, SERVO_PRESS_ANGLE)
-#define autoReleaseKey(keyIndex) servoDriver.setAngle(keys[keyIndex].servoChannel, SERVO_REST_ANGLE)
+#define autoPressKey(keyIndex) servoDriver.setAngle(keys[keyIndex].servoChannel, constrain(SERVO_PRESS_ANGLE, SERVO_REST_ANGLE, 180))
+#define autoReleaseKey(keyIndex) servoDriver.setAngle(keys[keyIndex].servoChannel, constrain(SERVO_REST_ANGLE, 0, SERVO_PRESS_ANGLE))
 
 // ============ DATA TYPES ============
 
@@ -80,7 +80,7 @@ struct Key {
 
 struct SequenceStep {
   int keyIndex;
-  int color;
+  uint32_t color;
   int duration;
 };
 
@@ -110,8 +110,8 @@ ServoDriver servoDriver; // controls all servos via I2C
 
 Mode currentMode = MANUAL;
 unsigned long lastModeSwitchTime = 0; // when mode switch was last pressed (for debouncing)
+bool previousModeSwitchState = LOW; // previous state of mode switch button for edge detection
 unsigned long lastKeyPressTime[NUM_KEYS] = {0}; // when each key was last pressed (for debouncing)
-int activeAudioKey = -1; // which key is currently making sound (-1 = none)
 bool sequenceRunning = false;
 int currentSequenceStep = 0;
 unsigned long currentStepStartTime = 0;
@@ -127,7 +127,7 @@ void executeSequenceStep(const SequenceStep &step);
 void startKeyTone(int keyIndex);
 void stopKeyTone(int keyIndex);
 void checkButtons();
-void lightUpKey(int keyIndex, int color);
+void lightUpKey(int keyIndex, uint32_t color);
 void lightDownKey(int keyIndex);
 void resetKey(int keyIndex);
 
@@ -147,6 +147,7 @@ void setup() {
   // start I2C communication and initialize the servo driver
   Wire.begin();
   servoDriver.init();
+  servoDriver.setFrequency(SERVO_FREQ); // set PWM frequency for servos
 
   // initialize each key
   for (int i = 0; i < NUM_KEYS; i++) {
@@ -178,27 +179,34 @@ These handle switching between and handling the MANUAL, AUTOMATIC_LEDS, and FULL
 
 // checks if the mode switch button was pressed and cycles to the next mode
 void checkModeSwitch() {
-  // apply debouncing to avoid false triggers
-  if (millis() - lastModeSwitchTime >= DEBOUNCE_DELAY) {
-    if (digitalRead(MODE_SWITCH_PIN) == HIGH) {
-      // switch to the next mode
-      switch (currentMode) {
-      case MANUAL:
-        setMode(AUTOMATIC_LEDS);
-        startSequence();
-        break;
-      case AUTOMATIC_LEDS:
-        setMode(FULL_AUTOMATIC);
-        startSequence();
-        break;
-      case FULL_AUTOMATIC:
-        setMode(MANUAL);
-        break;
-      }
+  bool currentModeSwitchState = (digitalRead(MODE_SWITCH_PIN) == HIGH);
+  unsigned long now = millis();
 
-      lastModeSwitchTime = millis();
+  // Debounce on rising edge: only act when the button transitions from
+  // not pressed to pressed, and sufficient time has passed since the
+  // last accepted mode change.
+  if (currentModeSwitchState && !previousModeSwitchState &&
+      (now - lastModeSwitchTime >= DEBOUNCE_DELAY)) {
+    // switch to the next mode
+    switch (currentMode) {
+    case MANUAL:
+      setMode(AUTOMATIC_LEDS);
+      startSequence();
+      break;
+    case AUTOMATIC_LEDS:
+      setMode(FULL_AUTOMATIC);
+      startSequence();
+      break;
+    case FULL_AUTOMATIC:
+      setMode(MANUAL);
+      break;
     }
+
+    lastModeSwitchTime = now;
   }
+
+  // Remember state for next call so we can detect edges.
+  previousModeSwitchState = currentModeSwitchState;
 }
 
 // switches to a new mode and resets everything to a clean state
@@ -296,7 +304,6 @@ void checkButtons() {
 
 // starts playing the tone for a specific key
 void startKeyTone(int keyIndex) {
-  activeAudioKey = keyIndex;
   tone(SPEAKER_PIN, keys[keyIndex].noteFreq);
 }
 
@@ -315,12 +322,11 @@ void stopKeyTone(int keyIndex) {
   }
 
   // no other keys pressed, silence the speaker
-  activeAudioKey = -1;
   noTone(SPEAKER_PIN);
 }
 
 // lights up all LEDs on a key's LED stick with the specified color
-void lightUpKey(int keyIndex, int color) {
+void lightUpKey(int keyIndex, uint32_t color) {
   Adafruit_NeoPixel &ledStick = keys[keyIndex].ledStick;
 
   for (int i = 0; i < NUM_LEDS; i++) {
