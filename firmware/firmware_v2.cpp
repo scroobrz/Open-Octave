@@ -15,7 +15,7 @@
 
 #define NUM_LEDS 10
 #define NUM_KEYS 3
-#define DEBOUNCE_DELAY 500
+#define DEBOUNCE_DELAY 50
 #define SEQUENCE_LENGTH 5
 
 #define KEY0_BUTTON_PIN 4
