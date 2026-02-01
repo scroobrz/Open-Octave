@@ -2,9 +2,9 @@
  * FIRMWARE V2
  */
 
-#include "PCA9685.h"           // controls the Servo Motor driver
-#include <Adafruit_NeoPixel.h> // controls the LED stick/strip
-#include <Wire.h>              // allows communication with the Servo driver
+#include "PCA9685.h"
+#include <Adafruit_NeoPixel.h>
+#include <Wire.h>
 
 #define SPEAKER_PIN 2
 #define MODE_SWITCH_PIN 3
@@ -16,6 +16,7 @@
 #define NUM_LEDS 10
 #define NUM_KEYS 3
 #define DEBOUNCE_DELAY 500
+#define SEQUENCE_LENGTH 5
 
 #define KEY0_BUTTON_PIN 4
 #define KEY0_LED_PIN 5
@@ -32,6 +33,17 @@
 #define KEY2_SERVO_CHANNEL 2
 #define KEY2_NOTE 330
 
+#define COLOR_RED 0xFF0000
+#define COLOR_GREEN 0x00FF00
+#define COLOR_BLUE 0x0000FF
+#define COLOR_WHITE 0xFFFFFF
+
+#define LED_STICK(pin) Adafruit_NeoPixel(NUM_LEDS, pin, NEO_GRB + NEO_KHZ800)
+#define autoPressKey(keyIndex)                                                 \
+  servoDriver.setAngle(keys[keyIndex].servoChannel, SERVO_PRESS_ANGLE)
+#define autoReleaseKey(keyIndex)                                               \
+  servoDriver.setAngle(keys[keyIndex].servoChannel, SERVO_REST_ANGLE)
+
 enum Mode {
   MANUAL,         // no automatic functions
   AUTOMATIC_LEDS, // system plays LED sequences automatically
@@ -46,27 +58,65 @@ struct Key {
   bool isPressed;
 };
 
-#define LED_STICK(pin) Adafruit_NeoPixel(NUM_LEDS, pin, NEO_GRB + NEO_KHZ800)
-Key keys[NUM_KEYS] = {
-    {KEY0_BUTTON_PIN, LED_STICK(KEY0_LED_PIN), KEY0_SERVO_CHANNEL, KEY0_NOTE, false}, // C4
-    {KEY1_BUTTON_PIN, LED_STICK(KEY1_LED_PIN), KEY1_SERVO_CHANNEL, KEY1_NOTE, false}, // D4
-    {KEY2_BUTTON_PIN, LED_STICK(KEY2_LED_PIN), KEY2_SERVO_CHANNEL, KEY2_NOTE, false}  // E4
+struct SequenceStep {
+  int keyIndex;
+  int color;
+  int duration;
 };
 
-ServoDriver servoDriver;
-Mode currentMode = MANUAL;
-unsigned long lastModeSwitchTime = 0; // tracks last mode switch for debouncing
+Key keys[NUM_KEYS] = {
+    {KEY0_BUTTON_PIN, LED_STICK(KEY0_LED_PIN), KEY0_SERVO_CHANNEL, KEY0_NOTE,
+     false}, // C4
+    {KEY1_BUTTON_PIN, LED_STICK(KEY1_LED_PIN), KEY1_SERVO_CHANNEL, KEY1_NOTE,
+     false}, // D4
+    {KEY2_BUTTON_PIN, LED_STICK(KEY2_LED_PIN), KEY2_SERVO_CHANNEL, KEY2_NOTE,
+     false} // E4
+};
 
+const SequenceStep sequence[SEQUENCE_LENGTH] = {
+    // {keyIndex, color, duration}
+    {0, COLOR_BLUE, 500},
+    {1, COLOR_GREEN, 500},
+    {0, COLOR_BLUE, 500},
+    {1, COLOR_GREEN, 500},
+    {2, COLOR_RED, 500}};
+
+ServoDriver servoDriver;
+
+// global state tracking
+Mode currentMode = MANUAL;
+unsigned long lastModeSwitchTime = 0;
+unsigned long lastKeyPressTime[NUM_KEYS] = {0};
+int activeAudioKey = -1;
+bool sequenceRunning = false;
+int currentSequenceStep = 0;
+unsigned long currentStepStartTime = 0;
+
+// function forward-declarations
 void checkModeSwitch();
-void handleManualMode();
-void handleAutomaticMode();
-void handleFullAutomaticMode();
+void setMode(Mode mode);
+void handleAutomaticModes();
+void startSequence();
+void stopSequence();
+void executeSequenceStep(const SequenceStep &step);
+void startKeyTone(int keyIndex);
+void stopKeyTone(int keyIndex);
+void checkButtons();
+void lightUpKey(int keyIndex, int color);
+void lightDownKey(int keyIndex);
+void resetKey(int keyIndex);
+
+/*
+===============================
+Core arduino control functions
+===============================
+*/
 
 void setup() {
   pinMode(MODE_SWITCH_PIN, INPUT);
   pinMode(SPEAKER_PIN, OUTPUT);
 
-  Wire.begin(); // start the I2C communication connection
+  Wire.begin();
   servoDriver.init();
 
   for (int i = 0; i < NUM_KEYS; i++) {
@@ -78,51 +128,165 @@ void setup() {
   }
 }
 
-void loop() { 
-    checkModeSwitch();
+void loop() {
+  checkModeSwitch();
+  checkButtons();
 
-    switch (currentMode) {
-        case MANUAL:
-            handleManualMode();
-            break;
-        case AUTOMATIC_LEDS:
-            handleAutomaticMode();
-            break;
-        case FULL_AUTOMATIC:
-            handleFullAutomaticMode();
-            break;
-    }
+  if (currentMode == AUTOMATIC_LEDS || currentMode == FULL_AUTOMATIC) {
+    handleAutomaticModes();
+  }
 }
 
+/*
+===============================
+Mode control functions
+===============================
+*/
+
 void checkModeSwitch() {
-  if (millis() - lastModeSwitchTime > DEBOUNCE_DELAY) {
+  if (millis() - lastModeSwitchTime >= DEBOUNCE_DELAY) {
     if (digitalRead(MODE_SWITCH_PIN) == HIGH) {
       switch (currentMode) {
       case MANUAL:
-        currentMode = AUTOMATIC_LEDS;
+        setMode(AUTOMATIC_LEDS);
+        startSequence();
         break;
       case AUTOMATIC_LEDS:
-        currentMode = FULL_AUTOMATIC;
+        setMode(FULL_AUTOMATIC);
+        startSequence();
         break;
       case FULL_AUTOMATIC:
-        currentMode = MANUAL;
+        setMode(MANUAL);
         break;
       }
+
       lastModeSwitchTime = millis();
     }
   }
 }
 
-void handleManualMode() {
-    for (int i = 0; i < NUM_KEYS; i++) {
-        bool buttonPressed = digitalRead(keys[i].buttonPin) == HIGH;
-        
-        if (buttonPressed && !keys[i].isPressed) {
-            keys[i].isPressed = true;
-            tone(SPEAKER_PIN, keys[i].noteFreq, 500);
-        } else if (!buttonPressed && keys[i].isPressed) {
-            keys[i].isPressed = false;
-            noTone(SPEAKER_PIN);
-        }
+void setMode(Mode mode) {
+  for (int i = 0; i < NUM_KEYS; i++) {
+    resetKey(i);
+  }
+
+  sequenceRunning = false;
+  currentMode = mode;
+}
+
+void handleAutomaticModes() {
+  if (!sequenceRunning)
+    return;
+
+  if (millis() - currentStepStartTime >=
+      sequence[currentSequenceStep].duration) {
+    resetKey(sequence[currentSequenceStep].keyIndex);
+
+    currentSequenceStep++;
+
+    if (currentSequenceStep >= SEQUENCE_LENGTH) {
+      stopSequence();
+      return;
     }
+
+    executeSequenceStep(sequence[currentSequenceStep]);
+  }
+}
+
+/*
+===============================
+Sequence control functions
+===============================
+*/
+
+void startSequence() {
+  sequenceRunning = true;
+  currentSequenceStep = 0;
+  currentStepStartTime = millis();
+
+  executeSequenceStep(sequence[currentSequenceStep]);
+}
+
+void stopSequence() {
+  for (int i = 0; i < NUM_KEYS; i++) {
+    resetKey(i);
+  }
+
+  sequenceRunning = false;
+}
+
+void executeSequenceStep(const SequenceStep &step) {
+  lightUpKey(step.keyIndex, step.color);
+
+  if (currentMode == FULL_AUTOMATIC) {
+    autoPressKey(step.keyIndex);
+  }
+
+  currentStepStartTime = millis();
+}
+
+/*
+===============================
+Keyboard control functions
+===============================
+*/
+
+void checkButtons() {
+  for (int i = 0; i < NUM_KEYS; i++) {
+    bool buttonPressed = digitalRead(keys[i].buttonPin) == HIGH;
+
+    if (buttonPressed && !keys[i].isPressed) {
+      if (millis() - lastKeyPressTime[i] >= DEBOUNCE_DELAY) {
+        keys[i].isPressed = true;
+        lastKeyPressTime[i] = millis();
+        startKeyTone(i);
+      }
+    } else if (!buttonPressed && keys[i].isPressed) {
+      keys[i].isPressed = false;
+      stopKeyTone(i);
+    }
+  }
+}
+
+void startKeyTone(int keyIndex) {
+  activeAudioKey = keyIndex;
+  tone(SPEAKER_PIN, keys[keyIndex].noteFreq);
+}
+
+void stopKeyTone(int keyIndex) {
+  for (int i = 0; i < NUM_KEYS; i++) {
+    if (keys[i].isPressed) {
+      startKeyTone(i);
+      return;
+    }
+  }
+
+  activeAudioKey = -1;
+  noTone(SPEAKER_PIN);
+}
+
+void lightUpKey(int keyIndex, int color) {
+  Adafruit_NeoPixel &ledStick = keys[keyIndex].ledStick;
+
+  for (int i = 0; i < NUM_LEDS; i++) {
+    ledStick.setPixelColor(i, color);
+  }
+
+  ledStick.show();
+}
+
+void lightDownKey(int keyIndex) {
+  Adafruit_NeoPixel &ledStick = keys[keyIndex].ledStick;
+
+  for (int i = 0; i < NUM_LEDS; i++) {
+    ledStick.setPixelColor(i, 0);
+  }
+
+  ledStick.show();
+}
+
+void resetKey(int keyIndex) {
+  lightDownKey(keyIndex);
+  keys[keyIndex].isPressed = false;
+  autoReleaseKey(keyIndex);
 }
