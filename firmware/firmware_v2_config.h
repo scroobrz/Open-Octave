@@ -1,5 +1,5 @@
-#ifndef FIRMWARE_CONFIG_H
-#define FIRMWARE_CONFIG_H
+#ifndef FIRMWARE_V2_CONFIG_H
+#define FIRMWARE_V2_CONFIG_H
 
 #include <Adafruit_NeoPixel.h>
 #include <stdint.h>
