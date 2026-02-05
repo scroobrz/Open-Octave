@@ -134,12 +134,10 @@ Key keys[NUM_KEYS] = {
     {KEY1_BUTTON_PIN, KEY1_SERVO_CHANNEL, KEY1_NOTE, false}  // D4
 };
 
-const SequenceStep sequence[SEQUENCE_LENGTH] = {
-    {0, COLOR_BLUE, 500},
-    {1, COLOR_GREEN, 500},
-    {0, COLOR_BLUE, 500},
-    {1, COLOR_RED, 500}
-};
+const SequenceStep sequence[SEQUENCE_LENGTH] = {{0, COLOR_BLUE, 500},
+                                                {1, COLOR_GREEN, 500},
+                                                {0, COLOR_BLUE, 500},
+                                                {1, COLOR_RED, 500}};
 
 ServoDriver servoDriver; // controls all servos via I2C
 Adafruit_NeoPixel strip(NUM_LEDS, STRIP_DATA_PIN, NEO_GRB + NEO_KHZ800);
@@ -307,8 +305,8 @@ void processSerialCommands() {
 
 // runs repeatedly forever
 void loop() {
-  checkModeSwitch(); // see if user wants to change modes
-  checkButtons();    // detect any key presses and play sounds
+  processSerialCommands(); // check for serial commands
+  checkButtons();          // detect any key presses and play sounds
 
   // if we're in an automatic mode, handle the sequence playback
   if (currentMode == AUTOMATIC_LEDS || currentMode == FULL_AUTOMATIC) {
@@ -323,42 +321,6 @@ void loop() {
 These handle switching between and handling the MANUAL, AUTOMATIC_LEDS, and
 FULL_AUTOMATIC modes.
 */
-
-// checks if the mode switch button was pressed and cycles to the next mode
-void checkModeSwitch() {
-  bool currentModeSwitchState = (digitalRead(MODE_SWITCH_PIN) == HIGH);
-  unsigned long now = millis();
-
-  // Debounce on rising edge: only act when the button transitions from
-  // not pressed to pressed, and sufficient time has passed since the
-  // last accepted mode change.
-  if (currentModeSwitchState && !previousModeSwitchState &&
-      (now - lastModeSwitchTime >= DEBOUNCE_DELAY)) {
-
-    LOGLN(F("\n[MODE] Mode switch button pressed!"));
-    LOG_F("[MODE] Current mode: %s\n", getCurrentModeString());
-
-    // switch to the next mode
-    switch (currentMode) {
-    case MANUAL:
-      setMode(AUTOMATIC_LEDS);
-      startSequence();
-      break;
-    case AUTOMATIC_LEDS:
-      setMode(FULL_AUTOMATIC);
-      startSequence();
-      break;
-    case FULL_AUTOMATIC:
-      setMode(MANUAL);
-      break;
-    }
-
-    lastModeSwitchTime = now;
-  }
-
-  // Remember state for next call so we can detect edges.
-  previousModeSwitchState = currentModeSwitchState;
-}
 
 // switches to a new mode and resets everything to a clean state
 void setMode(Mode mode) {

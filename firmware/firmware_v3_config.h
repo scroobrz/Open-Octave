@@ -10,11 +10,10 @@
 #define SEQUENCE_LENGTH 4
 
 #define SPEAKER_PIN 8
-#define MODE_SWITCH_PIN 2
 
 #define SERVO_FREQ 50
 #define SERVO_REST_ANGLE 0
-#define SERVO_PRESS_ANGLE 90
+#define SERVO_PRESS_ANGLE 180
 
 #define NUM_KEYS 2
 
@@ -59,7 +58,7 @@ struct SequenceStep {
 
 // ============ FUNCTION PROTOTYPES ============
 
-void checkModeSwitch();
+void processSerialCommands();
 void setMode(Mode mode);
 void handleAutomaticModes();
 void startSequence();
