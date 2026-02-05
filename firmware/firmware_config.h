@@ -1,7 +1,10 @@
-#ifndef CONFIG_H
-#define CONFIG_H
+#ifndef FIRMWARE_CONFIG_H
+#define FIRMWARE_CONFIG_H
 
 #include <Adafruit_NeoPixel.h>
+#include <stdint.h>
+
+// ============ HARDWARE CONFIG ============
 
 #define SPEAKER_PIN 8
 #define MODE_SWITCH_PIN 2
@@ -16,12 +19,12 @@
 #define SEQUENCE_LENGTH 4
 
 #define KEY0_BUTTON_PIN 3
-#define KEY0_LED_PIN 5
+#define KEY0_LED_PIN 6
 #define KEY0_SERVO_CHANNEL 1
 #define KEY0_NOTE 262
 
 #define KEY1_BUTTON_PIN 4
-#define KEY1_LED_PIN 6
+#define KEY1_LED_PIN 7
 #define KEY1_SERVO_CHANNEL 2
 #define KEY1_NOTE 294
 
@@ -29,12 +32,6 @@
 #define COLOR_GREEN 0x00FF00
 #define COLOR_BLUE 0x0000FF
 #define COLOR_WHITE 0xFFFFFF
-
-#define ledStick(pin) Adafruit_NeoPixel(NUM_LEDS, pin, NEO_GRB + NEO_KHZ800)
-#define servoPull(channel) servoDriver.setAngle(channel, SERVO_PRESS_ANGLE)
-#define servoRest(channel) servoDriver.setAngle(channel, SERVO_REST_ANGLE)
-#define autoPressKey(keyIndex) servoPull(keys[keyIndex].servoChannel)
-#define autoReleaseKey(keyIndex) servoRest(keys[keyIndex].servoChannel)
 
 // ============ TYPE DEFINITIONS ============
 
@@ -54,7 +51,7 @@ struct Key {
 
 struct SequenceStep {
   int keyIndex;
-  int color;
+  uint32_t color;
   int duration;
 };
 
@@ -66,10 +63,9 @@ void handleAutomaticModes();
 void startSequence();
 void stopSequence();
 void executeSequenceStep(const SequenceStep &step);
-void startKeyTone(int keyIndex);
-void stopKeyTone(int keyIndex);
 void checkButtons();
-void lightUpKey(int keyIndex, int color);
+void stopKeyTone(int keyIndex);
+void lightUpKey(int keyIndex, uint32_t color);
 void lightDownKey(int keyIndex);
 void resetKey(int keyIndex);
 
