@@ -16,6 +16,7 @@
 #include "firmware_v3_config.h"
 #include <Adafruit_NeoPixel.h> // controls the LED sticks/strips
 #include <Wire.h>              // allows I2C communication with the servo driver
+#include <stdarg.h>            // for va_list in custom logf function
 
 // ============ DEBUG CONFIGURATION ============
 
@@ -24,6 +25,7 @@
 #define DEBUG_BAUD_RATE 115200
 
 #if DEBUG_ENABLED
+
 #define LOG_INIT()                                                             \
   do {                                                                         \
     Serial.begin(DEBUG_BAUD_RATE);                                             \
@@ -31,19 +33,97 @@
       delay(10);                                                               \
     }                                                                          \
   } while (0)
+
 #define LOG(x) Serial.print(x)
 #define LOGLN(x) Serial.println(x)
-#define LOGF(str, ...)                                                         \
-  do {                                                                         \
-    char _buf[128];                                                            \
-    snprintf(_buf, sizeof(_buf), str, ##__VA_ARGS__);                          \
-    Serial.print(_buf);                                                        \
-  } while (0)
+
+// Lightweight printf - prints directly to Serial without buffering
+// Supports: %d, %u, %ld, %lu, %s, %c, %x, %X, %%
+void logf(const char *fmt, ...) {
+  va_list args;
+  va_start(args, fmt);
+
+  while (*fmt) {
+    if (*fmt == '%') {
+      fmt++;
+
+      // Check for 'l' modifier (long)
+      bool isLong = false;
+      if (*fmt == 'l') {
+        isLong = true;
+        fmt++;
+      }
+
+      switch (*fmt) {
+      case 'd': // Signed decimal
+      case 'i':
+        if (isLong) {
+          Serial.print(va_arg(args, long));
+        } else {
+          Serial.print(va_arg(args, int));
+        }
+        break;
+
+      case 'u': // Unsigned decimal
+        if (isLong) {
+          Serial.print(va_arg(args, unsigned long));
+        } else {
+          Serial.print(va_arg(args, unsigned int));
+        }
+        break;
+
+      case 'x': // Hex lowercase
+        if (isLong) {
+          Serial.print(va_arg(args, unsigned long), HEX);
+        } else {
+          Serial.print(va_arg(args, unsigned int), HEX);
+        }
+        break;
+
+      case 'X': // Hex uppercase (Arduino prints uppercase anyway)
+        if (isLong) {
+          Serial.print(va_arg(args, unsigned long), HEX);
+        } else {
+          Serial.print(va_arg(args, unsigned int), HEX);
+        }
+        break;
+
+      case 's': // String
+        Serial.print(va_arg(args, const char *));
+        break;
+
+      case 'c': // Character
+        Serial.print((char)va_arg(args, int));
+        break;
+
+      case '%': // Literal %
+        Serial.print('%');
+        break;
+
+      default: // Unknown specifier - print as-is
+        Serial.print('%');
+        if (isLong)
+          Serial.print('l');
+        Serial.print(*fmt);
+        break;
+      }
+    } else {
+      Serial.print(*fmt);
+    }
+    fmt++;
+  }
+
+  va_end(args);
+}
+
 #else
+
 #define LOG_INIT()
 #define LOG(x)
 #define LOGLN(x)
-#define LOGF(...)
+// Empty inline function when debug disabled - compiler will optimize away
+inline void logf(const char *, ...) {}
+
 #endif
 
 // ============ HELPER MACROS ============
@@ -84,31 +164,31 @@ unsigned long currentStepStartTime = 0;
 // ============ HELPERS FOR LOGGING ============
 
 const char *getCurrentModeString() {
-    switch (currentMode) {
-    case MANUAL:
-        return "MANUAL";
-    case AUTOMATIC_LEDS:
-        return "AUTOMATIC_LEDS";
-    case FULL_AUTOMATIC:
-        return "FULL_AUTOMATIC";
-    default:
-        return "UNKNOWN";
-    }
+  switch (currentMode) {
+  case MANUAL:
+    return "MANUAL";
+  case AUTOMATIC_LEDS:
+    return "AUTOMATIC_LEDS";
+  case FULL_AUTOMATIC:
+    return "FULL_AUTOMATIC";
+  default:
+    return "UNKNOWN";
+  }
 }
 
 const char *getColorString(uint32_t color) {
-    switch (color) {
-    case COLOR_RED:
-        return "RED";
-    case COLOR_GREEN:
-        return "GREEN";
-    case COLOR_BLUE:
-        return "BLUE";
-    case COLOR_WHITE:
-        return "WHITE";
-    default:
-        return "CUSTOM";
-    }
+  switch (color) {
+  case COLOR_RED:
+    return "RED";
+  case COLOR_GREEN:
+    return "GREEN";
+  case COLOR_BLUE:
+    return "BLUE";
+  case COLOR_WHITE:
+    return "WHITE";
+  default:
+    return "CUSTOM";
+  }
 }
 
 /*
@@ -128,7 +208,8 @@ void setup() {
   LOG("[SETUP] Configuring pins... ");
   pinMode(MODE_SWITCH_PIN, INPUT);
   pinMode(SPEAKER_PIN, OUTPUT);
-  LOGF("OK (mode_switch_pin: %d, speaker_pin: %d)\n", MODE_SWITCH_PIN, SPEAKER_PIN);
+  logf("OK (mode_switch_pin: %d, speaker_pin: %d)\n", MODE_SWITCH_PIN,
+       SPEAKER_PIN);
 
   LOG("[SETUP] Initializing I2C... ");
   Wire.begin();
@@ -137,13 +218,14 @@ void setup() {
   LOG("[SETUP] Initializing servo driver... ");
   servoDriver.init();
   servoDriver.setFrequency(SERVO_FREQ);
-  LOGF("OK (freq: %dHz)\n", SERVO_FREQ);
+  logf("OK (freq: %dHz)\n", SERVO_FREQ);
 
   LOG("[SETUP] Initializing LED strip... ");
   strip.begin();
   strip.setBrightness(LED_BRIGHTNESS);
   strip.show();
-  LOGF("OK (%d LEDs on pin %d at brightness %d)\n", NUM_LEDS, STRIP_DATA_PIN, strip.getBrightness());
+  logf("OK (%d LEDs on pin %d at brightness %d)\n", NUM_LEDS, STRIP_DATA_PIN,
+       strip.getBrightness());
 
   // initialize each key
   LOGLN("[SETUP] Initializing keys:");
@@ -151,13 +233,13 @@ void setup() {
     pinMode(keys[i].buttonPin, INPUT);
     servoRest(keys[i].servoChannel);
     keys[i].isPressed = false;
-    LOGF("  Key %d: btn_pin=%d, servo_ch=%d, freq=%dHz\n", i, keys[i].buttonPin,
+    logf("  Key %d: btn_pin=%d, servo_ch=%d, freq=%dHz\n", i, keys[i].buttonPin,
          keys[i].servoChannel, keys[i].noteFreq);
   }
-  LOGF("OK (%d keys initialized)\n", NUM_KEYS);
+  logf("OK (%d keys initialized)\n", NUM_KEYS);
 
   LOGLN("========================================");
-  LOGF("[SETUP] Complete! Starting in %s mode\n", getCurrentModeString());
+  logf("[SETUP] Complete! Starting in %s mode\n", getCurrentModeString());
   LOGLN("========================================\n");
 }
 
@@ -192,7 +274,7 @@ void checkModeSwitch() {
       (now - lastModeSwitchTime >= DEBOUNCE_DELAY)) {
 
     LOGLN("\n[MODE] Mode switch button pressed!");
-    LOGF("[MODE] Current mode: %s\n", getCurrentModeString());
+    logf("[MODE] Current mode: %s\n", getCurrentModeString());
 
     // switch to the next mode
     switch (currentMode) {
@@ -226,7 +308,7 @@ void setMode(Mode mode) {
 
   sequenceRunning = false;
   currentMode = mode;
-  LOGF("[MODE] Switched to mode %s\n", getCurrentModeString());
+  logf("[MODE] Switched to mode %s\n", getCurrentModeString());
 }
 
 // handles automatic sequence playback
@@ -236,7 +318,7 @@ void handleAutomaticModes() {
 
   unsigned long elapsed = millis() - currentStepStartTime;
   if (elapsed >= sequence[currentSequenceStep].duration) {
-    LOGF("[SEQ] Step %d complete (elapsed: %lums)\n", currentSequenceStep,
+    logf("[SEQ] Step %d complete (elapsed: %lums)\n", currentSequenceStep,
          elapsed);
     resetKey(sequence[currentSequenceStep].keyIndex);
 
@@ -260,7 +342,7 @@ These handle starting, stopping, and playing automatic sequences.
 // starts playing the sequence from the beginning
 void startSequence() {
   LOGLN("\n[SEQ] ======== STARTING SEQUENCE ========");
-  LOGF("[SEQ] Total steps: %d\n", SEQUENCE_LENGTH);
+  logf("[SEQ] Total steps: %d\n", SEQUENCE_LENGTH);
 
   sequenceRunning = true;
   currentSequenceStep = 0;
@@ -285,7 +367,7 @@ void stopSequence() {
 
 // plays a single step of a sequence
 void executeSequenceStep(const SequenceStep &step) {
-  LOGF("[SEQ] Step %d/%d: key=%d, color=%s, duration=%dms\n",
+  logf("[SEQ] Step %d/%d: key=%d, color=%s, duration=%dms\n",
        currentSequenceStep + 1, SEQUENCE_LENGTH, step.keyIndex,
        getColorString(step.color), step.duration);
 
@@ -294,7 +376,7 @@ void executeSequenceStep(const SequenceStep &step) {
 
   // if we're in full automatic mode, also press the key with the servo
   if (currentMode == FULL_AUTOMATIC) {
-    LOGF("[SERVO] Auto-pressing key %d (channel %d)\n", step.keyIndex,
+    logf("[SERVO] Auto-pressing key %d (channel %d)\n", step.keyIndex,
          keys[step.keyIndex].servoChannel);
     autoPressKey(step.keyIndex);
   }
@@ -320,14 +402,14 @@ void checkButtons() {
       if (millis() - lastKeyPressTime[i] >= DEBOUNCE_DELAY) {
         keys[i].isPressed = true;
         lastKeyPressTime[i] = millis();
-        LOGF("[KEY] Key %d PRESSED (pin %d, freq %dHz)\n", i, keys[i].buttonPin,
+        logf("[KEY] Key %d PRESSED (pin %d, freq %dHz)\n", i, keys[i].buttonPin,
              keys[i].noteFreq);
         startKeyTone(i);
       }
 
     } else if (!buttonPressed && keys[i].isPressed) {
       keys[i].isPressed = false;
-      LOGF("[KEY] Key %d RELEASED\n", i);
+      logf("[KEY] Key %d RELEASED\n", i);
       stopKeyTone(i);
     }
   }
@@ -357,7 +439,7 @@ void lightUpKey(int keyIndex, uint32_t color) {
   int start = keyIndex * LEDS_PER_KEY;
   int end = start + LEDS_PER_KEY;
 
-  LOGF("[LED] Key %d LED ON: color=%s, LEDs %d-%d\n", keyIndex,
+  logf("[LED] Key %d LED ON: color=%s, LEDs %d-%d\n", keyIndex,
        getColorString(color), start, end - 1);
 
   for (int i = start; i < end; i++) {
@@ -372,7 +454,7 @@ void lightDownKey(int keyIndex) {
   int start = keyIndex * LEDS_PER_KEY;
   int end = start + LEDS_PER_KEY;
 
-  LOGF("[LED] Key %d OFF: LEDs %d-%d\n", keyIndex, start, end - 1);
+  logf("[LED] Key %d OFF: LEDs %d-%d\n", keyIndex, start, end - 1);
 
   for (int i = start; i < end; i++) {
     strip.setPixelColor(i, 0);
