@@ -1,7 +1,7 @@
 /*
- * FIRMWARE V2
+ * FIRMWARE V3
  *
- * This firmware currently controls keys across the following three modes:
+ * This firmware currently controls 3 keys across the following three modes:
  *   - MANUAL: User plays keys manually, no automation
  *   - AUTOMATIC_LEDS: LEDs light up in a sequence
  *   - FULL_AUTOMATIC: LEDs + servos play automatically (no user input needed)
@@ -15,11 +15,10 @@
 #include "PCA9685.h"           // controls the PCA9685 servo motor driver (I2C)
 #include <Adafruit_NeoPixel.h> // controls the LED sticks/strips
 #include <Wire.h>              // allows I2C communication with the servo driver
-#include "firmware_v2_config.h"   // contains all configuration constants and macros
+#include "firmware_v3_config.h"
 
 // ============ HELPER MACROS ============
 
-#define ledStick(pin) Adafruit_NeoPixel(NUM_LEDS, pin, NEO_GRB + NEO_KHZ800)
 #define startKeyTone(keyIndex) tone(SPEAKER_PIN, keys[keyIndex].noteFreq)
 #define servoPull(channel) servoDriver.setAngle(channel, SERVO_PRESS_ANGLE)
 #define servoRest(channel) servoDriver.setAngle(channel, SERVO_REST_ANGLE)
@@ -29,8 +28,8 @@
 // ============ HARDWARE & SEQUENCE DEFINITIONS ============
 
 Key keys[NUM_KEYS] = {
-    {KEY0_BUTTON_PIN, ledStick(KEY0_LED_PIN), KEY0_SERVO_CHANNEL, KEY0_NOTE, false}, // C4
-    {KEY1_BUTTON_PIN, ledStick(KEY1_LED_PIN), KEY1_SERVO_CHANNEL, KEY1_NOTE, false}  // D4
+    {KEY0_BUTTON_PIN, KEY0_SERVO_CHANNEL, KEY0_NOTE, false}, // C4
+    {KEY1_BUTTON_PIN, KEY1_SERVO_CHANNEL, KEY1_NOTE, false}  // D4
 };
 
 const SequenceStep sequence[SEQUENCE_LENGTH] = {
@@ -41,6 +40,7 @@ const SequenceStep sequence[SEQUENCE_LENGTH] = {
 };
 
 ServoDriver servoDriver; // controls all servos via I2C
+Adafruit_NeoPixel strip(NUM_LEDS, STRIP_DATA_PIN, NEO_GRB + NEO_KHZ800);
 
 // ============ GLOBAL STATE ============
 
@@ -64,17 +64,19 @@ void setup() {
   pinMode(MODE_SWITCH_PIN, INPUT);
   pinMode(SPEAKER_PIN, OUTPUT);
 
-  Wire.begin(); // start I2C communication with PCA9685
+  Wire.begin();
   servoDriver.init();
-  servoDriver.setFrequency(SERVO_FREQ); // set PWM frequency for servos
+  servoDriver.setFrequency(SERVO_FREQ);
+
+  strip.begin();
+  strip.setBrightness(40);
+  strip.show();
 
   // initialize each key
   for (int i = 0; i < NUM_KEYS; i++) {
     pinMode(keys[i].buttonPin, INPUT);
-    keys[i].ledStick.begin();
-    keys[i].ledStick.show();
-    keys[i].isPressed = false;
     servoRest(keys[i].servoChannel);
+    keys[i].isPressed = false;
   }
 }
 
@@ -243,26 +245,28 @@ void stopKeyTone(int keyIndex) {
   noTone(SPEAKER_PIN);
 }
 
-// lights up all LEDs on a key's LED stick with the specified color
+// lights up all LEDs on a key's LED strip with the specified color
 void lightUpKey(int keyIndex, uint32_t color) {
-  Adafruit_NeoPixel &ledStick = keys[keyIndex].ledStick;
+  int start = keyIndex * LEDS_PER_KEY;
+  int end = start + LEDS_PER_KEY;
 
-  for (int i = 0; i < NUM_LEDS; i++) {
-    ledStick.setPixelColor(i, color);
+  for (int i = start; i < end; i++) {
+    strip.setPixelColor(i, color);
   }
 
-  ledStick.show();
+  strip.show();
 }
 
-// turns off all LEDs on a key's LED stick
+// turns off all LEDs on a key's LED strip
 void lightDownKey(int keyIndex) {
-  Adafruit_NeoPixel &ledStick = keys[keyIndex].ledStick;
+  int start = keyIndex * LEDS_PER_KEY;
+  int end = start + LEDS_PER_KEY;
 
-  for (int i = 0; i < NUM_LEDS; i++) {
-    ledStick.setPixelColor(i, 0); // 0 = off
+  for (int i = start; i < end; i++) {
+    strip.setPixelColor(i, 0);
   }
-
-  ledStick.show();
+  
+  strip.show();
 }
 
 // resets a key to its default state (LED off, servo at rest)
