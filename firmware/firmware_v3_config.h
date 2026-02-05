@@ -6,6 +6,9 @@
 
 // ============ HARDWARE CONFIG ============
 
+#define DEBOUNCE_DELAY 50
+#define SEQUENCE_LENGTH 4
+
 #define SPEAKER_PIN 8
 #define MODE_SWITCH_PIN 2
 
@@ -13,14 +16,12 @@
 #define SERVO_REST_ANGLE 0
 #define SERVO_PRESS_ANGLE 90
 
-#define NUM_LEDS 10
 #define NUM_KEYS 2
-#define DEBOUNCE_DELAY 50
-#define SEQUENCE_LENGTH 4
 
 #define STRIP_DATA_PIN 6
 #define LEDS_PER_KEY 10
 #define NUM_LEDS (NUM_KEYS * LEDS_PER_KEY)
+#define LED_BRIGHTNESS 50
 
 #define KEY0_BUTTON_PIN 3
 #define KEY0_SERVO_CHANNEL 1
