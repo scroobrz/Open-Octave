@@ -40,7 +40,7 @@
 // Lightweight printf that reads format string from PROGMEM (Flash)
 // Saves RAM by storing strings in Flash instead of RAM
 // Supports: %d, %u, %ld, %lu, %s, %c, %x, %X, %%
-void logf_P(const char *fmt_P, ...) {
+void LOG_F_P(const char *fmt_P, ...) {
   va_list args;
   va_start(args, fmt_P);
 
@@ -108,14 +108,14 @@ void logf_P(const char *fmt_P, ...) {
 }
 
 // Macro to automatically wrap format strings with PSTR() for Flash storage
-#define logf(fmt, ...) logf_P(PSTR(fmt), ##__VA_ARGS__)
+#define LOG_F(fmt, ...) LOG_F_P(PSTR(fmt), ##__VA_ARGS__)
 
 #else
 
 #define LOG_INIT()
 #define LOG(x)
 #define LOGLN(x)
-#define logf(...)
+#define LOG_F(...)
 
 #endif
 
@@ -201,7 +201,7 @@ void setup() {
   LOG(F("[SETUP] Configuring pins... "));
   pinMode(MODE_SWITCH_PIN, INPUT);
   pinMode(SPEAKER_PIN, OUTPUT);
-  logf("OK (mode_switch_pin: %d, speaker_pin: %d)\n", MODE_SWITCH_PIN,
+  LOG_F("OK (mode_switch_pin: %d, speaker_pin: %d)\n", MODE_SWITCH_PIN,
        SPEAKER_PIN);
 
   LOG(F("[SETUP] Initializing I2C... "));
@@ -211,13 +211,13 @@ void setup() {
   LOG(F("[SETUP] Initializing servo driver... "));
   servoDriver.init();
   servoDriver.setFrequency(SERVO_FREQ);
-  logf("OK (freq: %dHz)\n", SERVO_FREQ);
+  LOG_F("OK (freq: %dHz)\n", SERVO_FREQ);
 
   LOG(F("[SETUP] Initializing LED strip... "));
   strip.begin();
   strip.setBrightness(LED_BRIGHTNESS);
   strip.show();
-  logf("OK (%d LEDs on pin %d at brightness %d)\n", NUM_LEDS, STRIP_DATA_PIN,
+  LOG_F("OK (%d LEDs on pin %d at brightness %d)\n", NUM_LEDS, STRIP_DATA_PIN,
        strip.getBrightness());
 
   // initialize each key
@@ -226,13 +226,13 @@ void setup() {
     pinMode(keys[i].buttonPin, INPUT);
     servoRest(keys[i].servoChannel);
     keys[i].isPressed = false;
-    logf("  Key %d: btn_pin=%d, servo_ch=%d, freq=%dHz\n", i, keys[i].buttonPin,
+    LOG_F("  Key %d: btn_pin=%d, servo_ch=%d, freq=%dHz\n", i, keys[i].buttonPin,
          keys[i].servoChannel, keys[i].noteFreq);
   }
-  logf("OK (%d keys initialized)\n", NUM_KEYS);
+  LOG_F("OK (%d keys initialized)\n", NUM_KEYS);
 
   LOGLN(F("========================================"));
-  logf("[SETUP] Complete! Starting in %s mode\n", getCurrentModeString());
+  LOG_F("[SETUP] Complete! Starting in %s mode\n", getCurrentModeString());
   LOGLN(F("========================================\n"));
 }
 
@@ -299,7 +299,7 @@ void processSerialCommands() {
       break;
 
     default:
-      logf("[CMD] Unknown command: '%c' (type 'h' for help)\n", cmd);
+      LOG_F("[CMD] Unknown command: '%c' (type 'h' for help)\n", cmd);
       break;
     }
   }
@@ -336,7 +336,7 @@ void checkModeSwitch() {
       (now - lastModeSwitchTime >= DEBOUNCE_DELAY)) {
 
     LOGLN(F("\n[MODE] Mode switch button pressed!"));
-    logf("[MODE] Current mode: %s\n", getCurrentModeString());
+    LOG_F("[MODE] Current mode: %s\n", getCurrentModeString());
 
     // switch to the next mode
     switch (currentMode) {
@@ -370,7 +370,7 @@ void setMode(Mode mode) {
 
   sequenceRunning = false;
   currentMode = mode;
-  logf("[MODE] Switched to mode %s\n", getCurrentModeString());
+  LOG_F("[MODE] Switched to mode %s\n", getCurrentModeString());
 }
 
 // handles automatic sequence playback
@@ -380,7 +380,7 @@ void handleAutomaticModes() {
 
   unsigned long elapsed = millis() - currentStepStartTime;
   if (elapsed >= sequence[currentSequenceStep].duration) {
-    logf("[SEQ] Step %d complete (elapsed: %lums)\n", currentSequenceStep,
+    LOG_F("[SEQ] Step %d complete (elapsed: %lums)\n", currentSequenceStep,
          elapsed);
     resetKey(sequence[currentSequenceStep].keyIndex);
 
@@ -404,7 +404,7 @@ These handle starting, stopping, and playing automatic sequences.
 // starts playing the sequence from the beginning
 void startSequence() {
   LOGLN(F("\n[SEQ] ======== STARTING SEQUENCE ========"));
-  logf("[SEQ] Total steps: %d\n", SEQUENCE_LENGTH);
+  LOG_F("[SEQ] Total steps: %d\n", SEQUENCE_LENGTH);
 
   sequenceRunning = true;
   currentSequenceStep = 0;
@@ -429,7 +429,7 @@ void stopSequence() {
 
 // plays a single step of a sequence
 void executeSequenceStep(const SequenceStep &step) {
-  logf("[SEQ] Step %d/%d: key=%d, color=%s, duration=%dms\n",
+  LOG_F("[SEQ] Step %d/%d: key=%d, color=%s, duration=%dms\n",
        currentSequenceStep + 1, SEQUENCE_LENGTH, step.keyIndex,
        getColorString(step.color), step.duration);
 
@@ -438,7 +438,7 @@ void executeSequenceStep(const SequenceStep &step) {
 
   // if we're in full automatic mode, also press the key with the servo
   if (currentMode == FULL_AUTOMATIC) {
-    logf("[SERVO] Auto-pressing key %d (channel %d)\n", step.keyIndex,
+    LOG_F("[SERVO] Auto-pressing key %d (channel %d)\n", step.keyIndex,
          keys[step.keyIndex].servoChannel);
     autoPressKey(step.keyIndex);
   }
@@ -464,14 +464,14 @@ void checkButtons() {
       if (millis() - lastKeyPressTime[i] >= DEBOUNCE_DELAY) {
         keys[i].isPressed = true;
         lastKeyPressTime[i] = millis();
-        logf("[KEY] Key %d PRESSED (pin %d, freq %dHz)\n", i, keys[i].buttonPin,
+        LOG_F("[KEY] Key %d PRESSED (pin %d, freq %dHz)\n", i, keys[i].buttonPin,
              keys[i].noteFreq);
         startKeyTone(i);
       }
 
     } else if (!buttonPressed && keys[i].isPressed) {
       keys[i].isPressed = false;
-      logf("[KEY] Key %d RELEASED\n", i);
+      LOG_F("[KEY] Key %d RELEASED\n", i);
       stopKeyTone(i);
     }
   }
@@ -501,7 +501,7 @@ void lightUpKey(int keyIndex, uint32_t color) {
   int start = keyIndex * LEDS_PER_KEY;
   int end = start + LEDS_PER_KEY;
 
-  logf("[LED] Key %d LED ON: color=%s, LEDs %d-%d\n", keyIndex,
+  LOG_F("[LED] Key %d LED ON: color=%s, LEDs %d-%d\n", keyIndex,
        getColorString(color), start, end - 1);
 
   for (int i = start; i < end; i++) {
@@ -516,7 +516,7 @@ void lightDownKey(int keyIndex) {
   int start = keyIndex * LEDS_PER_KEY;
   int end = start + LEDS_PER_KEY;
 
-  logf("[LED] Key %d OFF: LEDs %d-%d\n", keyIndex, start, end - 1);
+  LOG_F("[LED] Key %d OFF: LEDs %d-%d\n", keyIndex, start, end - 1);
 
   for (int i = start; i < end; i++) {
     strip.setPixelColor(i, 0);
