@@ -37,58 +37,50 @@
 #define LOG(x) Serial.print(x)
 #define LOGLN(x) Serial.println(x)
 
-// Lightweight printf - prints directly to Serial without buffering
+// Lightweight printf that reads format string from PROGMEM (Flash)
+// Saves RAM by storing strings in Flash instead of RAM
 // Supports: %d, %u, %ld, %lu, %s, %c, %x, %X, %%
-void logf(const char *fmt, ...) {
+void logf_P(const char *fmt_P, ...) {
   va_list args;
-  va_start(args, fmt);
+  va_start(args, fmt_P);
 
-  while (*fmt) {
-    if (*fmt == '%') {
-      fmt++;
+  char c;
+  while ((c = pgm_read_byte(fmt_P++))) {
+    if (c == '%') {
+      c = pgm_read_byte(fmt_P++);
 
       // Check for 'l' modifier (long)
       bool isLong = false;
-      if (*fmt == 'l') {
+      if (c == 'l') {
         isLong = true;
-        fmt++;
+        c = pgm_read_byte(fmt_P++);
       }
 
-      switch (*fmt) {
+      switch (c) {
       case 'd': // Signed decimal
       case 'i':
-        if (isLong) {
+        if (isLong)
           Serial.print(va_arg(args, long));
-        } else {
+        else
           Serial.print(va_arg(args, int));
-        }
         break;
 
       case 'u': // Unsigned decimal
-        if (isLong) {
+        if (isLong)
           Serial.print(va_arg(args, unsigned long));
-        } else {
+        else
           Serial.print(va_arg(args, unsigned int));
-        }
         break;
 
       case 'x': // Hex lowercase
-        if (isLong) {
+      case 'X': // Hex uppercase
+        if (isLong)
           Serial.print(va_arg(args, unsigned long), HEX);
-        } else {
+        else
           Serial.print(va_arg(args, unsigned int), HEX);
-        }
         break;
 
-      case 'X': // Hex uppercase (Arduino prints uppercase anyway)
-        if (isLong) {
-          Serial.print(va_arg(args, unsigned long), HEX);
-        } else {
-          Serial.print(va_arg(args, unsigned int), HEX);
-        }
-        break;
-
-      case 's': // String
+      case 's': // String (from RAM)
         Serial.print(va_arg(args, const char *));
         break;
 
@@ -100,29 +92,30 @@ void logf(const char *fmt, ...) {
         Serial.print('%');
         break;
 
-      default: // Unknown specifier - print as-is
+      default: // Unknown - print as-is
         Serial.print('%');
         if (isLong)
           Serial.print('l');
-        Serial.print(*fmt);
+        Serial.print(c);
         break;
       }
     } else {
-      Serial.print(*fmt);
+      Serial.print(c);
     }
-    fmt++;
   }
 
   va_end(args);
 }
+
+// Macro to automatically wrap format strings with PSTR() for Flash storage
+#define logf(fmt, ...) logf_P(PSTR(fmt), ##__VA_ARGS__)
 
 #else
 
 #define LOG_INIT()
 #define LOG(x)
 #define LOGLN(x)
-// Empty inline function when debug disabled - compiler will optimize away
-inline void logf(const char *, ...) {}
+#define logf(...)
 
 #endif
 
@@ -201,26 +194,26 @@ These are the two functions that Arduino calls automatically.
 // runs once
 void setup() {
   LOG_INIT();
-  LOGLN("\n========================================");
-  LOGLN("    OPEN OCTAVE FIRMWARE V3 - INIT");
-  LOGLN("========================================");
+  LOGLN(F("\n========================================"));
+  LOGLN(F("    OPEN OCTAVE FIRMWARE V3 - INIT"));
+  LOGLN(F("========================================"));
 
-  LOG("[SETUP] Configuring pins... ");
+  LOG(F("[SETUP] Configuring pins... "));
   pinMode(MODE_SWITCH_PIN, INPUT);
   pinMode(SPEAKER_PIN, OUTPUT);
   logf("OK (mode_switch_pin: %d, speaker_pin: %d)\n", MODE_SWITCH_PIN,
        SPEAKER_PIN);
 
-  LOG("[SETUP] Initializing I2C... ");
+  LOG(F("[SETUP] Initializing I2C... "));
   Wire.begin();
-  LOGLN("OK");
+  LOGLN(F("OK"));
 
-  LOG("[SETUP] Initializing servo driver... ");
+  LOG(F("[SETUP] Initializing servo driver... "));
   servoDriver.init();
   servoDriver.setFrequency(SERVO_FREQ);
   logf("OK (freq: %dHz)\n", SERVO_FREQ);
 
-  LOG("[SETUP] Initializing LED strip... ");
+  LOG(F("[SETUP] Initializing LED strip... "));
   strip.begin();
   strip.setBrightness(LED_BRIGHTNESS);
   strip.show();
@@ -228,7 +221,7 @@ void setup() {
        strip.getBrightness());
 
   // initialize each key
-  LOGLN("[SETUP] Initializing keys:");
+  LOGLN(F("[SETUP] Initializing keys:"));
   for (int i = 0; i < NUM_KEYS; i++) {
     pinMode(keys[i].buttonPin, INPUT);
     servoRest(keys[i].servoChannel);
@@ -238,9 +231,78 @@ void setup() {
   }
   logf("OK (%d keys initialized)\n", NUM_KEYS);
 
-  LOGLN("========================================");
+  LOGLN(F("========================================"));
   logf("[SETUP] Complete! Starting in %s mode\n", getCurrentModeString());
-  LOGLN("========================================\n");
+  LOGLN(F("========================================\n"));
+}
+
+// processes incoming serial commands
+void processSerialCommands() {
+  if (Serial.available() > 0) {
+    char cmd = Serial.read();
+
+    // Convert to lowercase for case-insensitive commands
+    if (cmd >= 'A' && cmd <= 'Z') {
+      cmd = cmd + ('a' - 'A');
+    }
+
+    switch (cmd) {
+    case 'm': // Manual mode
+      LOGLN(F("\n[CMD] Received: Switch to MANUAL mode"));
+      setMode(MANUAL);
+      break;
+
+    case 'a': // Automatic LEDs mode
+      LOGLN(F("\n[CMD] Received: Switch to AUTOMATIC_LEDS mode"));
+      setMode(AUTOMATIC_LEDS);
+      startSequence();
+      break;
+
+    case 'f': // Full automatic mode
+      LOGLN(F("\n[CMD] Received: Switch to FULL_AUTOMATIC mode"));
+      setMode(FULL_AUTOMATIC);
+      startSequence();
+      break;
+
+    case 's': // Start sequence (in current mode)
+      if (currentMode != MANUAL) {
+        LOGLN(F("\n[CMD] Received: Start sequence"));
+        startSequence();
+      } else {
+        LOGLN(F("\n[CMD] Cannot start sequence in MANUAL mode"));
+      }
+      break;
+
+    case 'x': // Stop sequence
+      LOGLN(F("\n[CMD] Received: Stop sequence"));
+      stopSequence();
+      break;
+
+    case 'h': // Help
+    case '?':
+      LOGLN(F("\n========================================"));
+      LOGLN(F("         SERIAL COMMANDS"));
+      LOGLN(F("========================================"));
+      LOGLN(F("  m - Switch to MANUAL mode"));
+      LOGLN(F("  a - Switch to AUTOMATIC_LEDS mode"));
+      LOGLN(F("  f - Switch to FULL_AUTOMATIC mode"));
+      LOGLN(F("  s - Start sequence"));
+      LOGLN(F("  x - Stop sequence"));
+      LOGLN(F("  h - Show this help"));
+      LOGLN(F("========================================\n"));
+      break;
+
+    case '\n':
+    case '\r':
+    case ' ':
+      // Ignore whitespace
+      break;
+
+    default:
+      logf("[CMD] Unknown command: '%c' (type 'h' for help)\n", cmd);
+      break;
+    }
+  }
 }
 
 // runs repeatedly forever
@@ -273,7 +335,7 @@ void checkModeSwitch() {
   if (currentModeSwitchState && !previousModeSwitchState &&
       (now - lastModeSwitchTime >= DEBOUNCE_DELAY)) {
 
-    LOGLN("\n[MODE] Mode switch button pressed!");
+    LOGLN(F("\n[MODE] Mode switch button pressed!"));
     logf("[MODE] Current mode: %s\n", getCurrentModeString());
 
     // switch to the next mode
@@ -300,7 +362,7 @@ void checkModeSwitch() {
 
 // switches to a new mode and resets everything to a clean state
 void setMode(Mode mode) {
-  LOGLN("[MODE] Resetting all keys...");
+  LOGLN(F("[MODE] Resetting all keys..."));
 
   for (int i = 0; i < NUM_KEYS; i++) {
     resetKey(i);
@@ -341,7 +403,7 @@ These handle starting, stopping, and playing automatic sequences.
 
 // starts playing the sequence from the beginning
 void startSequence() {
-  LOGLN("\n[SEQ] ======== STARTING SEQUENCE ========");
+  LOGLN(F("\n[SEQ] ======== STARTING SEQUENCE ========"));
   logf("[SEQ] Total steps: %d\n", SEQUENCE_LENGTH);
 
   sequenceRunning = true;
@@ -354,15 +416,15 @@ void startSequence() {
 
 // stops the sequence and turns off all keys
 void stopSequence() {
-  LOGLN("[SEQ] ======== SEQUENCE COMPLETE ========");
-  LOGLN("[SEQ] Resetting all keys...");
+  LOGLN(F("[SEQ] ======== SEQUENCE COMPLETE ========"));
+  LOGLN(F("[SEQ] Resetting all keys..."));
 
   for (int i = 0; i < NUM_KEYS; i++) {
     resetKey(i);
   }
 
   sequenceRunning = false;
-  LOGLN("[SEQ] Sequence stopped\n");
+  LOGLN(F("[SEQ] Sequence stopped\n"));
 }
 
 // plays a single step of a sequence
