@@ -1,3 +1,8 @@
+#include "firmware_v3_config.h"
+#include "PCA9685.h"           // controls the PCA9685 servo motor driver (I2C)
+#include <Adafruit_NeoPixel.h> // controls the LED sticks/strips
+#include <Wire.h>              // allows I2C communication with the servo driver
+
 /*
  * FIRMWARE V3
  *
@@ -12,11 +17,6 @@
  * or a servo pulls it down, the button underneath is what triggers the sound.
  */
 
-#include "PCA9685.h"           // controls the PCA9685 servo motor driver (I2C)
-#include <Adafruit_NeoPixel.h> // controls the LED sticks/strips
-#include <Wire.h>              // allows I2C communication with the servo driver
-#include "firmware_v3_config.h"
-
 // ============ HELPER MACROS ============
 
 #define startKeyTone(keyIndex) tone(SPEAKER_PIN, keys[keyIndex].noteFreq)
@@ -24,12 +24,13 @@
 #define servoRest(channel) servoDriver.setAngle(channel, SERVO_REST_ANGLE)
 #define autoPressKey(keyIndex) servoPull(keys[keyIndex].servoChannel)
 #define autoReleaseKey(keyIndex) servoRest(keys[keyIndex].servoChannel)
+#define KEY_LED(pin) Adafruit_NeoPixel(LEDS_PER_KEY, pin, NEO_GRB + NEO_KHZ800)
 
 // ============ HARDWARE & SEQUENCE DEFINITIONS ============
 
 Key keys[NUM_KEYS] = {
-    {KEY0_BUTTON_PIN, KEY0_SERVO_CHANNEL, KEY0_NOTE, false}, // C4
-    {KEY1_BUTTON_PIN, KEY1_SERVO_CHANNEL, KEY1_NOTE, false}  // D4
+  {KEY0_BUTTON_PIN, KEY0_LED_PIN, KEY_LED(KEY0_LED_PIN), KEY0_SERVO_CHANNEL, KEY0_NOTE, false}, //C4
+  {KEY1_BUTTON_PIN, KEY1_LED_PIN, KEY_LED(KEY1_LED_PIN), KEY1_SERVO_CHANNEL, KEY1_NOTE, false}  //D4
 };
 
 const SequenceStep sequence[SEQUENCE_LENGTH] = {
@@ -40,7 +41,6 @@ const SequenceStep sequence[SEQUENCE_LENGTH] = {
 };
 
 ServoDriver servoDriver; // controls all servos via I2C
-Adafruit_NeoPixel strip(NUM_LEDS, STRIP_DATA_PIN, NEO_GRB + NEO_KHZ800);
 
 // ============ GLOBAL STATE ============
 
@@ -68,16 +68,23 @@ void setup() {
   servoDriver.init();
   servoDriver.setFrequency(SERVO_FREQ);
 
-  strip.begin();
-  strip.setBrightness(40);
-  strip.show();
+  noTone(SPEAKER_PIN);
+  digitalWrite(SPEAKER_PIN, LOW);
+
 
   // initialize each key
   for (int i = 0; i < NUM_KEYS; i++) {
     pinMode(keys[i].buttonPin, INPUT);
+
+    keys[i].led.begin();
+    keys[i].led.setBrightness(120); // max brightness = 255
+    keys[i].led.show();
+
     servoRest(keys[i].servoChannel);
     keys[i].isPressed = false;
   }
+
+  runBootTest();
 }
 
 // runs repeatedly forever
@@ -136,6 +143,7 @@ void setMode(Mode mode) {
   for (int i = 0; i < NUM_KEYS; i++) {
     resetKey(i);
   }
+  noTone(SPEAKER_PIN);
 
   sequenceRunning = false;
   currentMode = mode;
@@ -208,7 +216,7 @@ These handle button detection, sound playback, and LED control for the keys.
 // checks all buttons and plays/stops tones based on their state
 void checkButtons() {
   for (int i = 0; i < NUM_KEYS; i++) {
-    bool buttonPressed = digitalRead(keys[i].buttonPin) == HIGH;
+    bool buttonPressed = (digitalRead(keys[i].buttonPin) == HIGH);
 
     if (buttonPressed && !keys[i].isPressed) {
       
@@ -245,32 +253,38 @@ void stopKeyTone(int keyIndex) {
   noTone(SPEAKER_PIN);
 }
 
-// lights up all LEDs on a key's LED strip with the specified color
+// light up key for 1 LED
 void lightUpKey(int keyIndex, uint32_t color) {
-  int start = keyIndex * LEDS_PER_KEY;
-  int end = start + LEDS_PER_KEY;
-
-  for (int i = start; i < end; i++) {
-    strip.setPixelColor(i, color);
-  }
-
-  strip.show();
+  Adafruit_NeoPixel &seg = keys[keyIndex].led;
+  seg.setPixelColor(0, color);
+  seg.show();
 }
 
-// turns off all LEDs on a key's LED strip
+// turns off 1 LED
 void lightDownKey(int keyIndex) {
-  int start = keyIndex * LEDS_PER_KEY;
-  int end = start + LEDS_PER_KEY;
-
-  for (int i = start; i < end; i++) {
-    strip.setPixelColor(i, 0);
-  }
-  
-  strip.show();
+  Adafruit_NeoPixel &seg = keys[keyIndex].led;
+  seg.setPixelColor(0, 0);
+  seg.show();
 }
+
 
 // resets a key to its default state (LED off, servo at rest)
 void resetKey(int keyIndex) {
   lightDownKey(keyIndex);
   autoReleaseKey(keyIndex);
+}
+
+void runBootTest() {
+  // Flash all key LEDs white once, then off.
+  for (int i = 0; i < NUM_KEYS; i++) {
+    keys[i].led.setPixelColor(0, keys[i].led.Color(255, 255, 255));
+    keys[i].led.show();
+  }
+
+  delay(300);
+
+  for (int i = 0; i < NUM_KEYS; i++) {
+    keys[i].led.setPixelColor(0, 0);
+    keys[i].led.show();
+  }
 }

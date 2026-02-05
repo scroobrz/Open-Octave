@@ -1,8 +1,10 @@
 #ifndef FIRMWARE_V3_CONFIG_H
 #define FIRMWARE_V3_CONFIG_H
-
-#include <Adafruit_NeoPixel.h>
 #include <stdint.h>
+
+#include "PCA9685.h"           // controls the PCA9685 servo motor driver (I2C)
+#include <Adafruit_NeoPixel.h> // controls the LED sticks/strips
+#include <Wire.h>              // allows I2C communication with the servo driver
 
 // ============ HARDWARE CONFIG ============
 
@@ -13,20 +15,19 @@
 #define SERVO_REST_ANGLE 0
 #define SERVO_PRESS_ANGLE 90
 
-#define NUM_LEDS 10
 #define NUM_KEYS 2
 #define DEBOUNCE_DELAY 50
 #define SEQUENCE_LENGTH 4
 
-#define STRIP_DATA_PIN 6
-#define LEDS_PER_KEY 10
-#define NUM_LEDS (NUM_KEYS * LEDS_PER_KEY)
+#define LEDS_PER_KEY 1
 
 #define KEY0_BUTTON_PIN 3
+#define KEY0_LED_PIN 6
 #define KEY0_SERVO_CHANNEL 1
 #define KEY0_NOTE 262
 
 #define KEY1_BUTTON_PIN 4
+#define KEY1_LED_PIN 7
 #define KEY1_SERVO_CHANNEL 2
 #define KEY1_NOTE 294
 
@@ -44,8 +45,10 @@ enum Mode {
 };
 
 struct Key {
-  int buttonPin;              // which Arduino pin the button is on
-  int servoChannel;           // which channel on the PCA9685 (0-15)
+  int buttonPin;             // which Arduino pin the button is on
+  int ledPin;                // Arduino digital pin used as data (DI) for this WS2813 LED
+  Adafruit_NeoPixel led;
+  int servoChannel;
   int noteFreq;
   bool isPressed;
 };
