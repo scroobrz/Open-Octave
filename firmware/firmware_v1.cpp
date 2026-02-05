@@ -18,8 +18,9 @@ const int NUM_LEDS = 10;   // number of LED lights on the stick
 const int SERVO_FREQ = 50; // servo motors typically run at 50Hz
 
 // initializers
-Adafruit_NeoPixel strip = Adafruit_NeoPixel(NUM_LEDS, LED_PIN, NEO_GRB + NEO_KHZ800); // controller for the LED strip
-ServoDriver servo; // controller for the servo
+Adafruit_NeoPixel strip = Adafruit_NeoPixel(
+    NUM_LEDS, LED_PIN, NEO_GRB + NEO_KHZ800); // controller for the LED strip
+ServoDriver servoDriver;                      // controller for the servo
 
 // runs once when the Arduino is turned on or reset
 void setup() {
@@ -30,31 +31,32 @@ void setup() {
   strip.show();
 
   Wire.begin(); // start the I2C communication connection
-  servo.init();
-  servo.setAngle(0, 0);
+  servoDriver.init();
+  servoDriver.setAngle(0, 0);
 }
 
 // runs repeatedly forever.
 void loop() {
   if (digitalRead(BUTTON_PIN) == HIGH) { // button being pressed
 
-    servo.setAngle(0, 90); // move servo on channel 0 to 90 degrees
+    servoDriver.setAngle(0, 90); // move servo on channel 0 to 90 degrees
 
     for (int i = 0; i < NUM_LEDS; i++) {
-        // makes a rainbow on the LED
-        int hue = i * (65536 / NUM_LEDS);
-        strip.setPixelColor(i, strip.ColorHSV(hue, 255, 255));
+      // makes a rainbow on the LED
+      int hue = i * (65536 / NUM_LEDS);
+      strip.setPixelColor(i, strip.ColorHSV(hue, 255, 255));
     }
     strip.show();
 
-    tone(SPEAKER_PIN, 262, 500); // play 262Hz (middle C) for 500 milliseconds (doesn't sound like middle C lol)
+    tone(SPEAKER_PIN, 262, 500); // play 262Hz (middle C) for 500 milliseconds
+                                 // (doesn't sound like middle C lol)
 
   } else {
     // button not being pressed; reset everything
-    servo.setAngle(0, 0);
+    servoDriver.setAngle(0, 0);
 
     for (int i = 0; i < NUM_LEDS; i++) {
-      strip.setPixelColor(i, strip.Color(0, 0, 0));
+      strip.setPixelColor(i, 0);
     }
     strip.show();
 
