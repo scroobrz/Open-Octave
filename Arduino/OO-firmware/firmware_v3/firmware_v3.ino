@@ -22,13 +22,13 @@
 
 // Set to 1 to enable debug output, 0 to disable
 #define DEBUG_ENABLED 1
-#define DEBUG_BAUD_RATE 115200
+#define SERIAL_BAUD_RATE 115200
 
 #if DEBUG_ENABLED
 
 #define LOG_INIT()                                                             \
   do {                                                                         \
-    Serial.begin(DEBUG_BAUD_RATE);                                             \
+    Serial.begin(SERIAL_BAUD_RATE);                                            \
     while (!Serial) {                                                          \
       delay(10);                                                               \
     }                                                                          \
@@ -121,6 +121,7 @@ void LOG_F_P(const char *fmt_P, ...) {
 
 // ============ HELPER MACROS ============
 
+#define LED(pin) Adafruit_NeoPixel(LEDS_PER_KEY, pin, NEO_GRB + NEO_KHZ800)
 #define startKeyTone(keyIndex) tone(SPEAKER_PIN, keys[keyIndex].noteFreq)
 #define servoPull(channel) servoDriver.setAngle(channel, SERVO_PRESS_ANGLE)
 #define servoRest(channel) servoDriver.setAngle(channel, SERVO_REST_ANGLE)
@@ -130,17 +131,18 @@ void LOG_F_P(const char *fmt_P, ...) {
 // ============ HARDWARE & SEQUENCE DEFINITIONS ============
 
 Key keys[NUM_KEYS] = {
-    {KEY0_BUTTON_PIN, KEY0_SERVO_CHANNEL, KEY0_NOTE, false}, // C4
-    {KEY1_BUTTON_PIN, KEY1_SERVO_CHANNEL, KEY1_NOTE, false}  // D4
+    {KEY0_BUTTON_PIN, LED(KEY0_LED_PIN), KEY0_SERVO_CHANNEL, KEY0_NOTE, false}, // C4
+    {KEY1_BUTTON_PIN, LED(KEY1_LED_PIN), KEY1_SERVO_CHANNEL, KEY1_NOTE, false}  // D4
 };
 
-const SequenceStep sequence[SEQUENCE_LENGTH] = {{0, COLOR_BLUE, 500},
-                                                {1, COLOR_GREEN, 500},
-                                                {0, COLOR_BLUE, 500},
-                                                {1, COLOR_RED, 500}};
+const SequenceStep sequence[SEQUENCE_LENGTH] = {
+  {0, COLOR_BLUE, 500},
+  {1, COLOR_GREEN, 500},
+  {0, COLOR_BLUE, 500},
+  {1, COLOR_RED, 500}
+};
 
 ServoDriver servoDriver; // controls all servos via I2C
-Adafruit_NeoPixel strip(NUM_LEDS, STRIP_DATA_PIN, NEO_GRB + NEO_KHZ800);
 
 // ============ GLOBAL STATE ============
 
@@ -196,8 +198,9 @@ void setup() {
   LOGLN(F("    OPEN OCTAVE FIRMWARE V3 - INIT"));
   LOGLN(F("========================================"));
 
-  LOG(F("[SETUP] Configuring pins... "));
+  LOG(F("[SETUP] Configuring speaker... "));
   pinMode(SPEAKER_PIN, OUTPUT);
+  noTone(SPEAKER_PIN);
   LOG_F("OK (speaker_pin: %d)\n", SPEAKER_PIN);
 
   LOG(F("[SETUP] Initializing I2C... "));
@@ -209,30 +212,49 @@ void setup() {
   servoDriver.setFrequency(SERVO_FREQ);
   LOG_F("OK (freq: %dHz)\n", SERVO_FREQ);
 
-  LOG(F("[SETUP] Initializing LED strip... "));
-  strip.begin();
-  strip.setBrightness(LED_BRIGHTNESS);
-  strip.show();
-  LOG_F("OK (%d LEDs on pin %d at brightness %d)\n", NUM_LEDS, STRIP_DATA_PIN,
-       strip.getBrightness());
-
   // initialize each key
   LOGLN(F("[SETUP] Initializing keys:"));
   for (int i = 0; i < NUM_KEYS; i++) {
     pinMode(keys[i].buttonPin, INPUT);
     servoRest(keys[i].servoChannel);
+
+    keys[i].led.begin();
+    keys[i].led.setBrightness(LED_BRIGHTNESS);
+    keys[i].led.show();
     keys[i].isPressed = false;
-    LOG_F("  Key %d: btn_pin=%d, servo_ch=%d, freq=%dHz\n", i, keys[i].buttonPin,
-         keys[i].servoChannel, keys[i].noteFreq);
+
+    LOG_F("  Key %d: btn_pin=%d, led_pin=%d, servo_ch=%d, freq=%dHz\n", 
+      i, keys[i].buttonPin, keys[i].led.getPin(), keys[i].servoChannel, keys[i].noteFreq);
   }
   LOG_F("OK (%d keys initialized)\n", NUM_KEYS);
+
+  LOG(F("[SETUP] Running startup LED test..."));
+  runLEDTest();
+  LOGLN(F("OK"));
 
   LOGLN(F("========================================"));
   LOG_F("[SETUP] Complete! Starting in %s mode\n", getCurrentModeString());
   LOGLN(F("========================================\n"));
 }
 
-// processes incoming serial commands
+// runs repeatedly forever
+void loop() {
+  processSerialCommands(); // check for serial commands
+  checkButtons();          // detect any key presses and play sounds
+
+  // if we're in an automatic mode, handle the sequence playback
+  if (currentMode != MANUAL) {
+    handleAutomaticModes();
+  }
+}
+
+/*
+===============================
+    MODE CONTROL FUNCTIONS
+===============================
+These handle switching between and handling the MANUAL, AUTOMATIC_LEDS, and FULL_AUTOMATIC modes.
+*/
+
 void processSerialCommands() {
   if (Serial.available() > 0) {
     char cmd = Serial.read();
@@ -300,25 +322,6 @@ void processSerialCommands() {
     }
   }
 }
-
-// runs repeatedly forever
-void loop() {
-  processSerialCommands(); // check for serial commands
-  checkButtons();          // detect any key presses and play sounds
-
-  // if we're in an automatic mode, handle the sequence playback
-  if (currentMode == AUTOMATIC_LEDS || currentMode == FULL_AUTOMATIC) {
-    handleAutomaticModes();
-  }
-}
-
-/*
-===============================
-    MODE CONTROL FUNCTIONS
-===============================
-These handle switching between and handling the MANUAL, AUTOMATIC_LEDS, and
-FULL_AUTOMATIC modes.
-*/
 
 // switches to a new mode and resets everything to a clean state
 void setMode(Mode mode) {
@@ -458,35 +461,43 @@ void stopKeyTone(int keyIndex) {
 
 // lights up all LEDs on a key's LED strip with the specified color
 void lightUpKey(int keyIndex, uint32_t color) {
-  int start = keyIndex * LEDS_PER_KEY;
-  int end = start + LEDS_PER_KEY;
+  LOG_F("[LED] Key %d LED ON: color=%s\n", keyIndex, getColorString(color));
 
-  LOG_F("[LED] Key %d LED ON: color=%s, LEDs %d-%d\n", keyIndex,
-       getColorString(color), start, end - 1);
-
-  for (int i = start; i < end; i++) {
-    strip.setPixelColor(i, color);
+  for (int i = 0; i < LEDS_PER_KEY; i++) {
+    keys[keyIndex].led.setPixelColor(i, color);
   }
 
-  strip.show();
+  keys[keyIndex].led.show();
 }
 
 // turns off all LEDs on a key's LED strip
 void lightDownKey(int keyIndex) {
-  int start = keyIndex * LEDS_PER_KEY;
-  int end = start + LEDS_PER_KEY;
+  LOG_F("[LED] Key %d OFF\n", keyIndex);
 
-  LOG_F("[LED] Key %d OFF: LEDs %d-%d\n", keyIndex, start, end - 1);
-
-  for (int i = start; i < end; i++) {
-    strip.setPixelColor(i, 0);
+  for (int i = 0; i < LEDS_PER_KEY; i++) {
+    keys[keyIndex].led.setPixelColor(i, 0);
   }
 
-  strip.show();
+  keys[keyIndex].led.show();
 }
 
 // resets a key to its default state (LED off, servo at rest)
 void resetKey(int keyIndex) {
   lightDownKey(keyIndex);
   autoReleaseKey(keyIndex);
+}
+
+void runLEDTest() {
+  // Flash all key LEDs white once, then off.
+  for (int i = 0; i < NUM_KEYS; i++) {
+    keys[i].led.setPixelColor(0, keys[i].led.Color(255, 255, 255));
+    keys[i].led.show();
+  }
+
+  delay(300);
+
+  for (int i = 0; i < NUM_KEYS; i++) {
+    keys[i].led.setPixelColor(0, 0);
+    keys[i].led.show();
+  }
 }
