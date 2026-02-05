@@ -15,7 +15,18 @@
 #include "PCA9685.h"           // controls the PCA9685 servo motor driver (I2C)
 #include <Adafruit_NeoPixel.h> // controls the LED sticks/strips
 #include <Wire.h>              // allows I2C communication with the servo driver
-#include "config.h"            // contains all configuration constants and macros
+#include "firmware_config.h"   // contains all configuration constants and macros
+
+// ============ HELPER MACROS ============
+
+#define ledStick(pin) Adafruit_NeoPixel(NUM_LEDS, pin, NEO_GRB + NEO_KHZ800)
+#define startKeyTone(keyIndex) tone(SPEAKER_PIN, keys[keyIndex].noteFreq)
+#define servoPull(channel) servoDriver.setAngle(channel, SERVO_PRESS_ANGLE)
+#define servoRest(channel) servoDriver.setAngle(channel, SERVO_REST_ANGLE)
+#define autoPressKey(keyIndex) servoPull(keys[keyIndex].servoChannel)
+#define autoReleaseKey(keyIndex) servoRest(keys[keyIndex].servoChannel)
+
+// ============ HARDWARE & SEQUENCE DEFINITIONS ============
 
 Key keys[NUM_KEYS] = {
     {KEY0_BUTTON_PIN, ledStick(KEY0_LED_PIN), KEY0_SERVO_CHANNEL, KEY0_NOTE, false}, // C4
@@ -95,6 +106,7 @@ void checkModeSwitch() {
   // last accepted mode change.
   if (currentModeSwitchState && !previousModeSwitchState &&
       (now - lastModeSwitchTime >= DEBOUNCE_DELAY)) {
+
     // switch to the next mode
     switch (currentMode) {
     case MANUAL:
@@ -197,22 +209,19 @@ void checkButtons() {
     bool buttonPressed = digitalRead(keys[i].buttonPin) == HIGH;
 
     if (buttonPressed && !keys[i].isPressed) {
+      
       // apply debouncing to avoid false triggers
       if (millis() - lastKeyPressTime[i] >= DEBOUNCE_DELAY) {
         keys[i].isPressed = true;
         lastKeyPressTime[i] = millis();
         startKeyTone(i);
       }
+
     } else if (!buttonPressed && keys[i].isPressed) {
       keys[i].isPressed = false;
       stopKeyTone(i);
     }
   }
-}
-
-// starts playing the tone for a specific key
-void startKeyTone(int keyIndex) {
-  tone(SPEAKER_PIN, keys[keyIndex].noteFreq);
 }
 
 // stops playing the tone for a specific key
