@@ -2,7 +2,7 @@
 #define FIRMWARE_CONFIG_H
 
 #include <Adafruit_NeoPixel.h>
-#include <cstdint>
+#include <stdint.h>
 
 // ============ HARDWARE CONFIG ============
 
