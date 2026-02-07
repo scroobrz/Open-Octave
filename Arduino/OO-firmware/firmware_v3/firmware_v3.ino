@@ -97,7 +97,7 @@ void setup() {
 
   LOG("[SETUP] Validating sequence data... ");
   if (!validateSequenceData()) {
-    LOGLN("WARNING: Sequence data has errors!");
+    LOGLN("WARNING: Sequence data has errors! Automatic modes may not work correctly.");
     // Continue but automatic modes may not work correctly
   } else {
     LOGLN("OK");
@@ -135,9 +135,13 @@ void setup() {
   }
   LOGF("OK (%d keys initialized)\n", NUM_KEYS);
 
-  LOG("[SETUP] Running startup LED test...");
-  runLEDTest();
-  LOGLN("OK");
+  if (AUTO_TEST_AT_STARTUP) {
+    LOG("[SETUP] Running startup LED test...");
+    testLEDs();
+    
+    LOG("[SETUP] Running startup servo test...");
+    testServos();
+  }
 
   LOGLN("========================================");
   LOGF("[SETUP] Complete! Starting in %s mode\n", getCurrentModeString());
@@ -173,6 +177,9 @@ void processSerialCommands() {
     }
 
     switch (cmd) {
+
+    // ---- MODE CONTROL ----
+
     case 'm': // Manual mode
       LOGLN("\n[CMD] Received: Switch to MANUAL mode");
       if (currentMode == MANUAL) {
@@ -200,6 +207,8 @@ void processSerialCommands() {
       }
       break;
 
+    // ---- SEQUENCE CONTROL ----
+
     case 's': // Start sequence
       LOGLN("\n[CMD] Received: Start sequence");
       if (currentMode == MANUAL) {
@@ -218,11 +227,6 @@ void processSerialCommands() {
       } else {
         stopSequence();
       }
-      break;
-
-    case 't': // Test LEDs
-      LOGLN("\n[CMD] Received: Test LEDs");
-      runLEDTest();
       break;
 
     case 'n': // Next sequence
@@ -257,6 +261,20 @@ void processSerialCommands() {
       LOGLN("========================================\n");
       break;
 
+    // ---- TESTING ----
+
+    case 't': // Test LEDs
+      LOGLN("\n[CMD] Received: Test LEDs");
+      testLEDs();
+      break;
+
+    case 'u': // Test servos
+      LOGLN("\n[CMD] Received: Test servos");
+      testServos();
+      break;
+
+    // ---- HELP ----
+
     case 'h': // Help
     case '?':
       LOGLN("\n========================================");
@@ -273,8 +291,10 @@ void processSerialCommands() {
       LOGLN("    p - Previous sequence");
       LOGLN("    0-9 - Select sequence by number");
       LOGLN("    l - List all sequences");
-      LOGLN("  OTHER:");
+      LOGLN("  TESTING:");
       LOGLN("    t - Test LEDs");
+      LOGLN("    u - Test servos");
+      LOGLN("  HELP:");
       LOGLN("    h - Show this help");
       LOGLN("========================================\n");
       break;
@@ -609,7 +629,9 @@ void safeServoSetAngle(uint8_t channel, int angle) {
   servoDriver.setAngle(channel, clampedAngle);
 }
 
-void runLEDTest() {
+void testLEDs() {
+  LOGLN("[TEST] Testing LEDs...");
+  
   // Flash all key LEDs white once, then off.
   for (int i = 0; i < NUM_KEYS; i++) {
     keys[i].led.setPixelColor(0, keys[i].led.Color(255, 255, 255));
@@ -622,4 +644,19 @@ void runLEDTest() {
     keys[i].led.setPixelColor(0, 0);
     keys[i].led.show();
   }
+
+  LOGLN("[TEST] LED test complete.");
+}
+
+void testServos() {
+  LOGLN("[TEST] Testing servos...");
+  
+  for (int i = 0; i < NUM_KEYS; i++) {    
+    servoPull(keys[i].servoChannel);
+    delay(500);
+    servoRest(keys[i].servoChannel);
+    delay(500);
+  }
+  
+  LOGLN("[TEST] Servo test complete.");
 }
