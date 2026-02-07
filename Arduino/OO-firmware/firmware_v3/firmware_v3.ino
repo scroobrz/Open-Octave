@@ -168,44 +168,50 @@ void processSerialCommands() {
 
     switch (cmd) {
     case 'm': // Manual mode
+      LOGLN("\n[CMD] Received: Switch to MANUAL mode");
       if (currentMode == MANUAL) {
         LOGLN("\n[CMD] Already in MANUAL mode");
       } else {
-        LOGLN("\n[CMD] Received: Switch to MANUAL mode");
         setMode(MANUAL);
       }
       break;
 
     case 'a': // Automatic LEDs mode
+      LOGLN("\n[CMD] Received: Switch to AUTOMATIC_LEDS mode");
       if (currentMode == AUTOMATIC_LEDS) {
         LOGLN("\n[CMD] Already in AUTOMATIC_LEDS mode");
       } else {
-        LOGLN("\n[CMD] Received: Switch to AUTOMATIC_LEDS mode");
         setMode(AUTOMATIC_LEDS);
       }
       break;
 
     case 'f': // Full automatic mode
+      LOGLN("\n[CMD] Received: Switch to FULL_AUTOMATIC mode");
       if (currentMode == FULL_AUTOMATIC) {
         LOGLN("\n[CMD] Already in FULL_AUTOMATIC mode");
       } else {
-        LOGLN("\n[CMD] Received: Switch to FULL_AUTOMATIC mode");
         setMode(FULL_AUTOMATIC);
       }
       break;
 
-    case 's': // Start sequence (in current mode)
+    case 's': // Start sequence
+      LOGLN("\n[CMD] Received: Start sequence");
       if (currentMode == MANUAL) {
         LOGLN("\n[CMD] Cannot start sequence in MANUAL mode");
       } else {
-        LOGLN("\n[CMD] Received: Start sequence");
         startSequence();
       }
       break;
 
     case 'x': // Stop sequence
       LOGLN("\n[CMD] Received: Stop sequence");
-      stopSequence();
+      if (currentMode == MANUAL) {
+        LOGLN("\n[CMD] Cannot stop sequence in MANUAL mode");
+      } else if (!sequenceRunning) {
+        LOGLN("\n[CMD] Sequence is not running");
+      } else {
+        stopSequence();
+      }
       break;
 
     case 'h': // Help
@@ -285,6 +291,9 @@ void startSequence() {
 
 // stops the sequence and turns off all keys
 void stopSequence() {
+  LOGLN("\n[SEQ] ======== STOPPING SEQUENCE ========");
+  LOGF("[SEQ] Total steps completed: %d\n", currentSequenceStep);
+
   for (int i = 0; i < NUM_KEYS; i++) {
     resetKey(i);
   }
