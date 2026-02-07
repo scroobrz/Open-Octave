@@ -94,17 +94,18 @@ void handleAutomaticModes();
 void startSequence();
 void stopSequence();
 void executeSequenceStep(const SequenceStep &step);
+void selectSequence(int index);
+void nextSequence();
+void prevSequence();
 void stopKeyTone(int keyIndex);
 void checkButtons();
 void lightUpKey(int keyIndex, uint32_t color);
 void lightDownKey(int keyIndex);
 void resetKey(int keyIndex);
+void safeServoSetAngle(int servoChannel, int angle);
 bool validateSequenceData();
 bool validateHardwareInit();
-void safeServoSetAngle(int servoChannel, int angle);
-void runLEDTest();
-void selectSequence(int index);
-void nextSequence();
-void prevSequence();
+void testLEDs();
+void testServos();
 
 #endif

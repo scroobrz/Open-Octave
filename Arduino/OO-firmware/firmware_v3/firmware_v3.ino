@@ -532,6 +532,17 @@ void resetKey(int keyIndex) {
   autoReleaseKey(keyIndex);
 }
 
+void safeServoSetAngle(uint8_t channel, int angle) {
+  int clampedAngle = constrain(angle, SERVO_MIN_SAFE_ANGLE, SERVO_MAX_SAFE_ANGLE);
+  
+  if (clampedAngle != angle) {
+    LOGF("[WARN] Servo angle clamped: %d -> %d (valid: %d-%d)\n", 
+         angle, clampedAngle, SERVO_MIN_SAFE_ANGLE, SERVO_MAX_SAFE_ANGLE);
+  }
+  
+  servoDriver.setAngle(channel, clampedAngle);
+}
+
 // ============ VALIDATION & TESTING FUNCTIONS ============
 
 bool validateSequenceData() {
@@ -616,17 +627,6 @@ bool validateHardwareInit() {
   }
 
   return true;
-}
-
-void safeServoSetAngle(uint8_t channel, int angle) {
-  int clampedAngle = constrain(angle, SERVO_MIN_SAFE_ANGLE, SERVO_MAX_SAFE_ANGLE);
-  
-  if (clampedAngle != angle) {
-    LOGF("[WARN] Servo angle clamped: %d -> %d (valid: %d-%d)\n", 
-         angle, clampedAngle, SERVO_MIN_SAFE_ANGLE, SERVO_MAX_SAFE_ANGLE);
-  }
-  
-  servoDriver.setAngle(channel, clampedAngle);
 }
 
 void testLEDs() {
