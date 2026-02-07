@@ -7,6 +7,7 @@
 
 // Set to 1 to enable debug output, 0 to disable
 #define DEBUG_ENABLED 1
+#define AUTO_TEST_AT_STARTUP 1
 #define SERIAL_BAUD_RATE 115200
 
 #if DEBUG_ENABLED
