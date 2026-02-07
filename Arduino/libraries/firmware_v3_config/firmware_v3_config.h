@@ -8,7 +8,9 @@
 // ============ HARDWARE CONFIG ============
 
 #define DEBOUNCE_DELAY 50
-#define SEQUENCE_LENGTH 4
+
+#define MAX_SEQUENCE_LENGTH 16
+#define NUM_SEQUENCES 3
 
 #define SPEAKER_PIN 8
 
@@ -60,9 +62,16 @@ struct Key {
 };
 
 struct SequenceStep {
-  int keyIndex;
-  uint32_t color;
-  int duration;
+  uint8_t keyIndex;   // Which key to activate (0 to NUM_KEYS-1)
+  uint32_t color;     // LED color
+  uint16_t duration;  // How long to hold (ms)
+};
+
+// Sequence struct bundles steps with their length
+struct Sequence {
+  const SequenceStep* steps;  // Pointer to step array
+  uint8_t length;             // Number of steps in this sequence
+  const char* name;           // Display name for logging
 };
 
 // ============ HELPER MACROS ============
@@ -74,6 +83,8 @@ struct SequenceStep {
 #define servoRest(channel) safeServoSetAngle(channel, SERVO_REST_ANGLE)
 #define autoPressKey(keyIndex) servoPull(keys[keyIndex].servoChannel)
 #define autoReleaseKey(keyIndex) servoRest(keys[keyIndex].servoChannel)
+#define currentSequence sequences[currentSequenceIndex]
+#define currentSequenceStep sequences[currentSequenceIndex].steps[currentSequenceStepIndex]
 
 // ============ FUNCTION PROTOTYPES ============
 
@@ -92,5 +103,8 @@ bool validateSequenceData();
 bool validateHardwareInit();
 void safeServoSetAngle(int servoChannel, int angle);
 void runLEDTest();
+void selectSequence(int index);
+void nextSequence();
+void prevSequence();
 
 #endif

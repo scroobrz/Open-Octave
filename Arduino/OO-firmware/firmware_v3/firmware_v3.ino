@@ -12,11 +12,12 @@
  * or a servo pulls it down, the button underneath is what triggers the sound.
  */
 
-#include "PCA9685.h"            // controls the PCA9685 servo motor driver (I2C)
-#include "firmware_v3_config.h" // global configuration for the firmware
-#include "firmware_v3_debug.h"  // debug logging macros (LOG, LOGLN, LOGF)
-#include <Adafruit_NeoPixel.h>  // controls the LED sticks/strips
-#include <Wire.h>               // allows I2C communication with the servo driver
+#include "PCA9685.h"               // controls the PCA9685 servo motor driver (I2C)
+#include "firmware_v3_config.h"    // global configuration for the firmware
+#include "firmware_v3_debug.h"     // debug logging macros (LOG, LOGLN, LOGF)
+#include "firmware_v3_sequences.h" // sequence definitions
+#include <Adafruit_NeoPixel.h>     // controls the LED sticks/strips
+#include <Wire.h>                  // allows I2C communication with the servo driver
 
 // ============ HELPERS FOR LOGGING ============
 
@@ -48,7 +49,7 @@ const char *getColorString(uint32_t color) {
   }
 }
 
-// ============ HARDWARE & SEQUENCE DEFINITIONS ============
+// ============ HARDWARE DEFINITIONS ============
 
 Key keys[NUM_KEYS] = {
     {KEY0_BUTTON_PIN, LED(KEY0_LED_PIN), KEY0_SERVO_CHANNEL, KEY0_NOTE, false}, // C4
@@ -56,24 +57,18 @@ Key keys[NUM_KEYS] = {
     {KEY2_BUTTON_PIN, LED(KEY2_LED_PIN), KEY2_SERVO_CHANNEL, KEY2_NOTE, false}  // E4
 };
 
-const SequenceStep sequence[SEQUENCE_LENGTH] = {
-  {0, COLOR_BLUE, 500},
-  {1, COLOR_GREEN, 500},
-  {0, COLOR_BLUE, 500},
-  {1, COLOR_RED, 500}
-};
-
 ServoDriver servoDriver; // controls all servos via I2C
 
 // ============ GLOBAL STATE ============
 
 Mode currentMode = MANUAL;
-unsigned long lastModeSwitchTime = 0; // when mode switch was last pressed (for debouncing)
-bool previousModeSwitchState = LOW; // previous state of mode switch button for edge detection
-unsigned long lastKeyPressTime[NUM_KEYS] = {0}; // when each key was last pressed (for debouncing)
+unsigned long lastModeSwitchTime = 0;
+bool previousModeSwitchState = LOW;
+unsigned long lastKeyPressTime[NUM_KEYS] = {0};
 bool sequenceRunning = false;
-int currentSequenceStep = 0;
+int currentSequenceStepIndex = 0;
 unsigned long currentStepStartTime = 0;
+int currentSequenceIndex = 0;
 
 /*
 ===============================
@@ -230,18 +225,57 @@ void processSerialCommands() {
       runLEDTest();
       break;
 
+    case 'n': // Next sequence
+      LOGLN("\n[CMD] Received: Next sequence");
+      nextSequence();
+      break;
+
+    case 'p': // Previous sequence
+      LOGLN("\n[CMD] Received: Previous sequence");
+      prevSequence();
+      break;
+
+    case '0': case '1': case '2': case '3': case '4':
+    case '5': case '6': case '7': case '8': case '9':
+      // Direct sequence selection by number
+      {
+        int seqIndex = cmd - '0';
+        LOGF("\n[CMD] Received: Select sequence %d\n", seqIndex);
+        selectSequence(seqIndex);
+      }
+      break;
+
+    case 'l': // List sequences
+      LOGLN("\n========================================");
+      LOGLN("         AVAILABLE SEQUENCES");
+      LOGLN("========================================");
+      for (int i = 0; i < NUM_SEQUENCES; i++) {
+        LOGF("  %d - %s (%d steps)%s\n", 
+             i, sequences[i].name, sequences[i].length,
+             (i == currentSequenceIndex) ? " [ACTIVE]" : "");
+      }
+      LOGLN("========================================\n");
+      break;
+
     case 'h': // Help
     case '?':
       LOGLN("\n========================================");
       LOGLN("         SERIAL COMMANDS");
       LOGLN("========================================");
-      LOGLN("  m - Switch to MANUAL mode");
-      LOGLN("  a - Switch to AUTOMATIC_LEDS mode");
-      LOGLN("  f - Switch to FULL_AUTOMATIC mode");
-      LOGLN("  s - Start sequence");
-      LOGLN("  x - Stop sequence");
-      LOGLN("  t - Test LEDs");
-      LOGLN("  h - Show this help");
+      LOGLN("  MODE:");
+      LOGLN("    m - Switch to MANUAL mode");
+      LOGLN("    a - Switch to AUTOMATIC_LEDS mode");
+      LOGLN("    f - Switch to FULL_AUTOMATIC mode");
+      LOGLN("  SEQUENCE:");
+      LOGLN("    s - Start sequence");
+      LOGLN("    x - Stop sequence");
+      LOGLN("    n - Next sequence");
+      LOGLN("    p - Previous sequence");
+      LOGLN("    0-9 - Select sequence by number");
+      LOGLN("    l - List all sequences");
+      LOGLN("  OTHER:");
+      LOGLN("    t - Test LEDs");
+      LOGLN("    h - Show this help");
       LOGLN("========================================\n");
       break;
 
@@ -271,24 +305,24 @@ void handleAutomaticModes() {
     return;
 
   // Defensive check: ensure currentSequenceStep is valid
-  if (currentSequenceStep < 0 || currentSequenceStep >= SEQUENCE_LENGTH) {
-    LOGF("[ERROR] Invalid step index: %d encountered while handling automatic modes\n", currentSequenceStep);
+  if (currentSequenceStepIndex < 0 || currentSequenceStepIndex >= currentSequence.length) {
+    LOGF("[ERROR] Invalid step index: %d encountered while handling automatic modes\n", currentSequenceStepIndex);
     stopSequence();
     return;
   }
 
-  if (millis() - currentStepStartTime >= sequence[currentSequenceStep].duration) {
-    LOGF("[SEQ] Step %d complete\n", currentSequenceStep);
-    resetKey(sequence[currentSequenceStep].keyIndex);
+  if (millis() - currentStepStartTime >= currentSequenceStep.duration) {
+    LOGF("[SEQ] Step %d complete\n", currentSequenceStepIndex);
+    resetKey(currentSequenceStep.keyIndex);
 
-    currentSequenceStep++;
-    if (currentSequenceStep >= SEQUENCE_LENGTH) {
+    currentSequenceStepIndex++;
+    if (currentSequenceStepIndex >= currentSequence.length) {
       LOGLN("[SEQ] Sequence complete");
       stopSequence();
       return;
     }
 
-    executeSequenceStep(sequence[currentSequenceStep]);
+    executeSequenceStep(currentSequenceStep);
   }
 }
 
@@ -304,26 +338,28 @@ void startSequence() {
   if (sequenceRunning) {
     LOGLN("[SEQ] Sequence already running, ignoring start request");
     return;
-  } else if (SEQUENCE_LENGTH <= 0) {
-    LOGF("[ERROR] Invalid sequence length: %d encountered while starting sequence\n", SEQUENCE_LENGTH);
+  }
+  
+  if (currentSequence.length <= 0) {
+    LOGF("[ERROR] Invalid sequence length: %d encountered while starting sequence\n", currentSequence.length);
     return;
   }
 
   LOGLN("\n[SEQ] ======== STARTING SEQUENCE ========");
-  LOGF("[SEQ] Total steps: %d\n", SEQUENCE_LENGTH);
+  LOGF("[SEQ] Sequence: %s (%d steps)\n", currentSequence.name, currentSequence.length);
 
   sequenceRunning = true;
-  currentSequenceStep = 0;
+  currentSequenceStepIndex = 0;
   currentStepStartTime = millis();
 
   // immediately play the first step
-  executeSequenceStep(sequence[currentSequenceStep]);
+  executeSequenceStep(currentSequenceStep);
 }
 
 // stops the sequence and turns off all keys
 void stopSequence() {
   LOGLN("\n[SEQ] ======== STOPPING SEQUENCE ========");
-  LOGF("[SEQ] Total steps completed: %d\n", currentSequenceStep);
+  LOGF("[SEQ] Total steps completed: %d\n", currentSequenceStepIndex);
 
   for (int i = 0; i < NUM_KEYS; i++) {
     resetKey(i);
@@ -340,8 +376,8 @@ void executeSequenceStep(const SequenceStep &step) {
   }
 
   LOGF("[SEQ] Step %d/%d: key=%d, color=%s, duration=%dms\n",
-       currentSequenceStep + 1, SEQUENCE_LENGTH, step.keyIndex,
-       getColorString(step.color), step.duration);
+       currentSequenceStepIndex + 1, currentSequence.length, 
+       step.keyIndex, getColorString(step.color), step.duration);
 
   // light up the key's LED with the specified color
   lightUpKey(step.keyIndex, step.color);
@@ -353,6 +389,35 @@ void executeSequenceStep(const SequenceStep &step) {
   }
 
   currentStepStartTime = millis();
+}
+
+// Select a specific sequence by index
+void selectSequence(int index) {
+  if (index < 0 || index >= NUM_SEQUENCES) {
+    LOGF("[ERROR] Invalid sequence index: %d (valid: 0-%d)\n", index, NUM_SEQUENCES - 1);
+    return;
+  }
+  
+  // Stop current sequence if running
+  if (sequenceRunning) {
+    stopSequence();
+  }
+  
+  currentSequenceIndex = index;
+  LOGF("[SEQ] Selected sequence %d: %s (%d steps)\n", 
+       index, sequences[index].name, sequences[index].length);
+}
+
+// Cycle to next sequence
+void nextSequence() {
+  int newIndex = (currentSequenceIndex + 1) % NUM_SEQUENCES;
+  selectSequence(newIndex);
+}
+
+// Cycle to previous sequence
+void prevSequence() {
+  int newIndex = (currentSequenceIndex - 1 + NUM_SEQUENCES) % NUM_SEQUENCES;
+  selectSequence(newIndex);
 }
 
 /*
@@ -450,15 +515,25 @@ void resetKey(int keyIndex) {
 // ============ VALIDATION & TESTING FUNCTIONS ============
 
 bool validateSequenceData() {
-  for (int i = 0; i < SEQUENCE_LENGTH; i++) {
-    if (!IS_VALID_KEY_INDEX(sequence[i].keyIndex)) {
-      LOGF("[ERROR] Sequence step %d has invalid keyIndex: %d\n", i, sequence[i].keyIndex);
+  // Validate all sequences
+  for (int s = 0; s < NUM_SEQUENCES; s++) {
+    const Sequence& seq = sequences[s];
+    
+    if (seq.length <= 0 || seq.length > MAX_SEQUENCE_LENGTH) {
+      LOGF("[ERROR] Sequence %d (%s) has invalid length: %d\n", s, seq.name, seq.length);
       return false;
     }
+    
+    for (int i = 0; i < seq.length; i++) {
+      if (!IS_VALID_KEY_INDEX(seq.steps[i].keyIndex)) {
+        LOGF("[ERROR] Sequence %d step %d has invalid keyIndex: %d\n", s, i, seq.steps[i].keyIndex);
+        return false;
+      }
 
-    if (sequence[i].duration <= 0) {
-      LOGF("[ERROR] Sequence step %d has invalid duration: %d\n", i, sequence[i].duration);
-      return false;
+      if (seq.steps[i].duration <= 0) {
+        LOGF("[ERROR] Sequence %d step %d has invalid duration: %d\n", s, i, seq.steps[i].duration);
+        return false;
+      }
     }
   }
 
@@ -471,8 +546,13 @@ bool validateHardwareInit() {
     return false;
   }
 
-  if (SEQUENCE_LENGTH <= 0) {
-    LOGF("[ERROR] Invalid SEQUENCE_LENGTH: %d", SEQUENCE_LENGTH);
+  if (NUM_SEQUENCES <= 0) {
+    LOGF("[ERROR] Invalid NUM_SEQUENCES: %d", NUM_SEQUENCES);
+    return false;
+  }
+
+  if (MAX_SEQUENCE_LENGTH <= 0) {
+    LOGF("[ERROR] Invalid MAX_SEQUENCE_LENGTH: %d", MAX_SEQUENCE_LENGTH);
     return false;
   }
 
