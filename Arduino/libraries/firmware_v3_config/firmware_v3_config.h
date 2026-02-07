@@ -18,20 +18,25 @@
 #define SERVO_MIN_SAFE_ANGLE 0
 #define SERVO_MAX_SAFE_ANGLE 180
 
-#define NUM_KEYS 2
+#define NUM_KEYS 3
 
 #define LEDS_PER_KEY 1
 #define LED_BRIGHTNESS 50
 
-#define KEY0_BUTTON_PIN 3
-#define KEY0_LED_PIN 6
+#define KEY0_BUTTON_PIN 2
+#define KEY0_LED_PIN 5
 #define KEY0_SERVO_CHANNEL 1
 #define KEY0_NOTE 262
 
-#define KEY1_BUTTON_PIN 4
-#define KEY1_LED_PIN 7
+#define KEY1_BUTTON_PIN 3
+#define KEY1_LED_PIN 6
 #define KEY1_SERVO_CHANNEL 2
 #define KEY1_NOTE 294
+
+#define KEY2_BUTTON_PIN 4
+#define KEY2_LED_PIN 7
+#define KEY2_SERVO_CHANNEL 3
+#define KEY2_NOTE 329
 
 #define COLOR_RED 0xFF0000
 #define COLOR_GREEN 0x00FF00

@@ -12,11 +12,11 @@
  * or a servo pulls it down, the button underneath is what triggers the sound.
  */
 
-#include "PCA9685.h" // controls the PCA9685 servo motor driver (I2C)
-#include "firmware_v3_config.h"
-#include "firmware_v3_debug.h" // debug logging macros (LOG, LOGLN, LOGF)
-#include <Adafruit_NeoPixel.h> // controls the LED sticks/strips
-#include <Wire.h>              // allows I2C communication with the servo driver
+#include "PCA9685.h"            // controls the PCA9685 servo motor driver (I2C)
+#include "firmware_v3_config.h" // global configuration for the firmware
+#include "firmware_v3_debug.h"  // debug logging macros (LOG, LOGLN, LOGF)
+#include <Adafruit_NeoPixel.h>  // controls the LED sticks/strips
+#include <Wire.h>               // allows I2C communication with the servo driver
 
 // ============ HELPERS FOR LOGGING ============
 
@@ -52,7 +52,8 @@ const char *getColorString(uint32_t color) {
 
 Key keys[NUM_KEYS] = {
     {KEY0_BUTTON_PIN, LED(KEY0_LED_PIN), KEY0_SERVO_CHANNEL, KEY0_NOTE, false}, // C4
-    {KEY1_BUTTON_PIN, LED(KEY1_LED_PIN), KEY1_SERVO_CHANNEL, KEY1_NOTE, false}  // D4
+    {KEY1_BUTTON_PIN, LED(KEY1_LED_PIN), KEY1_SERVO_CHANNEL, KEY1_NOTE, false}, // D4
+    {KEY2_BUTTON_PIN, LED(KEY2_LED_PIN), KEY2_SERVO_CHANNEL, KEY2_NOTE, false}  // E4
 };
 
 const SequenceStep sequence[SEQUENCE_LENGTH] = {
