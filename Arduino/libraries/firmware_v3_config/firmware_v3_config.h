@@ -1,9 +1,9 @@
 #ifndef FIRMWARE_V3_CONFIG_H
 #define FIRMWARE_V3_CONFIG_H
 
+#include "PCA9685.h" // controls the PCA9685 servo motor driver (I2C)
+#include <Wire.h>    // allows I2C communication with the servo driver
 #include <stdint.h>
-#include "PCA9685.h"           // controls the PCA9685 servo motor driver (I2C)
-#include <Wire.h>              // allows I2C communication with the servo driver
 
 // ============ HARDWARE CONFIG ============
 
@@ -15,6 +15,8 @@
 #define SERVO_FREQ 50
 #define SERVO_REST_ANGLE 0
 #define SERVO_PRESS_ANGLE 180
+#define SERVO_MIN_SAFE_ANGLE 0
+#define SERVO_MAX_SAFE_ANGLE 180
 
 #define NUM_KEYS 2
 
@@ -45,8 +47,8 @@ enum Mode {
 };
 
 struct Key {
-  int buttonPin;             // which Arduino pin the button is on
-  int ledPin;                // Arduino digital pin used as data (DI) for this WS2813 LED
+  int buttonPin;
+  Adafruit_NeoPixel led;
   int servoChannel;
   int noteFreq;
   bool isPressed;
@@ -57,6 +59,16 @@ struct SequenceStep {
   uint32_t color;
   int duration;
 };
+
+// ============ HELPER MACROS ============
+
+#define IS_VALID_KEY_INDEX(idx) ((idx) >= 0 && (idx) < NUM_KEYS)
+#define LED(pin) Adafruit_NeoPixel(LEDS_PER_KEY, pin, NEO_GRB + NEO_KHZ800)
+#define startKeyTone(keyIndex) tone(SPEAKER_PIN, keys[keyIndex].noteFreq)
+#define servoPull(channel) safeServoSetAngle(channel, SERVO_PRESS_ANGLE)
+#define servoRest(channel) safeServoSetAngle(channel, SERVO_REST_ANGLE)
+#define autoPressKey(keyIndex) servoPull(keys[keyIndex].servoChannel)
+#define autoReleaseKey(keyIndex) servoRest(keys[keyIndex].servoChannel)
 
 // ============ FUNCTION PROTOTYPES ============
 
@@ -71,6 +83,9 @@ void checkButtons();
 void lightUpKey(int keyIndex, uint32_t color);
 void lightDownKey(int keyIndex);
 void resetKey(int keyIndex);
+bool validateSequenceData();
+bool validateHardwareInit();
+void safeServoSetAngle(int servoChannel, int angle);
 void runLEDTest();
 
 #endif

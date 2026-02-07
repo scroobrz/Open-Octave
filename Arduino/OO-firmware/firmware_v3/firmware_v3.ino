@@ -18,14 +18,7 @@
 #include <Adafruit_NeoPixel.h> // controls the LED sticks/strips
 #include <Wire.h>              // allows I2C communication with the servo driver
 
-// ============ HELPERS ============
-
-#define LED(pin) Adafruit_NeoPixel(LEDS_PER_KEY, pin, NEO_GRB + NEO_KHZ800)
-#define startKeyTone(keyIndex) tone(SPEAKER_PIN, keys[keyIndex].noteFreq)
-#define servoPull(channel) servoDriver.setAngle(channel, SERVO_PRESS_ANGLE)
-#define servoRest(channel) servoDriver.setAngle(channel, SERVO_REST_ANGLE)
-#define autoPressKey(keyIndex) servoPull(keys[keyIndex].servoChannel)
-#define autoReleaseKey(keyIndex) servoRest(keys[keyIndex].servoChannel)
+// ============ HELPERS FOR LOGGING ============
 
 const char *getCurrentModeString() {
   switch (currentMode) {
@@ -58,28 +51,25 @@ const char *getColorString(uint32_t color) {
 // ============ HARDWARE & SEQUENCE DEFINITIONS ============
 
 Key keys[NUM_KEYS] = {
-    {KEY0_BUTTON_PIN, LED(KEY0_LED_PIN), KEY0_SERVO_CHANNEL, KEY0_NOTE,
-     false}, // C4
-    {KEY1_BUTTON_PIN, LED(KEY1_LED_PIN), KEY1_SERVO_CHANNEL, KEY1_NOTE,
-     false} // D4
+    {KEY0_BUTTON_PIN, LED(KEY0_LED_PIN), KEY0_SERVO_CHANNEL, KEY0_NOTE, false}, // C4
+    {KEY1_BUTTON_PIN, LED(KEY1_LED_PIN), KEY1_SERVO_CHANNEL, KEY1_NOTE, false}  // D4
 };
 
-const SequenceStep sequence[SEQUENCE_LENGTH] = {{0, COLOR_BLUE, 500},
-                                                {1, COLOR_GREEN, 500},
-                                                {0, COLOR_BLUE, 500},
-                                                {1, COLOR_RED, 500}};
+const SequenceStep sequence[SEQUENCE_LENGTH] = {
+  {0, COLOR_BLUE, 500},
+  {1, COLOR_GREEN, 500},
+  {0, COLOR_BLUE, 500},
+  {1, COLOR_RED, 500}
+};
 
 ServoDriver servoDriver; // controls all servos via I2C
 
 // ============ GLOBAL STATE ============
 
 Mode currentMode = MANUAL;
-unsigned long lastModeSwitchTime =
-    0; // when mode switch was last pressed (for debouncing)
-bool previousModeSwitchState =
-    LOW; // previous state of mode switch button for edge detection
-unsigned long lastKeyPressTime[NUM_KEYS] = {
-    0}; // when each key was last pressed (for debouncing)
+unsigned long lastModeSwitchTime = 0; // when mode switch was last pressed (for debouncing)
+bool previousModeSwitchState = LOW; // previous state of mode switch button for edge detection
+unsigned long lastKeyPressTime[NUM_KEYS] = {0}; // when each key was last pressed (for debouncing)
 bool sequenceRunning = false;
 int currentSequenceStep = 0;
 unsigned long currentStepStartTime = 0;
@@ -98,6 +88,26 @@ void setup() {
   LOGLN("    OPEN OCTAVE FIRMWARE V3 - INIT");
   LOGLN("========================================");
 
+  // ===== VALIDATION =====
+  LOG("[SETUP] Validating hardware config... ");
+  if (!validateHardwareInit()) {
+    LOGLN("[ERROR] CRITICAL: Hardware validation failed!");
+    LOGLN("System halted. Check configuration.");
+    while (true) {
+      delay(1000);
+    } // Halt - configuration error
+  }
+  LOGLN("OK");
+
+  LOG("[SETUP] Validating sequence data... ");
+  if (!validateSequenceData()) {
+    LOGLN("WARNING: Sequence data has errors!");
+    // Continue but automatic modes may not work correctly
+  } else {
+    LOGLN("OK");
+  }
+
+  // ===== INITIALIZATION =====
   LOG("[SETUP] Configuring speaker... ");
   pinMode(SPEAKER_PIN, OUTPUT);
   noTone(SPEAKER_PIN);
@@ -214,6 +224,11 @@ void processSerialCommands() {
       }
       break;
 
+    case 't': // Test LEDs
+      LOGLN("\n[CMD] Received: Test LEDs");
+      runLEDTest();
+      break;
+
     case 'h': // Help
     case '?':
       LOGLN("\n========================================");
@@ -224,6 +239,7 @@ void processSerialCommands() {
       LOGLN("  f - Switch to FULL_AUTOMATIC mode");
       LOGLN("  s - Start sequence");
       LOGLN("  x - Stop sequence");
+      LOGLN("  t - Test LEDs");
       LOGLN("  h - Show this help");
       LOGLN("========================================\n");
       break;
@@ -253,8 +269,14 @@ void handleAutomaticModes() {
   if (!sequenceRunning)
     return;
 
-  if (millis() - currentStepStartTime >=
-      sequence[currentSequenceStep].duration) {
+  // Defensive check: ensure currentSequenceStep is valid
+  if (currentSequenceStep < 0 || currentSequenceStep >= SEQUENCE_LENGTH) {
+    LOGF("[ERROR] Invalid step index: %d encountered while handling automatic modes\n", currentSequenceStep);
+    stopSequence();
+    return;
+  }
+
+  if (millis() - currentStepStartTime >= sequence[currentSequenceStep].duration) {
     LOGF("[SEQ] Step %d complete\n", currentSequenceStep);
     resetKey(sequence[currentSequenceStep].keyIndex);
 
@@ -278,6 +300,14 @@ These handle starting, stopping, and playing automatic sequences.
 
 // starts playing the sequence from the beginning
 void startSequence() {
+  if (sequenceRunning) {
+    LOGLN("[SEQ] Sequence already running, ignoring start request");
+    return;
+  } else if (SEQUENCE_LENGTH <= 0) {
+    LOGF("[ERROR] Invalid sequence length: %d encountered while starting sequence\n", SEQUENCE_LENGTH);
+    return;
+  }
+
   LOGLN("\n[SEQ] ======== STARTING SEQUENCE ========");
   LOGF("[SEQ] Total steps: %d\n", SEQUENCE_LENGTH);
 
@@ -302,6 +332,12 @@ void stopSequence() {
 
 // plays a single step of a sequence
 void executeSequenceStep(const SequenceStep &step) {
+  if (!IS_VALID_KEY_INDEX(step.keyIndex)) {
+    LOGF("[ERROR] Invalid keyIndex: %d encountered while executing sequence step\n", step.keyIndex);
+    currentStepStartTime = millis(); // Still update time to prevent infinite loop
+    return;
+  }
+
   LOGF("[SEQ] Step %d/%d: key=%d, color=%s, duration=%dms\n",
        currentSequenceStep + 1, SEQUENCE_LENGTH, step.keyIndex,
        getColorString(step.color), step.duration);
@@ -311,8 +347,7 @@ void executeSequenceStep(const SequenceStep &step) {
 
   // if we're in full automatic mode, also press the key with the servo
   if (currentMode == FULL_AUTOMATIC) {
-    LOGF("[SERVO] Auto-pressing key %d (channel %d)\n", step.keyIndex,
-         keys[step.keyIndex].servoChannel);
+    LOGF("[SERVO] Auto-pressing key %d (channel %d)\n", step.keyIndex, keys[step.keyIndex].servoChannel);
     autoPressKey(step.keyIndex);
   }
 
@@ -337,8 +372,7 @@ void checkButtons() {
       if (millis() - lastKeyPressTime[i] >= DEBOUNCE_DELAY) {
         keys[i].isPressed = true;
         lastKeyPressTime[i] = millis();
-        LOGF("[KEY] Key %d PRESSED (pin %d, freq %dHz)\n", i, keys[i].buttonPin,
-             keys[i].noteFreq);
+        LOGF("[KEY] Key %d PRESSED (pin %d, freq %dHz)\n", i, keys[i].buttonPin, keys[i].noteFreq);
         startKeyTone(i);
       }
 
@@ -371,6 +405,11 @@ void stopKeyTone(int keyIndex) {
 
 // lights up all LEDs on a key's LED strip with the specified color
 void lightUpKey(int keyIndex, uint32_t color) {
+  if (!IS_VALID_KEY_INDEX(keyIndex)) {
+    LOGF("[ERROR] Invalid keyIndex: %d encountered while turning on LEDs\n", keyIndex);
+    return;
+  }
+
   LOGF("[LED] Key %d LED ON: color=%s\n", keyIndex, getColorString(color));
 
   for (int i = 0; i < LEDS_PER_KEY; i++) {
@@ -382,6 +421,11 @@ void lightUpKey(int keyIndex, uint32_t color) {
 
 // turns off all LEDs on a key's LED strip
 void lightDownKey(int keyIndex) {
+  if (!IS_VALID_KEY_INDEX(keyIndex)) {
+    LOGF("[ERROR] Invalid keyIndex: %d encountered while turning off LEDs\n", keyIndex);
+    return;
+  }
+
   LOGF("[LED] Key %d OFF\n", keyIndex);
 
   for (int i = 0; i < LEDS_PER_KEY; i++) {
@@ -393,8 +437,95 @@ void lightDownKey(int keyIndex) {
 
 // resets a key to its default state (LED off, servo at rest)
 void resetKey(int keyIndex) {
+  if (!IS_VALID_KEY_INDEX(keyIndex)) {
+    LOGF("[ERROR] Invalid keyIndex: %d encountered while resetting key\n", keyIndex);
+    return;
+  }
+
   lightDownKey(keyIndex);
   autoReleaseKey(keyIndex);
+}
+
+// ============ VALIDATION & TESTING FUNCTIONS ============
+
+bool validateSequenceData() {
+  for (int i = 0; i < SEQUENCE_LENGTH; i++) {
+    if (!IS_VALID_KEY_INDEX(sequence[i].keyIndex)) {
+      LOGF("[ERROR] Sequence step %d has invalid keyIndex: %d\n", i, sequence[i].keyIndex);
+      return false;
+    }
+
+    if (sequence[i].duration <= 0) {
+      LOGF("[ERROR] Sequence step %d has invalid duration: %d\n", i, sequence[i].duration);
+      return false;
+    }
+  }
+
+  return true;
+}
+
+bool validateHardwareInit() {
+  if (NUM_KEYS <= 0) {
+    LOGF("[ERROR] Invalid NUM_KEYS: %d", NUM_KEYS);
+    return false;
+  }
+
+  if (SEQUENCE_LENGTH <= 0) {
+    LOGF("[ERROR] Invalid SEQUENCE_LENGTH: %d", SEQUENCE_LENGTH);
+    return false;
+  }
+
+  if (LEDS_PER_KEY <= 0) {
+    LOGF("[ERROR] Invalid LEDS_PER_KEY: %d", LEDS_PER_KEY);
+    return false;
+  }
+
+  if (LED_BRIGHTNESS < 0 || LED_BRIGHTNESS > 255) {
+    LOGF("[ERROR] Invalid LED_BRIGHTNESS: %d", LED_BRIGHTNESS);
+    return false;
+  }
+
+  if (SERVO_FREQ <= 0 || SERVO_FREQ > 60) {
+    LOGF("[ERROR] Invalid SERVO_FREQ: %d", SERVO_FREQ);
+    return false;
+  }
+
+  if (SPEAKER_PIN < 2 || SPEAKER_PIN > 8) {
+    LOGF("[ERROR] Invalid SPEAKER_PIN: %d", SPEAKER_PIN);
+    return false;
+  }
+
+  for (int i = 0; i < NUM_KEYS; i++) {
+    if (keys[i].buttonPin < 2 || keys[i].buttonPin > 8) {
+      LOGF("[ERROR] Invalid buttonPin: %d for key %d", keys[i].buttonPin, i);
+      return false;
+    }
+    if (keys[i].led.getPin() < 2 || keys[i].led.getPin() > 8) {
+      LOGF("[ERROR] Invalid ledPin: %d for key %d", keys[i].led.getPin(), i);
+      return false;
+    }
+    if (keys[i].servoChannel < 1 || keys[i].servoChannel > 16) {
+      LOGF("[ERROR] Invalid servoChannel: %d for key %d", keys[i].servoChannel, i);
+      return false;
+    }
+    if (keys[i].noteFreq <= 0 || keys[i].noteFreq > 4186) {
+      LOGF("[ERROR] Invalid noteFreq: %d for key %d", keys[i].noteFreq, i);
+      return false;
+    }
+  }
+
+  return true;
+}
+
+void safeServoSetAngle(uint8_t channel, int angle) {
+  int clampedAngle = constrain(angle, SERVO_MIN_SAFE_ANGLE, SERVO_MAX_SAFE_ANGLE);
+  
+  if (clampedAngle != angle) {
+    LOGF("[WARN] Servo angle clamped: %d -> %d (valid: %d-%d)\n", 
+         angle, clampedAngle, SERVO_MIN_SAFE_ANGLE, SERVO_MAX_SAFE_ANGLE);
+  }
+  
+  servoDriver.setAngle(channel, clampedAngle);
 }
 
 void runLEDTest() {
