@@ -42,10 +42,8 @@ const SequenceStep seq1_steps[] = {
 
 // Sequence 2: Fast repeating pattern
 const SequenceStep seq2_steps[] = {
-  {0, COLOR_WHITE, 200},
-  {1, COLOR_WHITE, 200},
-  {2, COLOR_WHITE, 200},
-  {0, COLOR_RED, 200},
+  {0, COLOR_WHITE, 400},
+  {0, COLOR_RED, 400},
   {1, COLOR_GREEN, 200},
   {2, COLOR_BLUE, 200}
 };
