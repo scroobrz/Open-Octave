@@ -137,14 +137,6 @@ void setup() {
   }
   LOGF("OK (%d keys initialized)\n", NUM_KEYS);
 
-  if (AUTO_TEST_AT_STARTUP) {
-    LOG("[SETUP] Running startup LED test...");
-    testLEDs();
-    
-    LOG("[SETUP] Running startup servo test...");
-    testServos();
-  }
-
   LOGLN("========================================");
   LOGF("[SETUP] Complete! Starting in %s mode\n", getCurrentModeString());
   LOGLN("========================================\n");
