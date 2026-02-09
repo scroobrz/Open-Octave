@@ -103,7 +103,7 @@ void checkButtons();
 void lightUpKey(int keyIndex, uint32_t color);
 void lightDownKey(int keyIndex);
 void resetKey(int keyIndex);
-void safeServoSetAngle(int servoChannel, int angle);
+void safeServoSetAngle(uint8_t servoChannel, int angle);
 bool validateSequenceData();
 bool validateHardwareInit();
 void testLEDs();
