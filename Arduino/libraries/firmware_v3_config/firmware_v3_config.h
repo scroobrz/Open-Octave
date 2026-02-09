@@ -9,7 +9,8 @@
 // ============ HARDWARE CONFIG ============
 
 #define DEBOUNCE_DELAY 50
-#define MIN_NOTE_DURATION 50  // Minimum time (ms) a note will play when key is pressed
+#define SERVO_RELEASE_DELAY 50   // ms to wait for servo to physically release
+#define MIN_NOTE_DURATION 50     // Minimum time (ms) a note will play when key is pressed
 
 #define MAX_SEQUENCE_LENGTH 16
 #define NUM_SEQUENCES 3

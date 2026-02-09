@@ -44,7 +44,6 @@ int currentSequenceIndex = 0;
 // For non-blocking delay between consecutive same-key steps
 bool waitingForServoRelease = false;
 unsigned long servoReleaseStartTime = 0;
-const unsigned long SERVO_RELEASE_DELAY = 50; // ms to wait for servo to physically release
 
 // ============ HELPERS FOR LOGGING ============
 
