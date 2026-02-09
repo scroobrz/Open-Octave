@@ -75,27 +75,6 @@ const char *getColorString(uint32_t color) {
   }
 }
 
-// ============ HARDWARE DEFINITIONS ============
-
-Key keys[NUM_KEYS] = {
-    {KEY0_BUTTON_PIN, KEY0_LED_PIN, nullptr, KEY0_SERVO_CHANNEL, KEY0_NOTE, false}, // C4
-    {KEY1_BUTTON_PIN, KEY1_LED_PIN, nullptr, KEY1_SERVO_CHANNEL, KEY1_NOTE, false}, // D4
-    {KEY2_BUTTON_PIN, KEY2_LED_PIN, nullptr, KEY2_SERVO_CHANNEL, KEY2_NOTE, false}  // E4
-};
-
-ServoDriver servoDriver; // controls all servos via I2C
-
-// ============ GLOBAL STATE ============
-
-Mode currentMode = MANUAL;
-unsigned long lastModeSwitchTime = 0;
-bool previousModeSwitchState = LOW;
-unsigned long lastKeyPressTime[NUM_KEYS] = {0};
-bool sequenceRunning = false;
-int currentSequenceStepIndex = 0;
-unsigned long currentStepStartTime = 0;
-int currentSequenceIndex = 0;
-
 /*
 ===============================
      CORE ARDUINO FUNCTIONS
@@ -351,12 +330,22 @@ void handleAutomaticModes() {
     return;
   }
 
+  // If we're waiting for the servo to release (between consecutive same-key steps)
+  if (waitingForServoRelease) {
+    if (millis() - servoReleaseStartTime >= SERVO_RELEASE_DELAY) {
+      // Delay complete, now execute the next step
+      waitingForServoRelease = false;
+      executeSequenceStep(currentSequenceStep);
+    }
+    // While waiting, checkButtons() still runs in the main loop
+    return;
+  }
+
   if (millis() - currentStepStartTime >= currentSequenceStep.duration) {
     LOGF("[SEQ] Step %d complete\n", currentSequenceStepIndex);
     
     // Remember which key we're resetting before incrementing step index
     uint8_t previousKeyIndex = currentSequenceStep.keyIndex;
-    
     resetKey(previousKeyIndex);
 
     currentSequenceStepIndex++;
@@ -366,14 +355,15 @@ void handleAutomaticModes() {
       return;
     }
 
-    // If the next step uses the same key, add a small delay to allow
-    // the servo to physically release before pressing again
+    // If next step uses the same key, wait for servo to physically release
     if (currentSequenceStep.keyIndex == previousKeyIndex) {
-      LOGF("[SEQ] Same key %d in consecutive steps - adding servo delay\n", previousKeyIndex);
-      delay(50); // Allow servo to reach rest position
+      LOGF("[SEQ] Same key %d in consecutive steps - waiting for servo release\n", previousKeyIndex);
+      waitingForServoRelease = true;
+      servoReleaseStartTime = millis();
+      // Don't execute step yet - will be done on next loop iteration after delay
+    } else {
+      executeSequenceStep(currentSequenceStep);
     }
-
-    executeSequenceStep(currentSequenceStep);
   }
 }
 
@@ -420,6 +410,7 @@ void stopSequence() {
   noTone(SPEAKER_PIN);
   
   sequenceRunning = false;
+  waitingForServoRelease = false;
 }
 
 // plays a single step of a sequence
