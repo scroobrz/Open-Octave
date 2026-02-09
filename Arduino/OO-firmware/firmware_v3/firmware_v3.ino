@@ -35,6 +35,7 @@ Mode currentMode = MANUAL;
 unsigned long lastModeSwitchTime = 0;
 bool previousModeSwitchState = LOW;
 unsigned long lastKeyPressTime[NUM_KEYS] = {0};
+unsigned long toneStartTime[NUM_KEYS] = {0};  // Tracks when each key's tone started
 bool sequenceRunning = false;
 int currentSequenceStepIndex = 0;
 unsigned long currentStepStartTime = 0;
@@ -484,6 +485,7 @@ void checkButtons() {
       if (millis() - lastKeyPressTime[i] >= DEBOUNCE_DELAY) {
         keys[i].isPressed = true;
         lastKeyPressTime[i] = millis();
+        toneStartTime[i] = millis();  // Track when this tone started
         LOGF("[KEY] Key %d PRESSED (pin %d, freq %dHz)\n", i, keys[i].buttonPin, keys[i].noteFreq);
         startKeyTone(i);
       }
@@ -502,6 +504,12 @@ void checkButtons() {
 // PROBLEM: it falls back to the pressed key with the lowest index rather than
 // the one that was pressed last, could use a stack to solve this
 void stopKeyTone(int keyIndex) {
+  // Ensure minimum note duration (50ms) so every note is audible
+  unsigned long elapsed = millis() - toneStartTime[keyIndex];
+  if (elapsed < MIN_NOTE_DURATION) {
+    delay(MIN_NOTE_DURATION - elapsed);
+  }
+
   // check if any other key is still being pressed
   for (int i = 0; i < NUM_KEYS; i++) {
     if (keys[i].isPressed) {
