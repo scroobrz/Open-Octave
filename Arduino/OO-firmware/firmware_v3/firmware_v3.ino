@@ -335,13 +335,24 @@ void handleAutomaticModes() {
 
   if (millis() - currentStepStartTime >= currentSequenceStep.duration) {
     LOGF("[SEQ] Step %d complete\n", currentSequenceStepIndex);
-    resetKey(currentSequenceStep.keyIndex);
+    
+    // Remember which key we're resetting before incrementing step index
+    uint8_t previousKeyIndex = currentSequenceStep.keyIndex;
+    
+    resetKey(previousKeyIndex);
 
     currentSequenceStepIndex++;
     if (currentSequenceStepIndex >= currentSequence.length) {
       LOGLN("[SEQ] Sequence complete");
       stopSequence();
       return;
+    }
+
+    // If the next step uses the same key, add a small delay to allow
+    // the servo to physically release before pressing again
+    if (currentSequenceStep.keyIndex == previousKeyIndex) {
+      LOGF("[SEQ] Same key %d in consecutive steps - adding servo delay\n", previousKeyIndex);
+      delay(50); // Allow servo to reach rest position
     }
 
     executeSequenceStep(currentSequenceStep);
@@ -386,6 +397,10 @@ void stopSequence() {
   for (int i = 0; i < NUM_KEYS; i++) {
     resetKey(i);
   }
+  
+  // Ensure speaker is silenced (resetKey bypasses normal release detection)
+  noTone(SPEAKER_PIN);
+  
   sequenceRunning = false;
 }
 
@@ -532,6 +547,11 @@ void resetKey(int keyIndex) {
 
   lightDownKey(keyIndex);
   autoReleaseKey(keyIndex);
+  
+  // Force clear the pressed state so the same key can be re-triggered
+  // in the next step. Without this, consecutive steps on the same key
+  // won't register as new presses because isPressed stays true.
+  keys[keyIndex].isPressed = false;
 }
 
 void safeServoSetAngle(uint8_t channel, int angle) {
