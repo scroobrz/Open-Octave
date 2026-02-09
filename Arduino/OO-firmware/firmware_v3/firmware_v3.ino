@@ -19,6 +19,32 @@
 #include <Adafruit_NeoPixel.h>     // controls the LED sticks/strips
 #include <Wire.h>                  // allows I2C communication with the servo driver
 
+// ============ HARDWARE DEFINITIONS ============
+
+Key keys[NUM_KEYS] = {
+    {KEY0_BUTTON_PIN, KEY0_LED_PIN, nullptr, KEY0_SERVO_CHANNEL, KEY0_NOTE, false}, // C4
+    {KEY1_BUTTON_PIN, KEY1_LED_PIN, nullptr, KEY1_SERVO_CHANNEL, KEY1_NOTE, false}, // D4
+    {KEY2_BUTTON_PIN, KEY2_LED_PIN, nullptr, KEY2_SERVO_CHANNEL, KEY2_NOTE, false}  // E4
+};
+
+ServoDriver servoDriver; // controls all servos via I2C
+
+// ============ GLOBAL STATE ============
+
+Mode currentMode = MANUAL;
+unsigned long lastModeSwitchTime = 0;
+bool previousModeSwitchState = LOW;
+unsigned long lastKeyPressTime[NUM_KEYS] = {0};
+bool sequenceRunning = false;
+int currentSequenceStepIndex = 0;
+unsigned long currentStepStartTime = 0;
+int currentSequenceIndex = 0;
+
+// For non-blocking delay between consecutive same-key steps
+bool waitingForServoRelease = false;
+unsigned long servoReleaseStartTime = 0;
+const unsigned long SERVO_RELEASE_DELAY = 50; // ms to wait for servo to physically release
+
 // ============ HELPERS FOR LOGGING ============
 
 const char *getCurrentModeString() {
