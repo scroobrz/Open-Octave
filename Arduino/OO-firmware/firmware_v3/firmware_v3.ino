@@ -52,9 +52,9 @@ const char *getColorString(uint32_t color) {
 // ============ HARDWARE DEFINITIONS ============
 
 Key keys[NUM_KEYS] = {
-    {KEY0_BUTTON_PIN, LED(KEY0_LED_PIN), KEY0_SERVO_CHANNEL, KEY0_NOTE, false}, // C4
-    {KEY1_BUTTON_PIN, LED(KEY1_LED_PIN), KEY1_SERVO_CHANNEL, KEY1_NOTE, false}, // D4
-    {KEY2_BUTTON_PIN, LED(KEY2_LED_PIN), KEY2_SERVO_CHANNEL, KEY2_NOTE, false}  // E4
+    {KEY0_BUTTON_PIN, KEY0_LED_PIN, nullptr, KEY0_SERVO_CHANNEL, KEY0_NOTE, false}, // C4
+    {KEY1_BUTTON_PIN, KEY1_LED_PIN, nullptr, KEY1_SERVO_CHANNEL, KEY1_NOTE, false}, // D4
+    {KEY2_BUTTON_PIN, KEY2_LED_PIN, nullptr, KEY2_SERVO_CHANNEL, KEY2_NOTE, false}  // E4
 };
 
 ServoDriver servoDriver; // controls all servos via I2C
@@ -124,13 +124,15 @@ void setup() {
     pinMode(keys[i].buttonPin, INPUT);
     servoRest(keys[i].servoChannel);
 
-    keys[i].led.begin();
-    keys[i].led.setBrightness(LED_BRIGHTNESS);
-    keys[i].led.show();
+    // Create NeoPixel object dynamically (can't be done at global scope)
+    keys[i].led = new Adafruit_NeoPixel(LEDS_PER_KEY, keys[i].ledPin, NEO_GRB + NEO_KHZ800);
+    keys[i].led->begin();
+    keys[i].led->setBrightness(LED_BRIGHTNESS);
+    keys[i].led->show();
     keys[i].isPressed = false;
 
     LOGF("  Key %d: btn_pin=%d, led_pin=%d, servo_ch=%d, freq=%dHz\n", i,
-         keys[i].buttonPin, keys[i].led.getPin(), keys[i].servoChannel,
+         keys[i].buttonPin, keys[i].ledPin, keys[i].servoChannel,
          keys[i].noteFreq);
   }
   LOGF("OK (%d keys initialized)\n", NUM_KEYS);
@@ -499,10 +501,10 @@ void lightUpKey(int keyIndex, uint32_t color) {
   LOGF("[LED] Key %d LED ON: color=%s\n", keyIndex, getColorString(color));
 
   for (int i = 0; i < LEDS_PER_KEY; i++) {
-    keys[keyIndex].led.setPixelColor(i, color);
+    keys[keyIndex].led->setPixelColor(i, color);
   }
 
-  keys[keyIndex].led.show();
+  keys[keyIndex].led->show();
 }
 
 // turns off all LEDs on a key's LED strip
@@ -515,10 +517,10 @@ void lightDownKey(int keyIndex) {
   LOGF("[LED] Key %d OFF\n", keyIndex);
 
   for (int i = 0; i < LEDS_PER_KEY; i++) {
-    keys[keyIndex].led.setPixelColor(i, 0);
+    keys[keyIndex].led->setPixelColor(i, 0);
   }
 
-  keys[keyIndex].led.show();
+  keys[keyIndex].led->show();
 }
 
 // resets a key to its default state (LED off, servo at rest)
@@ -612,8 +614,8 @@ bool validateHardwareInit() {
       LOGF("[ERROR] Invalid buttonPin: %d for key %d", keys[i].buttonPin, i);
       return false;
     }
-    if (keys[i].led.getPin() < 2 || keys[i].led.getPin() > 8) {
-      LOGF("[ERROR] Invalid ledPin: %d for key %d", keys[i].led.getPin(), i);
+    if (keys[i].ledPin < 2 || keys[i].ledPin > 8) {
+      LOGF("[ERROR] Invalid ledPin: %d for key %d", keys[i].ledPin, i);
       return false;
     }
     if (keys[i].servoChannel < 1 || keys[i].servoChannel > 16) {
@@ -634,15 +636,15 @@ void testLEDs() {
   
   // Flash all key LEDs white once, then off.
   for (int i = 0; i < NUM_KEYS; i++) {
-    keys[i].led.setPixelColor(0, keys[i].led.Color(255, 255, 255));
-    keys[i].led.show();
+    keys[i].led->setPixelColor(0, keys[i].led->Color(255, 255, 255));
+    keys[i].led->show();
   }
 
   delay(300);
 
   for (int i = 0; i < NUM_KEYS; i++) {
-    keys[i].led.setPixelColor(0, 0);
-    keys[i].led.show();
+    keys[i].led->setPixelColor(0, 0);
+    keys[i].led->show();
   }
 
   LOGLN("[TEST] LED test complete.");

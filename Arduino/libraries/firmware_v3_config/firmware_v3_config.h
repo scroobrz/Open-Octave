@@ -1,8 +1,9 @@
 #ifndef FIRMWARE_V3_CONFIG_H
 #define FIRMWARE_V3_CONFIG_H
 
-#include "PCA9685.h" // controls the PCA9685 servo motor driver (I2C)
-#include <Wire.h>    // allows I2C communication with the servo driver
+#include "PCA9685.h"           // controls the PCA9685 servo motor driver (I2C)
+#include <Adafruit_NeoPixel.h>  // controls the LED sticks/strips
+#include <Wire.h>               // allows I2C communication with the servo driver
 #include <stdint.h>
 
 // ============ HARDWARE CONFIG ============
@@ -55,7 +56,8 @@ enum Mode {
 
 struct Key {
   int buttonPin;
-  Adafruit_NeoPixel led;
+  int ledPin;                  // Store pin number, NeoPixel created in setup()
+  Adafruit_NeoPixel* led;      // Pointer to NeoPixel object (initialized in setup)
   int servoChannel;
   int noteFreq;
   bool isPressed;
@@ -77,7 +79,6 @@ struct Sequence {
 // ============ HELPER MACROS ============
 
 #define IS_VALID_KEY_INDEX(idx) ((idx) >= 0 && (idx) < NUM_KEYS)
-#define LED(pin) Adafruit_NeoPixel(LEDS_PER_KEY, pin, NEO_GRB + NEO_KHZ800)
 #define startKeyTone(keyIndex) tone(SPEAKER_PIN, keys[keyIndex].noteFreq)
 #define servoPull(channel) safeServoSetAngle(channel, SERVO_PRESS_ANGLE)
 #define servoRest(channel) safeServoSetAngle(channel, SERVO_REST_ANGLE)
