@@ -43,12 +43,12 @@ const SequenceStep seq1_steps[] = {
 
 // Sequence 2: Fast repeating pattern
 const SequenceStep seq2_steps[] = {
-  {1, COLOR_WHITE, 400},
-  {1, COLOR_RED, 400},
-  {0, COLOR_GREEN, 300},
-  {2, COLOR_BLUE, 300},
-  {2, COLOR_WHITE, 400},
-  {1, COLOR_RED, 400}
+  {1, COLOR_WHITE, 500},
+  {1, COLOR_RED, 500},
+  {0, COLOR_GREEN, 500},
+  {2, COLOR_BLUE, 500},
+  {2, COLOR_WHITE, 500},
+  {1, COLOR_RED, 500}
 };
 
 // Sequence 3: Rainbow sweep — cycles through ROYGBIV with a slow-fast-slow arc
