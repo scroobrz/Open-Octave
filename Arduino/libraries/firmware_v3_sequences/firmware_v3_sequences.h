@@ -24,68 +24,68 @@
 
 // Sequence 0: Simple alternating pattern (2 keys)
 const SequenceStep seq0_steps[] = {
-  {0, COLOR_BLUE, 500},
+  {0, COLOR_RED, 500},
   {1, COLOR_GREEN, 500},
-  {2, COLOR_RED, 500},
+  {2, COLOR_BLUE, 500},
   {1, COLOR_GREEN, 500},
-  {0, COLOR_BLUE, 500},
+  {0, COLOR_RED, 500},
 };
 
 // Sequence 1: Three-key ascending/descending scale
 const SequenceStep seq1_steps[] = {
-  {0, COLOR_INDIGO, 400},
-  {1, COLOR_ORANGE, 400},
-  {1, COLOR_BLUE, 400},
   {0, COLOR_RED, 400},
-  {2, COLOR_GREEN, 400},
-  {0, COLOR_WHITE, 400}
+  {1, COLOR_GREEN, 400},
+  {1, COLOR_GREEN, 400},
+  {0, COLOR_RED, 400},
+  {2, COLOR_BLUE, 400},
+  {0, COLOR_RED, 400}
 };
 
 // Sequence 2: Fast repeating pattern
 const SequenceStep seq2_steps[] = {
-  {1, COLOR_WHITE, 500},
-  {1, COLOR_RED, 500},
-  {0, COLOR_GREEN, 500},
+  {1, COLOR_GREEN, 500},
+  {1, COLOR_GREEN, 500},
+  {0, COLOR_RED, 500},
   {2, COLOR_BLUE, 500},
-  {2, COLOR_WHITE, 500},
-  {1, COLOR_RED, 500}
+  {2, COLOR_BLUE, 500},
+  {1, COLOR_GREEN, 500}
 };
 
 // Sequence 3: Rainbow sweep — cycles through ROYGBIV with a slow-fast-slow arc
 const SequenceStep seq3_steps[] = {
   {0, COLOR_RED,     600},
-  {1, COLOR_ORANGE,  500},
-  {2, COLOR_YELLOW,  400},
-  {0, COLOR_GREEN,   300},
-  {1, COLOR_BLUE,    300},
-  {2, COLOR_INDIGO,  300},
-  {0, COLOR_VIOLET,  300},
-  {1, COLOR_RED,     300},
-  {2, COLOR_ORANGE,  300},
-  {0, COLOR_YELLOW,  300},
+  {1, COLOR_GREEN,  500},
+  {2, COLOR_BLUE,  400},
+  {0, COLOR_RED,   300},
+  {1, COLOR_GREEN,    300},
+  {2, COLOR_BLUE,  300},
+  {0, COLOR_RED,  300},
+  {1, COLOR_GREEN,     300},
+  {2, COLOR_BLUE,  300},
+  {0, COLOR_RED,  300},
   {1, COLOR_GREEN,   400},
   {2, COLOR_BLUE,    500},
-  {0, COLOR_INDIGO,  600},
-  {1, COLOR_VIOLET,  700},
+  {0, COLOR_RED,  600},
+  {1, COLOR_GREEN,  700},
 };
 
 // Sequence 4: Syncopated — irregular rhythm, contrasting colours
 const SequenceStep seq4_steps[] = {
-  {0, COLOR_VIOLET,  300},
-  {2, COLOR_ORANGE,  300},
-  {1, COLOR_BLUE,    600},
-  {0, COLOR_YELLOW,  300},
-  {2, COLOR_INDIGO,  300},
-  {1, COLOR_RED,     300},
-  {0, COLOR_GREEN,   300},
-  {1, COLOR_VIOLET,  300},
-  {2, COLOR_RED,     300},
-  {0, COLOR_ORANGE,  500},
-  {1, COLOR_INDIGO,  300},
-  {2, COLOR_YELLOW,  300},
-  {0, COLOR_BLUE,    400},
+  {0, COLOR_RED,  300},
+  {2, COLOR_BLUE,  300},
+  {1, COLOR_GREEN,    600},
+  {0, COLOR_RED,  300},
+  {2, COLOR_BLUE,  300},
+  {1, COLOR_GREEN,     300},
+  {0, COLOR_RED,   300},
+  {1, COLOR_GREEN,  300},
+  {2, COLOR_BLUE,     300},
+  {0, COLOR_RED,  500},
+  {1, COLOR_GREEN,  300},
+  {2, COLOR_BLUE,  300},
+  {0, COLOR_RED,    400},
   {1, COLOR_GREEN,   300},
-  {2, COLOR_VIOLET,  300},
+  {2, COLOR_BLUE,  300},
   {0, COLOR_RED,     700},
 };
 
