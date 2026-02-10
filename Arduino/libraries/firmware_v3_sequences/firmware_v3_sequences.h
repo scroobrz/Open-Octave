@@ -51,7 +51,7 @@ const SequenceStep seq2_steps[] = {
   {1, COLOR_GREEN, 500}
 };
 
-// Sequence 3: Rainbow sweep — cycles through ROYGBIV with a slow-fast-slow arc
+// Sequence 3: Sweep — cycles through RGB keys with a slow-fast-slow arc
 const SequenceStep seq3_steps[] = {
   {0, COLOR_RED,     600},
   {1, COLOR_GREEN,  500},
@@ -69,7 +69,7 @@ const SequenceStep seq3_steps[] = {
   {1, COLOR_GREEN,  700},
 };
 
-// Sequence 4: Syncopated — irregular rhythm, contrasting colours
+// Sequence 4: Syncopated — irregular rhythm across all keys
 const SequenceStep seq4_steps[] = {
   {0, COLOR_RED,  300},
   {2, COLOR_BLUE,  300},

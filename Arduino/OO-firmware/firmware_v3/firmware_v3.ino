@@ -6,8 +6,6 @@
  *   - AUTOMATIC_LEDS: LEDs light up in a sequence
  *   - FULL_AUTOMATIC: LEDs + servos play automatically (no user input needed)
  *
- * Modes are cycled through by pressing the mode switch button.
- *
  * Sound is always triggered by button presses - whether the user presses a key
  * or a servo pulls it down, the button underneath is what triggers the sound.
  */
@@ -32,8 +30,6 @@ ServoDriver servoDriver; // controls all servos via I2C
 // ============ GLOBAL STATE ============
 
 Mode currentMode = MANUAL;
-unsigned long lastModeSwitchTime = 0;
-bool previousModeSwitchState = LOW;
 unsigned long lastKeyPressTime[NUM_KEYS] = {0};
 unsigned long toneStartTime[NUM_KEYS] = {0};  // Tracks when each key's tone started
 bool sequenceRunning = false;
@@ -508,8 +504,10 @@ void handleAutomaticModes() {
       return;
     }
 
-    // If next step uses the same key, wait for servo to physically release
-    if (currentSequenceStep.keyIndex == previousKeyIndex) {
+    // If next step uses the same key AND we're using servos, wait for
+    // the servo to physically release before pressing again. In
+    // AUTOMATIC_LEDS mode there are no servos, so no delay is needed.
+    if (currentSequenceStep.keyIndex == previousKeyIndex && currentMode == FULL_AUTOMATIC) {
       LOGF("[SEQ] Same key %d in consecutive steps - waiting for servo release\n", previousKeyIndex);
       waitingForServoRelease = true;
       servoReleaseStartTime = millis();
@@ -876,14 +874,18 @@ void testLEDs() {
   
   // Flash all key LEDs white once, then off.
   for (int i = 0; i < NUM_KEYS; i++) {
-    keys[i].led->setPixelColor(0, keys[i].led->Color(255, 255, 255));
+    for (int j = 0; j < LEDS_PER_KEY; j++) {
+      keys[i].led->setPixelColor(j, keys[i].led->Color(255, 255, 255));
+    }
     keys[i].led->show();
   }
 
   delay(300);
 
   for (int i = 0; i < NUM_KEYS; i++) {
-    keys[i].led->setPixelColor(0, 0);
+    for (int j = 0; j < LEDS_PER_KEY; j++) {
+      keys[i].led->setPixelColor(j, 0);
+    }
     keys[i].led->show();
   }
 
