@@ -13,7 +13,7 @@
 #define MIN_NOTE_DURATION 100     // Minimum time (ms) a note will play when key is pressed
 
 #define MAX_SEQUENCE_LENGTH 16
-#define NUM_SEQUENCES 3
+#define NUM_SEQUENCES 5
 
 #define SPEAKER_PIN 8
 
