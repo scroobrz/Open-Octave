@@ -96,22 +96,22 @@ const SequenceStep seq4_steps[] = {
 //   Notes: Key0=G4(392), Key1=E4(330), Key2=C4(262)
 const SequenceStep seq5_steps[] = {
   // Phrase 1: E E G G | G G E E
-  {1, COLOR_YELLOW,  400},   // E
-  {1, COLOR_YELLOW,  400},   // E
-  {0, COLOR_ORANGE,  400},   // G (sub for F)
+  {1, COLOR_GREEN,   400},   // E
+  {1, COLOR_GREEN,   400},   // E
+  {0, COLOR_RED,     400},   // G (sub for F)
   {0, COLOR_RED,     400},   // G
   {0, COLOR_RED,     400},   // G
-  {0, COLOR_ORANGE,  400},   // G (sub for F)
-  {1, COLOR_YELLOW,  400},   // E
+  {0, COLOR_RED,     400},   // G (sub for F)
+  {1, COLOR_GREEN,   400},   // E
   {1, COLOR_GREEN,   400},   // E (sub for D)
   // Phrase 2: C C E E | E C C
   {2, COLOR_BLUE,    400},   // C
   {2, COLOR_BLUE,    400},   // C
   {1, COLOR_GREEN,   400},   // E (sub for D)
-  {1, COLOR_YELLOW,  400},   // E
-  {1, COLOR_YELLOW,  600},   // E (held longer — resolution)
-  {2, COLOR_INDIGO,  400},   // C (sub for D)
-  {2, COLOR_VIOLET,  800},   // C (final, held long)
+  {1, COLOR_GREEN,   400},   // E
+  {1, COLOR_GREEN,   600},   // E (held longer — resolution)
+  {2, COLOR_BLUE,    400},   // C (sub for D)
+  {2, COLOR_BLUE,    800},   // C (final, held long)
 };
 
 // Sequence 6: Lullaby — gentle C major arpeggio, ascending and descending
@@ -120,17 +120,17 @@ const SequenceStep seq6_steps[] = {
   {2, COLOR_BLUE,    500},   // C  — root
   {1, COLOR_GREEN,   500},   // E  — third
   {0, COLOR_RED,     500},   // G  — fifth
-  {1, COLOR_YELLOW,  500},   // E  — descend
+  {1, COLOR_GREEN,   500},   // E  — descend
   {2, COLOR_BLUE,    500},   // C  — root
   {1, COLOR_GREEN,   500},   // E  — third
   {0, COLOR_RED,     700},   // G  — linger on top
-  {0, COLOR_ORANGE,  300},   // G  — gentle repeat
+  {0, COLOR_RED,     300},   // G  — gentle repeat
   {1, COLOR_GREEN,   500},   // E  — come back down
-  {2, COLOR_INDIGO,  500},   // C  — root
-  {1, COLOR_YELLOW,  400},   // E  — one more rise
+  {2, COLOR_BLUE,    500},   // C  — root
+  {1, COLOR_GREEN,   400},   // E  — one more rise
   {0, COLOR_RED,     600},   // G  — peak
   {1, COLOR_GREEN,   500},   // E  — descend
-  {2, COLOR_VIOLET,  900},   // C  — resolve and rest
+  {2, COLOR_BLUE,    900},   // C  — resolve and rest
 };
 
 // Sequence 7: "Mary Had a Little Lamb" (adapted for C-E-G)
@@ -139,22 +139,22 @@ const SequenceStep seq6_steps[] = {
 //   Notes: Key0=G4(392), Key1=E4(330), Key2=C4(262)
 const SequenceStep seq7_steps[] = {
   // "Ma-ry had a"
-  {1, COLOR_YELLOW,  400},   // E  — Ma
+  {1, COLOR_GREEN,   400},   // E  — Ma
   {2, COLOR_BLUE,    400},   // C  — ry  (sub for D)
-  {2, COLOR_INDIGO,  400},   // C  — had
+  {2, COLOR_BLUE,    400},   // C  — had
   {2, COLOR_BLUE,    400},   // C  — a   (sub for D)
   // "lit-tle lamb"
   {1, COLOR_GREEN,   400},   // E  — lit
-  {1, COLOR_YELLOW,  400},   // E  — tle
+  {1, COLOR_GREEN,   400},   // E  — tle
   {1, COLOR_GREEN,   800},   // E  — lamb (held)
   // "lit-tle lamb"
   {2, COLOR_BLUE,    400},   // C  — lit  (sub for D)
-  {2, COLOR_INDIGO,  400},   // C  — tle  (sub for D)
-  {2, COLOR_VIOLET,  800},   // C  — lamb (held, sub for D)
+  {2, COLOR_BLUE,    400},   // C  — tle  (sub for D)
+  {2, COLOR_BLUE,    800},   // C  — lamb (held, sub for D)
   // "lit-tle lamb"
-  {1, COLOR_YELLOW,  400},   // E  — lit
+  {1, COLOR_GREEN,   400},   // E  — lit
   {0, COLOR_RED,     400},   // G  — tle
-  {0, COLOR_ORANGE,  800},   // G  — lamb (held)
+  {0, COLOR_RED,     800},   // G  — lamb (held)
 };
 
 // ============ SEQUENCE ARRAY ============
