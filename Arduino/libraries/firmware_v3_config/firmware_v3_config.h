@@ -43,10 +43,15 @@
 #define KEY2_SERVO_CHANNEL 3
 #define KEY2_NOTE 261.63
 
-#define COLOR_RED 0xFF0000
-#define COLOR_GREEN 0x00FF00
-#define COLOR_BLUE 0x0000FF
-#define COLOR_WHITE 0xFFFFFF
+// ROYGBIV colour palette
+#define COLOR_RED     0xFF0000
+#define COLOR_ORANGE  0xFF8000
+#define COLOR_YELLOW  0xFFFF00
+#define COLOR_GREEN   0x00FF00
+#define COLOR_BLUE    0x0000FF
+#define COLOR_INDIGO  0x4B0082
+#define COLOR_VIOLET  0x8000FF
+#define COLOR_WHITE   0xFFFFFF
 
 // ============ TYPE DEFINITIONS ============
 
