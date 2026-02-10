@@ -495,7 +495,7 @@ void handleAutomaticModes() {
   }
 
   if (millis() - currentStepStartTime >= currentSequenceStep.duration) {
-    LOGF("[SEQ] Step %d complete\n", currentSequenceStepIndex);
+    LOGF("[SEQ] Step %d/%d complete\n", currentSequenceStepIndex + 1, currentSequence.length);
     
     // Remember which key we're resetting before incrementing step index
     uint8_t previousKeyIndex = currentSequenceStep.keyIndex;
@@ -558,8 +558,10 @@ void startSequence() {
 
 // stops the sequence and turns off all keys
 void stopSequence() {
+  if (!sequenceRunning) return;  // Nothing to stop
+  
   LOGLN("\n[SEQ] ======== STOPPING SEQUENCE ========");
-  LOGF("[SEQ] Total steps completed: %d\n", currentSequenceStepIndex);
+  LOGF("[SEQ] Total steps completed: %d/%d\n", currentSequenceStepIndex, currentSequence.length);
 
   for (int i = 0; i < NUM_KEYS; i++) {
     resetKey(i);
@@ -755,6 +757,13 @@ void lightDownKey(int keyIndex) {
 }
 
 // resets a key to its default state (LED off, servo at rest)
+// NOTE: We do NOT clear isPressed here. checkButtons() tracks the physical
+// button state and will detect the actual release when the servo lets go.
+// Clearing it prematurely caused phantom PRESSED events because the servo
+// hadn't physically released yet, so checkButtons() would see the button
+// still HIGH with isPressed==false and register a ghost "new press".
+// For consecutive same-key steps, the SERVO_RELEASE_DELAY provides enough
+// time for the physical release + checkButtons() to detect it.
 void resetKey(int keyIndex) {
   if (!IS_VALID_KEY_INDEX(keyIndex)) {
     LOGF("[ERROR] Invalid keyIndex: %d encountered while resetting key\n", keyIndex);
@@ -763,11 +772,6 @@ void resetKey(int keyIndex) {
 
   lightDownKey(keyIndex);
   autoReleaseKey(keyIndex);
-  
-  // Force clear the pressed state so the same key can be re-triggered
-  // in the next step. Without this, consecutive steps on the same key
-  // won't register as new presses because isPressed stays true.
-  keys[keyIndex].isPressed = false;
 }
 
 void safeServoSetAngle(uint8_t channel, int angle) {
