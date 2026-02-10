@@ -64,10 +64,18 @@ const char *getColorString(uint32_t color) {
   switch (color) {
   case COLOR_RED:
     return "RED";
+  case COLOR_ORANGE:
+    return "ORANGE";
+  case COLOR_YELLOW:
+    return "YELLOW";
   case COLOR_GREEN:
     return "GREEN";
   case COLOR_BLUE:
     return "BLUE";
+  case COLOR_INDIGO:
+    return "INDIGO";
+  case COLOR_VIOLET:
+    return "VIOLET";
   case COLOR_WHITE:
     return "WHITE";
   default:
