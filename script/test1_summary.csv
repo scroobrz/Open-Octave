@@ -1,0 +1,5 @@
+scope,key_index,press_count,lat_mean_ms,lat_p95_ms,lat_max_ms,lat_std_ms
+ALL_KEYS,ALL,16,0.875,1.0,1.0,0.331
+PER_KEY,0,5,1.0,1.0,1.0,0.0
+PER_KEY,1,5,1.0,1.0,1.0,0.0
+PER_KEY,2,6,0.667,1.0,1.0,0.471

@@ -75,6 +75,138 @@ const char *getColorString(uint32_t color) {
   }
 }
 
+// ============ TEST LOGGING (CSV STREAM) ============
+// Prints one CSV row per event to Serial (no RAM buffering).
+
+enum TestLogErrorCode : uint8_t {
+  TESTLOG_OK = 0,
+  TESTLOG_INVALID_STEP_INDEX = 1,
+  TESTLOG_INVALID_KEY_INDEX = 2
+};
+
+bool testLogEnabled = false;
+uint16_t testLogRunId = 0;
+uint16_t testLogEventId = 0;
+
+// Manual repeat detection
+int8_t testLogLastManualKey = -1;
+unsigned long testLogLastManualTime = 0;
+uint8_t testLogManualRepeatStreak = 0;
+
+// Auto repeat detection + timing
+unsigned long testLogExpectedNextStepStartTime = 0;
+int8_t testLogLastAutoKey = -1;
+uint8_t testLogAutoRepeatStreak = 0;
+
+static void testLogPrintHeader() {
+  Serial.println();
+  Serial.println(F("CSV_BEGIN"));
+  Serial.println(F("run_id,event_id,mode,event_type,key_index,repeat_streak,input_to_audio_ms,step_led_cmd_ms,step_servo_cmd_ms,autoplay_timing_error_ms,success,error_code"));
+  Serial.println(F("CSV_DATA"));
+}
+
+static void testLogStart() {
+  testLogEnabled = true;
+  testLogRunId++;
+  testLogEventId = 0;
+
+  testLogLastManualKey = -1;
+  testLogLastManualTime = 0;
+  testLogManualRepeatStreak = 0;
+
+  testLogExpectedNextStepStartTime = 0;
+  testLogLastAutoKey = -1;
+  testLogAutoRepeatStreak = 0;
+
+  LOGLN("\n[TESTLOG] Enabled. Streaming CSV to Serial. Press 'g' again to stop.");
+  testLogPrintHeader();
+}
+
+static void testLogStop() {
+  if (!testLogEnabled) return;
+  testLogEnabled = false;
+  Serial.println(F("CSV_END"));
+  LOGF("[TESTLOG] Disabled (run_id=%u, events=%u)\n", testLogRunId, testLogEventId);
+}
+
+static void testLogLogManualPress(int keyIndex, unsigned long pressDetectedMs, unsigned long audioStartedMs) {
+  if (!testLogEnabled) return;
+
+  if (keyIndex == testLogLastManualKey && (pressDetectedMs - testLogLastManualTime) <= 1000) {
+    testLogManualRepeatStreak++;
+  } else {
+    testLogManualRepeatStreak = 1;
+  }
+  testLogLastManualKey = (int8_t)keyIndex;
+  testLogLastManualTime = pressDetectedMs;
+
+  testLogEventId++;
+
+  long latency = (long)(audioStartedMs - pressDetectedMs);
+
+  Serial.print(testLogRunId); Serial.print(",");
+  Serial.print(testLogEventId); Serial.print(",");
+  Serial.print(getCurrentModeString()); Serial.print(",");
+  Serial.print(F("MANUAL_PRESS")); Serial.print(",");
+  Serial.print(keyIndex); Serial.print(",");
+  Serial.print(testLogManualRepeatStreak); Serial.print(",");
+  Serial.print(latency); Serial.print(",");
+  Serial.print(-1); Serial.print(",");
+  Serial.print(-1); Serial.print(",");
+  Serial.print(-1); Serial.print(",");
+  Serial.print(1); Serial.print(",");
+  Serial.println(TESTLOG_OK);
+}
+
+static void testLogLogAutoStep(int keyIndex, long timingErrorMs, unsigned long ledCmdMs, unsigned long servoCmdMs, uint16_t stepDurationMs, bool nextIsSameKey) {
+  if (!testLogEnabled) return;
+
+  if (keyIndex == testLogLastAutoKey) testLogAutoRepeatStreak++;
+  else testLogAutoRepeatStreak = 1;
+  testLogLastAutoKey = (int8_t)keyIndex;
+
+  testLogEventId++;
+
+  Serial.print(testLogRunId); Serial.print(",");
+  Serial.print(testLogEventId); Serial.print(",");
+  Serial.print(getCurrentModeString()); Serial.print(",");
+  Serial.print(F("AUTO_STEP")); Serial.print(",");
+  Serial.print(keyIndex); Serial.print(",");
+  Serial.print(testLogAutoRepeatStreak); Serial.print(",");
+  Serial.print(-1); Serial.print(",");
+  Serial.print((long)ledCmdMs); Serial.print(",");
+  Serial.print((long)servoCmdMs); Serial.print(",");
+  Serial.print((long)timingErrorMs); Serial.print(",");
+  Serial.print(1); Serial.print(",");
+  Serial.println(TESTLOG_OK);
+
+  // Update expected time for next step (includes same-key release delay)
+  testLogExpectedNextStepStartTime = testLogExpectedNextStepStartTime + (unsigned long)stepDurationMs;
+  if (nextIsSameKey) {
+    testLogExpectedNextStepStartTime = testLogExpectedNextStepStartTime + SERVO_RELEASE_DELAY;
+  }
+}
+
+static void testLogLogError(uint8_t errorCode, const __FlashStringHelper* eventType) {
+  if (!testLogEnabled) return;
+
+  testLogEventId++;
+
+  Serial.print(testLogRunId); Serial.print(",");
+  Serial.print(testLogEventId); Serial.print(",");
+  Serial.print(getCurrentModeString()); Serial.print(",");
+  Serial.print(eventType); Serial.print(",");
+  Serial.print(-1); Serial.print(",");
+  Serial.print(0); Serial.print(",");
+  Serial.print(-1); Serial.print(",");
+  Serial.print(-1); Serial.print(",");
+  Serial.print(-1); Serial.print(",");
+  Serial.print(-1); Serial.print(",");
+  Serial.print(0); Serial.print(",");
+  Serial.println(errorCode);
+}
+
+
 /*
 ===============================
      CORE ARDUINO FUNCTIONS
@@ -272,6 +404,17 @@ void processSerialCommands() {
       testServos();
       break;
 
+    case 'g': // Toggle test log mode
+      if (!testLogEnabled) {
+        LOGLN("\n[CMD] Received: Enable test log mode");
+        testLogStart();
+      } else {
+        LOGLN("\n[CMD] Received: Disable test log mode");
+        testLogStop();
+      }
+      break;
+
+
     // ---- HELP ----
 
     case 'h': // Help
@@ -293,6 +436,7 @@ void processSerialCommands() {
       LOGLN("  TESTING:");
       LOGLN("    t - Test LEDs");
       LOGLN("    u - Test servos");
+      LOGLN("    g - Enter/Exit test log mode");
       LOGLN("  HELP:");
       LOGLN("    h - Show this help");
       LOGLN("========================================\n");
@@ -326,6 +470,7 @@ void handleAutomaticModes() {
   // Defensive check: ensure currentSequenceStep is valid
   if (currentSequenceStepIndex < 0 || currentSequenceStepIndex >= currentSequence.length) {
     LOGF("[ERROR] Invalid step index: %d encountered while handling automatic modes\n", currentSequenceStepIndex);
+    testLogLogError(TESTLOG_INVALID_STEP_INDEX, F("ERROR_INVALID_STEP_INDEX"));
     stopSequence();
     return;
   }
@@ -393,6 +538,12 @@ void startSequence() {
   currentSequenceStepIndex = 0;
   currentStepStartTime = millis();
 
+  if (testLogEnabled) {
+    testLogExpectedNextStepStartTime = currentStepStartTime;
+    testLogLastAutoKey = -1;
+    testLogAutoRepeatStreak = 0;
+  }
+
   // immediately play the first step
   executeSequenceStep(currentSequenceStep);
 }
@@ -408,6 +559,13 @@ void stopSequence() {
   
   // Ensure speaker is silenced (resetKey bypasses normal release detection)
   noTone(SPEAKER_PIN);
+
+  if (testLogEnabled) {
+    testLogExpectedNextStepStartTime = 0;
+    testLogLastAutoKey = -1;
+    testLogAutoRepeatStreak = 0;
+  }
+
   
   sequenceRunning = false;
   waitingForServoRelease = false;
@@ -417,6 +575,7 @@ void stopSequence() {
 void executeSequenceStep(const SequenceStep &step) {
   if (!IS_VALID_KEY_INDEX(step.keyIndex)) {
     LOGF("[ERROR] Invalid keyIndex: %d encountered while executing sequence step\n", step.keyIndex);
+    testLogLogError(TESTLOG_INVALID_KEY_INDEX, F("ERROR_INVALID_KEY"));
     currentStepStartTime = millis(); // Still update time to prevent infinite loop
     return;
   }
@@ -425,13 +584,38 @@ void executeSequenceStep(const SequenceStep &step) {
        currentSequenceStepIndex + 1, currentSequence.length, 
        step.keyIndex, getColorString(step.color), step.duration);
 
+    unsigned long stepStartCallTime = millis();
+
+  // Compute autoplay timing error against expected time
+  long autoplayTimingErrorMs = 0;
+  if (testLogEnabled) {
+    if (testLogExpectedNextStepStartTime == 0) {
+      testLogExpectedNextStepStartTime = stepStartCallTime;
+    }
+    autoplayTimingErrorMs = (long)(stepStartCallTime - testLogExpectedNextStepStartTime);
+  }
+
+  unsigned long ledCmdStart = millis();
   // light up the key's LED with the specified color
   lightUpKey(step.keyIndex, step.color);
+  unsigned long ledCmdLatencyMs = millis() - ledCmdStart;
 
+  unsigned long servoCmdLatencyMs = 0;
   // if we're in full automatic mode, also press the key with the servo
   if (currentMode == FULL_AUTOMATIC) {
     LOGF("[SERVO] Auto-pressing key %d (channel %d)\n", step.keyIndex, keys[step.keyIndex].servoChannel);
+    unsigned long servoCmdStart = millis();
     autoPressKey(step.keyIndex);
+    servoCmdLatencyMs = millis() - servoCmdStart;
+  }
+
+  if (testLogEnabled) {
+    int nextIndex = currentSequenceStepIndex + 1;
+    bool nextIsSameKey = false;
+    if (nextIndex >= 0 && nextIndex < currentSequence.length) {
+      nextIsSameKey = (currentSequence.steps[nextIndex].keyIndex == step.keyIndex);
+    }
+    testLogLogAutoStep(step.keyIndex, autoplayTimingErrorMs, ledCmdLatencyMs, servoCmdLatencyMs, (uint16_t)step.duration, nextIsSameKey);
   }
 
   currentStepStartTime = millis();
@@ -482,11 +666,19 @@ void checkButtons() {
 
       // apply debouncing to avoid false triggers
       if (millis() - lastKeyPressTime[i] >= DEBOUNCE_DELAY) {
+        unsigned long pressDetectedMs = millis();
+
         keys[i].isPressed = true;
-        lastKeyPressTime[i] = millis();
-        toneStartTime[i] = millis();  // Track when this tone started
+        lastKeyPressTime[i] = pressDetectedMs;
+        toneStartTime[i] = pressDetectedMs;  // Track when this tone started
+
         LOGF("[KEY] Key %d PRESSED (pin %d, freq %dHz)\n", i, keys[i].buttonPin, keys[i].noteFreq);
+
+        unsigned long audioStartedMs = millis();
         startKeyTone(i);
+        audioStartedMs = millis();
+
+        testLogLogManualPress(i, pressDetectedMs, audioStartedMs);
       }
 
     } else if (!buttonPressed && keys[i].isPressed) {
