@@ -504,10 +504,8 @@ void handleAutomaticModes() {
       return;
     }
 
-    // If next step uses the same key AND we're using servos, wait for
-    // the servo to physically release before pressing again. In
-    // AUTOMATIC_LEDS mode there are no servos, so no delay is needed.
-    if (currentSequenceStep.keyIndex == previousKeyIndex && currentMode == FULL_AUTOMATIC) {
+    // Manually handle successive sequence steps by adding a delay to ensure proper movement up and down
+    if (currentSequenceStep.keyIndex == previousKeyIndex) {
       LOGF("[SEQ] Same key %d in consecutive steps - waiting for servo release\n", previousKeyIndex);
       waitingForServoRelease = true;
       servoReleaseStartTime = millis();
