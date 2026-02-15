@@ -680,9 +680,8 @@ void checkButtons() {
 
         LOGF("[KEY] Key %d PRESSED (pin %d, freq %dHz)\n", i, keys[i].buttonPin, keys[i].noteFreq);
 
-        unsigned long audioStartedMs = millis();
         startKeyTone(i);
-        audioStartedMs = millis();
+        unsigned long audioStartedMs = millis();
 
         testLogLogManualPress(i, pressDetectedMs, audioStartedMs);
       }
