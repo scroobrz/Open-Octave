@@ -1,7 +1,7 @@
-#ifndef FIRMWARE_V3_SEQUENCES_H
-#define FIRMWARE_V3_SEQUENCES_H
+#ifndef FIRMWARE_V4_SEQUENCES_H
+#define FIRMWARE_V4_SEQUENCES_H
 
-#include "firmware_v3_config.h"
+#include "firmware_v4_config.h"
 
 /*
  * SEQUENCE DEFINITIONS

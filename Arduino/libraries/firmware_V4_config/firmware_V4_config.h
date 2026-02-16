@@ -1,9 +1,9 @@
-#ifndef FIRMWARE_V3_CONFIG_H
-#define FIRMWARE_V3_CONFIG_H
+#ifndef FIRMWARE_V4_CONFIG_H
+#define FIRMWARE_V4_CONFIG_H
 
-#include "PCA9685.h"           // controls the PCA9685 servo motor driver (I2C)
-#include <Adafruit_NeoPixel.h>  // controls the LED sticks/strips
-#include <Wire.h>               // allows I2C communication with the servo driver
+#include "PCA9685.h"
+#include <Adafruit_NeoPixel.h>
+#include <Wire.h>
 #include <stdint.h>
 
 // ============ HARDWARE CONFIG ============

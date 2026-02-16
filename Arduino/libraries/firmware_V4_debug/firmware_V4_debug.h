@@ -1,5 +1,5 @@
-#ifndef FIRMWARE_V3_DEBUG_H
-#define FIRMWARE_V3_DEBUG_H
+#ifndef FIRMWARE_V4_DEBUG_H
+#define FIRMWARE_V4_DEBUG_H
 
 #include <stdarg.h>
 

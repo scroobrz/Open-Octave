@@ -1,5 +1,5 @@
 /*
- * FIRMWARE V3
+ * FIRMWARE V4
  *
  * This firmware currently controls 3 keys across the following three modes:
  *   - MANUAL: User plays keys manually, no automation
