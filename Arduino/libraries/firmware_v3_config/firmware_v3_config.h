@@ -76,44 +76,16 @@ struct SequenceStep {
   uint16_t duration;  // How long to hold (ms)
 };
 
-// Sequence struct bundles steps with their length
 struct Sequence {
   const SequenceStep* steps;  // Pointer to step array
   uint8_t length;             // Number of steps in this sequence
   const char* name;           // Display name for logging
 };
 
-// ============ HELPER MACROS ============
-
-#define IS_VALID_KEY_INDEX(idx) ((idx) >= 0 && (idx) < NUM_KEYS)
-#define startKeyTone(keyIndex) tone(SPEAKER_PIN, keys[keyIndex].noteFreq)
-#define servoPull(channel) safeServoSetAngle(channel, SERVO_PRESS_ANGLE)
-#define servoRest(channel) safeServoSetAngle(channel, SERVO_REST_ANGLE)
-#define autoPressKey(keyIndex) servoPull(keys[keyIndex].servoChannel)
-#define autoReleaseKey(keyIndex) servoRest(keys[keyIndex].servoChannel)
-#define currentSequence sequences[currentSequenceIndex]
-#define currentSequenceStep sequences[currentSequenceIndex].steps[currentSequenceStepIndex]
-
-// ============ FUNCTION PROTOTYPES ============
-
-void processSerialCommands();
-void setMode(Mode mode);
-void handleAutomaticModes();
-void startSequence();
-void stopSequence();
-void executeSequenceStep(const SequenceStep &step);
-void selectSequence(int index);
-void nextSequence();
-void prevSequence();
-void stopKeyTone(int keyIndex);
-void checkButtons();
-void lightUpKey(int keyIndex, uint32_t color);
-void lightDownKey(int keyIndex);
-void resetKey(int keyIndex);
-void safeServoSetAngle(uint8_t servoChannel, int angle);
-bool validateSequenceData();
-bool validateHardwareInit();
-void testLEDs();
-void testServos();
+enum TestLogErrorCode : uint8_t {
+  TESTLOG_OK = 0,
+  TESTLOG_INVALID_STEP_INDEX = 1,
+  TESTLOG_INVALID_KEY_INDEX = 2
+};
 
 #endif

@@ -17,6 +17,44 @@
 #include <Adafruit_NeoPixel.h>     // controls the LED sticks/strips
 #include <Wire.h>                  // allows I2C communication with the servo driver
 
+// ============ FUNCTION PROTOTYPES ============
+
+void processSerialCommands();
+void setMode(Mode mode);
+void handleAutomaticModes();
+void startSequence();
+void stopSequence();
+void executeSequenceStep(const SequenceStep &step);
+void selectSequence(int index);
+void nextSequence();
+void prevSequence();
+void startKeyTone(int keyIndex);
+void stopKeyTone(int keyIndex);
+void checkButtons();
+void lightUpKey(int keyIndex, uint32_t color);
+void lightDownKey(int keyIndex);
+void resetKey(int keyIndex);
+void safeServoSetAngle(uint8_t servoChannel, int angle);
+bool validateSequenceData();
+bool validateHardwareInit();
+void testLEDs();
+void testServos();
+const Sequence& currentSequence();
+const SequenceStep& currentSequenceStep();
+void servoPull(int channel);
+void servoRest(int channel);
+void autoPressKey(int keyIndex);
+void autoReleaseKey(int keyIndex);
+bool isValidKeyIndex(int keyIndex);
+const char *getCurrentModeString();
+const char *getColorString(uint32_t color);
+void testLogPrintHeader();
+void testLogStart();
+void testLogStop();
+void testLogLogManualPress(int keyIndex, unsigned long pressDetectedMs, unsigned long audioStartedMs);
+void testLogLogAutoStep(int keyIndex, long timingErrorMs, unsigned long ledCmdMs, unsigned long servoCmdMs, uint16_t stepDurationMs, bool nextIsSameKey);
+void testLogLogError(uint8_t errorCode, const __FlashStringHelper* eventType);
+
 // ============ HARDWARE DEFINITIONS ============
 
 Key keys[NUM_KEYS] = {
@@ -30,186 +68,27 @@ ServoDriver servoDriver; // controls all servos via I2C
 // ============ GLOBAL STATE ============
 
 Mode currentMode = MANUAL;
+
 unsigned long lastKeyPressTime[NUM_KEYS] = {0};
-unsigned long toneStartTime[NUM_KEYS] = {0};  // Tracks when each key's tone started
+unsigned long toneStartTime[NUM_KEYS] = {0};
+
 bool sequenceRunning = false;
 int currentSequenceStepIndex = 0;
 unsigned long currentStepStartTime = 0;
 int currentSequenceIndex = 0;
 
-// For non-blocking delay between consecutive same-key steps
 bool waitingForServoRelease = false;
 unsigned long servoReleaseStartTime = 0;
-
-// ============ HELPERS FOR LOGGING ============
-
-const char *getCurrentModeString() {
-  switch (currentMode) {
-  case MANUAL:
-    return "MANUAL";
-  case AUTOMATIC_LEDS:
-    return "AUTOMATIC_LEDS";
-  case FULL_AUTOMATIC:
-    return "FULL_AUTOMATIC";
-  default:
-    return "UNKNOWN";
-  }
-}
-
-const char *getColorString(uint32_t color) {
-  switch (color) {
-  case COLOR_RED:
-    return "RED";
-  case COLOR_ORANGE:
-    return "ORANGE";
-  case COLOR_YELLOW:
-    return "YELLOW";
-  case COLOR_GREEN:
-    return "GREEN";
-  case COLOR_BLUE:
-    return "BLUE";
-  case COLOR_INDIGO:
-    return "INDIGO";
-  case COLOR_VIOLET:
-    return "VIOLET";
-  case COLOR_WHITE:
-    return "WHITE";
-  default:
-    return "CUSTOM";
-  }
-}
-
-// ============ TEST LOGGING (CSV STREAM) ============
-// Prints one CSV row per event to Serial (no RAM buffering).
-
-enum TestLogErrorCode : uint8_t {
-  TESTLOG_OK = 0,
-  TESTLOG_INVALID_STEP_INDEX = 1,
-  TESTLOG_INVALID_KEY_INDEX = 2
-};
 
 bool testLogEnabled = false;
 uint16_t testLogRunId = 0;
 uint16_t testLogEventId = 0;
-
-// Manual repeat detection
 int8_t testLogLastManualKey = -1;
 unsigned long testLogLastManualTime = 0;
 uint8_t testLogManualRepeatStreak = 0;
-
-// Auto repeat detection + timing
 unsigned long testLogExpectedNextStepStartTime = 0;
 int8_t testLogLastAutoKey = -1;
 uint8_t testLogAutoRepeatStreak = 0;
-
-static void testLogPrintHeader() {
-  Serial.println();
-  Serial.println(F("CSV_BEGIN"));
-  Serial.println(F("run_id,event_id,mode,event_type,key_index,repeat_streak,input_to_audio_ms,step_led_cmd_ms,step_servo_cmd_ms,autoplay_timing_error_ms,success,error_code"));
-  Serial.println(F("CSV_DATA"));
-}
-
-static void testLogStart() {
-  testLogEnabled = true;
-  testLogRunId++;
-  testLogEventId = 0;
-
-  testLogLastManualKey = -1;
-  testLogLastManualTime = 0;
-  testLogManualRepeatStreak = 0;
-
-  testLogExpectedNextStepStartTime = 0;
-  testLogLastAutoKey = -1;
-  testLogAutoRepeatStreak = 0;
-
-  LOGLN("\n[TESTLOG] Enabled. Streaming CSV to Serial. Press 'g' again to stop.");
-  testLogPrintHeader();
-}
-
-static void testLogStop() {
-  if (!testLogEnabled) return;
-  testLogEnabled = false;
-  Serial.println(F("CSV_END"));
-  LOGF("[TESTLOG] Disabled (run_id=%u, events=%u)\n", testLogRunId, testLogEventId);
-}
-
-static void testLogLogManualPress(int keyIndex, unsigned long pressDetectedMs, unsigned long audioStartedMs) {
-  if (!testLogEnabled) return;
-
-  if (keyIndex == testLogLastManualKey && (pressDetectedMs - testLogLastManualTime) <= 1000) {
-    testLogManualRepeatStreak++;
-  } else {
-    testLogManualRepeatStreak = 1;
-  }
-  testLogLastManualKey = (int8_t)keyIndex;
-  testLogLastManualTime = pressDetectedMs;
-
-  testLogEventId++;
-
-  long latency = (long)(audioStartedMs - pressDetectedMs);
-
-  Serial.print(testLogRunId); Serial.print(",");
-  Serial.print(testLogEventId); Serial.print(",");
-  Serial.print(getCurrentModeString()); Serial.print(",");
-  Serial.print(F("MANUAL_PRESS")); Serial.print(",");
-  Serial.print(keyIndex); Serial.print(",");
-  Serial.print(testLogManualRepeatStreak); Serial.print(",");
-  Serial.print(latency); Serial.print(",");
-  Serial.print(-1); Serial.print(",");
-  Serial.print(-1); Serial.print(",");
-  Serial.print(-1); Serial.print(",");
-  Serial.print(1); Serial.print(",");
-  Serial.println(TESTLOG_OK);
-}
-
-static void testLogLogAutoStep(int keyIndex, long timingErrorMs, unsigned long ledCmdMs, unsigned long servoCmdMs, uint16_t stepDurationMs, bool nextIsSameKey) {
-  if (!testLogEnabled) return;
-
-  if (keyIndex == testLogLastAutoKey) testLogAutoRepeatStreak++;
-  else testLogAutoRepeatStreak = 1;
-  testLogLastAutoKey = (int8_t)keyIndex;
-
-  testLogEventId++;
-
-  Serial.print(testLogRunId); Serial.print(",");
-  Serial.print(testLogEventId); Serial.print(",");
-  Serial.print(getCurrentModeString()); Serial.print(",");
-  Serial.print(F("AUTO_STEP")); Serial.print(",");
-  Serial.print(keyIndex); Serial.print(",");
-  Serial.print(testLogAutoRepeatStreak); Serial.print(",");
-  Serial.print(-1); Serial.print(",");
-  Serial.print((long)ledCmdMs); Serial.print(",");
-  Serial.print((long)servoCmdMs); Serial.print(",");
-  Serial.print((long)timingErrorMs); Serial.print(",");
-  Serial.print(1); Serial.print(",");
-  Serial.println(TESTLOG_OK);
-
-  // Update expected time for next step (includes same-key release delay)
-  testLogExpectedNextStepStartTime = testLogExpectedNextStepStartTime + (unsigned long)stepDurationMs;
-  if (nextIsSameKey) {
-    testLogExpectedNextStepStartTime = testLogExpectedNextStepStartTime + SERVO_RELEASE_DELAY;
-  }
-}
-
-static void testLogLogError(uint8_t errorCode, const __FlashStringHelper* eventType) {
-  if (!testLogEnabled) return;
-
-  testLogEventId++;
-
-  Serial.print(testLogRunId); Serial.print(",");
-  Serial.print(testLogEventId); Serial.print(",");
-  Serial.print(getCurrentModeString()); Serial.print(",");
-  Serial.print(eventType); Serial.print(",");
-  Serial.print(-1); Serial.print(",");
-  Serial.print(0); Serial.print(",");
-  Serial.print(-1); Serial.print(",");
-  Serial.print(-1); Serial.print(",");
-  Serial.print(-1); Serial.print(",");
-  Serial.print(-1); Serial.print(",");
-  Serial.print(0); Serial.print(",");
-  Serial.println(errorCode);
-}
-
 
 /*
 ===============================
@@ -472,7 +351,7 @@ void handleAutomaticModes() {
     return;
 
   // Defensive check: ensure currentSequenceStep is valid
-  if (currentSequenceStepIndex < 0 || currentSequenceStepIndex >= currentSequence.length) {
+  if (currentSequenceStepIndex < 0 || currentSequenceStepIndex >= currentSequence().length) {
     LOGF("[ERROR] Invalid step index: %d encountered while handling automatic modes\n", currentSequenceStepIndex);
     testLogLogError(TESTLOG_INVALID_STEP_INDEX, F("ERROR_INVALID_STEP_INDEX"));
     stopSequence();
@@ -484,34 +363,34 @@ void handleAutomaticModes() {
     if (millis() - servoReleaseStartTime >= SERVO_RELEASE_DELAY) {
       // Delay complete, now execute the next step
       waitingForServoRelease = false;
-      executeSequenceStep(currentSequenceStep);
+      executeSequenceStep(currentSequenceStep());
     }
     // While waiting, checkButtons() still runs in the main loop
     return;
   }
 
-  if (millis() - currentStepStartTime >= currentSequenceStep.duration) {
-    LOGF("[SEQ] Step %d/%d complete\n", currentSequenceStepIndex + 1, currentSequence.length);
+  if (millis() - currentStepStartTime >= currentSequenceStep().duration) {
+    LOGF("[SEQ] Step %d/%d complete\n", currentSequenceStepIndex + 1, currentSequence().length);
     
     // Remember which key we're resetting before incrementing step index
-    uint8_t previousKeyIndex = currentSequenceStep.keyIndex;
+    uint8_t previousKeyIndex = currentSequenceStep().keyIndex;
     resetKey(previousKeyIndex);
 
     currentSequenceStepIndex++;
-    if (currentSequenceStepIndex >= currentSequence.length) {
+    if (currentSequenceStepIndex >= currentSequence().length) {
       LOGLN("[SEQ] Sequence complete");
       stopSequence();
       return;
     }
 
     // Manually handle successive sequence steps by adding a delay to ensure proper movement up and down
-    if (currentSequenceStep.keyIndex == previousKeyIndex) {
+    if (currentSequenceStep().keyIndex == previousKeyIndex) {
       LOGF("[SEQ] Same key %d in consecutive steps - waiting for servo release\n", previousKeyIndex);
       waitingForServoRelease = true;
       servoReleaseStartTime = millis();
       // Don't execute step yet - will be done on next loop iteration after delay
     } else {
-      executeSequenceStep(currentSequenceStep);
+      executeSequenceStep(currentSequenceStep());
     }
   }
 }
@@ -530,13 +409,13 @@ void startSequence() {
     return;
   }
   
-  if (currentSequence.length <= 0) {
-    LOGF("[ERROR] Invalid sequence length: %d encountered while starting sequence\n", currentSequence.length);
+  if (currentSequence().length <= 0) {
+    LOGF("[ERROR] Invalid sequence length: %d encountered while starting sequence\n", currentSequence().length);
     return;
   }
 
   LOGLN("\n[SEQ] ======== STARTING SEQUENCE ========");
-  LOGF("[SEQ] Sequence: %s (%d steps)\n", currentSequence.name, currentSequence.length);
+  LOGF("[SEQ] Sequence: %s (%d steps)\n", currentSequence().name, currentSequence().length);
 
   sequenceRunning = true;
   currentSequenceStepIndex = 0;
@@ -549,7 +428,7 @@ void startSequence() {
   }
 
   // immediately play the first step
-  executeSequenceStep(currentSequenceStep);
+  executeSequenceStep(currentSequenceStep());
 }
 
 // stops the sequence and turns off all keys
@@ -557,7 +436,7 @@ void stopSequence() {
   if (!sequenceRunning) return;  // Nothing to stop
   
   LOGLN("\n[SEQ] ======== STOPPING SEQUENCE ========");
-  LOGF("[SEQ] Total steps completed: %d/%d\n", currentSequenceStepIndex, currentSequence.length);
+  LOGF("[SEQ] Total steps completed: %d/%d\n", currentSequenceStepIndex, currentSequence().length);
 
   for (int i = 0; i < NUM_KEYS; i++) {
     resetKey(i);
@@ -572,14 +451,13 @@ void stopSequence() {
     testLogAutoRepeatStreak = 0;
   }
 
-  
   sequenceRunning = false;
   waitingForServoRelease = false;
 }
 
 // plays a single step of a sequence
 void executeSequenceStep(const SequenceStep &step) {
-  if (!IS_VALID_KEY_INDEX(step.keyIndex)) {
+  if (!isValidKeyIndex(step.keyIndex)) {
     LOGF("[ERROR] Invalid keyIndex: %d encountered while executing sequence step\n", step.keyIndex);
     testLogLogError(TESTLOG_INVALID_KEY_INDEX, F("ERROR_INVALID_KEY"));
     currentStepStartTime = millis(); // Still update time to prevent infinite loop
@@ -587,7 +465,7 @@ void executeSequenceStep(const SequenceStep &step) {
   }
 
   LOGF("[SEQ] Step %d/%d: key=%d, color=%s, duration=%dms\n",
-       currentSequenceStepIndex + 1, currentSequence.length, 
+       currentSequenceStepIndex + 1, currentSequence().length, 
        step.keyIndex, getColorString(step.color), step.duration);
 
     unsigned long stepStartCallTime = millis();
@@ -618,8 +496,8 @@ void executeSequenceStep(const SequenceStep &step) {
   if (testLogEnabled) {
     int nextIndex = currentSequenceStepIndex + 1;
     bool nextIsSameKey = false;
-    if (nextIndex >= 0 && nextIndex < currentSequence.length) {
-      nextIsSameKey = (currentSequence.steps[nextIndex].keyIndex == step.keyIndex);
+    if (nextIndex >= 0 && nextIndex < currentSequence().length) {
+      nextIsSameKey = (currentSequence().steps[nextIndex].keyIndex == step.keyIndex);
     }
     testLogLogAutoStep(step.keyIndex, autoplayTimingErrorMs, ledCmdLatencyMs, servoCmdLatencyMs, (uint16_t)step.duration, nextIsSameKey);
   }
@@ -694,6 +572,11 @@ void checkButtons() {
   }
 }
 
+// starts playing the tone for a specific key
+inline void startKeyTone(int keyIndex) {
+  tone(SPEAKER_PIN, keys[keyIndex].noteFreq);
+}
+
 // stops playing the tone for a specific key
 // if another key is still pressed, switches to playing that key's tone instead
 // (this handles the case where you have multiple keys held down)
@@ -721,7 +604,7 @@ void stopKeyTone(int keyIndex) {
 
 // lights up all LEDs on a key's LED strip with the specified color
 void lightUpKey(int keyIndex, uint32_t color) {
-  if (!IS_VALID_KEY_INDEX(keyIndex)) {
+  if (!isValidKeyIndex(keyIndex)) {
     LOGF("[ERROR] Invalid keyIndex: %d encountered while turning on LEDs\n", keyIndex);
     return;
   }
@@ -737,7 +620,7 @@ void lightUpKey(int keyIndex, uint32_t color) {
 
 // turns off all LEDs on a key's LED strip
 void lightDownKey(int keyIndex) {
-  if (!IS_VALID_KEY_INDEX(keyIndex)) {
+  if (!isValidKeyIndex(keyIndex)) {
     LOGF("[ERROR] Invalid keyIndex: %d encountered while turning off LEDs\n", keyIndex);
     return;
   }
@@ -760,7 +643,7 @@ void lightDownKey(int keyIndex) {
 // For consecutive same-key steps, the SERVO_RELEASE_DELAY provides enough
 // time for the physical release + checkButtons() to detect it.
 void resetKey(int keyIndex) {
-  if (!IS_VALID_KEY_INDEX(keyIndex)) {
+  if (!isValidKeyIndex(keyIndex)) {
     LOGF("[ERROR] Invalid keyIndex: %d encountered while resetting key\n", keyIndex);
     return;
   }
@@ -793,7 +676,7 @@ bool validateSequenceData() {
     }
     
     for (int i = 0; i < seq.length; i++) {
-      if (!IS_VALID_KEY_INDEX(seq.steps[i].keyIndex)) {
+      if (!isValidKeyIndex(seq.steps[i].keyIndex)) {
         LOGF("[ERROR] Sequence %d step %d has invalid keyIndex: %d\n", s, i, seq.steps[i].keyIndex);
         return false;
       }
@@ -872,7 +755,7 @@ void testLEDs() {
   // Flash all key LEDs white once, then off.
   for (int i = 0; i < NUM_KEYS; i++) {
     for (int j = 0; j < LEDS_PER_KEY; j++) {
-      keys[i].led->setPixelColor(j, keys[i].led->Color(255, 255, 255));
+      keys[i].led->setPixelColor(j, COLOR_WHITE);
     }
     keys[i].led->show();
   }
@@ -900,4 +783,181 @@ void testServos() {
   }
   
   LOGLN("[TEST] Servo test complete.");
+}
+
+// ============ HELPERS ============
+
+inline const Sequence& currentSequence() {
+  return sequences[currentSequenceIndex];
+}
+
+inline const SequenceStep& currentSequenceStep() {
+  return sequences[currentSequenceIndex].steps[currentSequenceStepIndex];
+}
+
+inline void servoPull(int channel) {
+  safeServoSetAngle(channel, SERVO_PRESS_ANGLE);
+}
+
+inline void servoRest(int channel) {
+  safeServoSetAngle(channel, SERVO_REST_ANGLE);
+}
+
+inline void autoPressKey(int keyIndex) {
+  servoPull(keys[keyIndex].servoChannel);
+}
+
+inline void autoReleaseKey(int keyIndex) {
+  servoRest(keys[keyIndex].servoChannel);
+}
+
+inline bool isValidKeyIndex(int keyIndex) {
+  return (keyIndex >= 0 && keyIndex < NUM_KEYS);
+}
+
+const char *getCurrentModeString() {
+  switch (currentMode) {
+  case MANUAL:
+    return "MANUAL";
+  case AUTOMATIC_LEDS:
+    return "AUTOMATIC_LEDS";
+  case FULL_AUTOMATIC:
+    return "FULL_AUTOMATIC";
+  default:
+    return "UNKNOWN";
+  }
+}
+
+const char *getColorString(uint32_t color) {
+  switch (color) {
+  case COLOR_RED:
+    return "RED";
+  case COLOR_ORANGE:
+    return "ORANGE";
+  case COLOR_YELLOW:
+    return "YELLOW";
+  case COLOR_GREEN:
+    return "GREEN";
+  case COLOR_BLUE:
+    return "BLUE";
+  case COLOR_INDIGO:
+    return "INDIGO";
+  case COLOR_VIOLET:
+    return "VIOLET";
+  case COLOR_WHITE:
+    return "WHITE";
+  default:
+    return "CUSTOM";
+  }
+}
+
+// ============ TEST LOGGING (CSV STREAM) ============
+// Prints one CSV row per event to Serial (no RAM buffering).
+
+void testLogPrintHeader() {
+  Serial.println();
+  Serial.println(F("CSV_BEGIN"));
+  Serial.println(F("run_id,event_id,mode,event_type,key_index,repeat_streak,input_to_audio_ms,step_led_cmd_ms,step_servo_cmd_ms,autoplay_timing_error_ms,success,error_code"));
+  Serial.println(F("CSV_DATA"));
+}
+
+void testLogStart() {
+  testLogEnabled = true;
+  testLogRunId++;
+  testLogEventId = 0;
+
+  testLogLastManualKey = -1;
+  testLogLastManualTime = 0;
+  testLogManualRepeatStreak = 0;
+
+  testLogExpectedNextStepStartTime = 0;
+  testLogLastAutoKey = -1;
+  testLogAutoRepeatStreak = 0;
+
+  LOGLN("\n[TESTLOG] Enabled. Streaming CSV to Serial. Press 'g' again to stop.");
+  testLogPrintHeader();
+}
+
+void testLogStop() {
+  if (!testLogEnabled) return;
+  testLogEnabled = false;
+  Serial.println(F("CSV_END"));
+  LOGF("[TESTLOG] Disabled (run_id=%u, events=%u)\n", testLogRunId, testLogEventId);
+}
+
+void testLogLogManualPress(int keyIndex, unsigned long pressDetectedMs, unsigned long audioStartedMs) {
+  if (!testLogEnabled) return;
+
+  if (keyIndex == testLogLastManualKey && (pressDetectedMs - testLogLastManualTime) <= 1000) {
+    testLogManualRepeatStreak++;
+  } else {
+    testLogManualRepeatStreak = 1;
+  }
+  testLogLastManualKey = (int8_t)keyIndex;
+  testLogLastManualTime = pressDetectedMs;
+
+  testLogEventId++;
+
+  long latency = (long)(audioStartedMs - pressDetectedMs);
+
+  Serial.print(testLogRunId); Serial.print(",");
+  Serial.print(testLogEventId); Serial.print(",");
+  Serial.print(getCurrentModeString()); Serial.print(",");
+  Serial.print(F("MANUAL_PRESS")); Serial.print(",");
+  Serial.print(keyIndex); Serial.print(",");
+  Serial.print(testLogManualRepeatStreak); Serial.print(",");
+  Serial.print(latency); Serial.print(",");
+  Serial.print(-1); Serial.print(",");
+  Serial.print(-1); Serial.print(",");
+  Serial.print(-1); Serial.print(",");
+  Serial.print(1); Serial.print(",");
+  Serial.println(TESTLOG_OK);
+}
+
+void testLogLogAutoStep(int keyIndex, long timingErrorMs, unsigned long ledCmdMs, unsigned long servoCmdMs, uint16_t stepDurationMs, bool nextIsSameKey) {
+  if (!testLogEnabled) return;
+
+  if (keyIndex == testLogLastAutoKey) testLogAutoRepeatStreak++;
+  else testLogAutoRepeatStreak = 1;
+  testLogLastAutoKey = (int8_t)keyIndex;
+
+  testLogEventId++;
+
+  Serial.print(testLogRunId); Serial.print(",");
+  Serial.print(testLogEventId); Serial.print(",");
+  Serial.print(getCurrentModeString()); Serial.print(",");
+  Serial.print(F("AUTO_STEP")); Serial.print(",");
+  Serial.print(keyIndex); Serial.print(",");
+  Serial.print(testLogAutoRepeatStreak); Serial.print(",");
+  Serial.print(-1); Serial.print(",");
+  Serial.print((long)ledCmdMs); Serial.print(",");
+  Serial.print((long)servoCmdMs); Serial.print(",");
+  Serial.print((long)timingErrorMs); Serial.print(",");
+  Serial.print(1); Serial.print(",");
+  Serial.println(TESTLOG_OK);
+
+  // Update expected time for next step (includes same-key release delay)
+  testLogExpectedNextStepStartTime = testLogExpectedNextStepStartTime + (unsigned long)stepDurationMs;
+  if (nextIsSameKey) {
+    testLogExpectedNextStepStartTime = testLogExpectedNextStepStartTime + SERVO_RELEASE_DELAY;
+  }
+}
+
+void testLogLogError(uint8_t errorCode, const __FlashStringHelper* eventType) {
+  if (!testLogEnabled) return;
+
+  testLogEventId++;
+
+  Serial.print(testLogRunId); Serial.print(",");
+  Serial.print(testLogEventId); Serial.print(",");
+  Serial.print(getCurrentModeString()); Serial.print(",");
+  Serial.print(eventType); Serial.print(",");
+  Serial.print(-1); Serial.print(",");
+  Serial.print(0); Serial.print(",");
+  Serial.print(-1); Serial.print(",");
+  Serial.print(-1); Serial.print(",");
+  Serial.print(-1); Serial.print(",");
+  Serial.print(-1); Serial.print(",");
+  Serial.print(0); Serial.print(",");
+  Serial.println(errorCode);
 }
