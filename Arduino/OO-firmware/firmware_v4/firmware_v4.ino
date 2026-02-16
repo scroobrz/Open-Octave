@@ -10,12 +10,12 @@
  * or a servo pulls it down, the button underneath is what triggers the sound.
  */
 
-#include "PCA9685.h"               // controls the PCA9685 servo motor driver (I2C)
-#include "firmware_v3_config.h"    // global configuration for the firmware
-#include "firmware_v3_debug.h"     // debug logging macros (LOG, LOGLN, LOGF)
-#include "firmware_v3_sequences.h" // sequence definitions
-#include <Adafruit_NeoPixel.h>     // controls the LED sticks/strips
-#include <Wire.h>                  // allows I2C communication with the servo driver
+#include "PCA9685.h"
+#include "firmware_v4_config.h"
+#include "firmware_v4_debug.h"
+#include "firmware_v4_sequences.h"
+#include <Adafruit_NeoPixel.h>
+#include <Wire.h>
 
 // ============ FUNCTION PROTOTYPES ============
 
