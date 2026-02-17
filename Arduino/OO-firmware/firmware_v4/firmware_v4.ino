@@ -3,8 +3,8 @@
  *
  * This firmware currently controls 3 keys across the following three modes:
  *   - MANUAL: User plays keys manually, no automation
- *   - AUTOMATIC_LEDS: LEDs light up in a sequence
- *   - FULL_AUTOMATIC: LEDs + servos play automatically (no user input needed)
+ *   - GUIDED: Guided mode - LEDs light up, user must press key to advance
+ *   - TEACHING: LEDs + servos play automatically (no user input needed)
  *
  * Sound is always triggered by button presses - whether the user presses a key
  * or a servo pulls it down, the button underneath is what triggers the sound.
@@ -29,6 +29,8 @@ void handleSerialCommands();
 void processSerialCommand(char cmd);
 void setMode(Mode mode);
 void handleAutomaticModes();
+void handleGuidedMode();
+void handleTeachingMode();
 void startSequence();
 void stopSequence();
 void executeSequenceStep(const SequenceStep &step);
@@ -206,7 +208,7 @@ void setupWiFi() {
 
   // ---- MODE CONTROL ----
 
-  // POST /api/modes?mode=manual|auto_leds|full_auto
+  // POST /api/modes?mode=manual|guided|teaching
   server.on("/api/modes", HTTP_POST, []() {
     if (!server.hasArg("mode")) {
       server.send(400, "application/json", "{\"error\":\"Missing mode parameter\"}");
@@ -233,13 +235,13 @@ void setupWiFi() {
         setMode(AUTOMATIC_LEDS);
       }
 
-    } else if (mode == "full_auto") {
+    } else if (mode == "teaching") {
 
-      LOGLN("\n[CMD] Received: Switch to FULL_AUTOMATIC mode");
-      if (currentMode == FULL_AUTOMATIC) {
-        LOGLN("\n[CMD] Already in FULL_AUTOMATIC mode");
+      LOGLN("\n[CMD] Received: Switch to TEACHING mode");
+      if (currentMode == TEACHING) {
+        LOGLN("\n[CMD] Already in TEACHING mode");
       } else {
-        setMode(FULL_AUTOMATIC);
+        setMode(TEACHING);
       }
 
     } else {
@@ -460,12 +462,12 @@ void processSerialCommand(char cmd) {
       }
       break;
 
-    case 'f': // Full automatic mode
-      LOGLN("\n[CMD] Received: Switch to FULL_AUTOMATIC mode");
-      if (currentMode == FULL_AUTOMATIC) {
-        LOGLN("\n[CMD] Already in FULL_AUTOMATIC mode");
+    case 'f': // Teaching mode
+      LOGLN("\n[CMD] Received: Switch to TEACHING mode");
+      if (currentMode == TEACHING) {
+        LOGLN("\n[CMD] Already in TEACHING mode");
       } else {
-        setMode(FULL_AUTOMATIC);
+        setMode(TEACHING);
       }
       break;
 
@@ -555,8 +557,8 @@ void processSerialCommand(char cmd) {
       LOGLN("========================================");
       LOGLN("  MODE:");
       LOGLN("    m - Switch to MANUAL mode");
-      LOGLN("    a - Switch to AUTOMATIC_LEDS mode");
-      LOGLN("    f - Switch to FULL_AUTOMATIC mode");
+      LOGLN("    a - Switch to GUIDED mode");
+      LOGLN("    f - Switch to TEACHING mode");
       LOGLN("  SEQUENCE:");
       LOGLN("    s - Start sequence");
       LOGLN("    x - Stop sequence");
@@ -611,6 +613,14 @@ void handleAutomaticModes() {
     return;
   }
 
+  if (currentMode == TEACHING) {
+    handleTeachingMode();
+  } else if (currentMode == GUIDED) {
+    handleGuidedMode();
+  }
+}
+
+void handleTeachingMode() {
   // If we're waiting for the servo to release (between consecutive same-key steps)
   if (waitingForServoRelease) {
     if (millis() - servoReleaseStartTime >= SERVO_RELEASE_DELAY) {
@@ -735,8 +745,8 @@ void executeSequenceStep(const SequenceStep &step) {
   unsigned long ledCmdLatencyMs = millis() - ledCmdStart;
 
   unsigned long servoCmdLatencyMs = 0;
-  // if we're in full automatic mode, also press the key with the servo
-  if (currentMode == FULL_AUTOMATIC) {
+  // if we're in teaching mode, also press the key with the servo
+  if (currentMode == TEACHING) {
     LOGF("[SERVO] Auto-pressing key %d (channel %d)\n", step.keyIndex, keys[step.keyIndex].servoChannel);
     unsigned long servoCmdStart = millis();
     autoPressKey(step.keyIndex);
@@ -1069,10 +1079,10 @@ const char *getCurrentModeString() {
   switch (currentMode) {
   case MANUAL:
     return "MANUAL";
-  case AUTOMATIC_LEDS:
-    return "AUTOMATIC_LEDS";
-  case FULL_AUTOMATIC:
-    return "FULL_AUTOMATIC";
+  case GUIDED:
+    return "GUIDED";
+  case TEACHING:
+    return "TEACHING";
   default:
     return "UNKNOWN";
   }

@@ -60,8 +60,8 @@
 
 enum Mode {
   MANUAL,         // no automatic functions, user plays manually
-  AUTOMATIC_LEDS, // LEDs light up in sequence
-  FULL_AUTOMATIC  // LEDs + servos play automatically
+  GUIDED,         // LEDs light up in sequence, user must press key to advance
+  TEACHING        // LEDs + servos play automatically
 };
 
 struct Key {
