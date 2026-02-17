@@ -679,9 +679,8 @@ void handleGuidedMode() {
 
 /*
 ===============================
-   SEQUENCE CONTROL FUNCTIONS
+       SEQUENCE HANDLING
 ===============================
-These handle starting, stopping, and playing automatic sequences.
 */
 
 // starts playing the sequence from the beginning
