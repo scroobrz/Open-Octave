@@ -103,6 +103,9 @@ uint8_t testLogAutoRepeatStreak = 0;
 unsigned long lastWifiCheckTime = 0;
 bool isWifiConnected = false;
 
+// Tracks the most recently pressed key index in the current loop (or -1 if none)
+int keyJustPressed = -1;
+
 /*
 ===============================
      CORE ARDUINO FUNCTIONS
@@ -181,6 +184,7 @@ void setup() {
 
 // runs repeatedly forever
 void loop() {
+  keyJustPressed = -1;     // Reset key press tracking for this loop
   server.handleClient();   // handle web server requests
   WebSerial.loop();        // handle web serial commands
   handleSerialCommands();  // handle serial commands
@@ -226,13 +230,13 @@ void setupWiFi() {
         setMode(MANUAL);
       }
 
-    } else if (mode == "auto_leds") {
+    } else if (mode == "guided") {
 
-      LOGLN("\n[CMD] Received: Switch to AUTOMATIC_LEDS mode");
-      if (currentMode == AUTOMATIC_LEDS) {
-        LOGLN("\n[CMD] Already in AUTOMATIC_LEDS mode");
+      LOGLN("\n[CMD] Received: Switch to GUIDED mode");
+      if (currentMode == GUIDED) {
+        LOGLN("\n[CMD] Already in GUIDED mode");
       } else {
-        setMode(AUTOMATIC_LEDS);
+        setMode(GUIDED);
       }
 
     } else if (mode == "teaching") {
@@ -453,12 +457,12 @@ void processSerialCommand(char cmd) {
       }
       break;
 
-    case 'a': // Automatic LEDs mode
-      LOGLN("\n[CMD] Received: Switch to AUTOMATIC_LEDS mode");
-      if (currentMode == AUTOMATIC_LEDS) {
-        LOGLN("\n[CMD] Already in AUTOMATIC_LEDS mode");
+    case 'a': // Guided mode
+      LOGLN("\n[CMD] Received: Switch to GUIDED mode");
+      if (currentMode == GUIDED) {
+        LOGLN("\n[CMD] Already in GUIDED mode");
       } else {
-        setMode(AUTOMATIC_LEDS);
+        setMode(GUIDED);
       }
       break;
 
@@ -624,18 +628,15 @@ void handleTeachingMode() {
   // If we're waiting for the servo to release (between consecutive same-key steps)
   if (waitingForServoRelease) {
     if (millis() - servoReleaseStartTime >= SERVO_RELEASE_DELAY) {
-      // Delay complete, now execute the next step
       waitingForServoRelease = false;
       executeSequenceStep(currentSequenceStep());
     }
-    // While waiting, checkButtons() still runs in the main loop
     return;
   }
 
   if (millis() - currentStepStartTime >= currentSequenceStep().duration) {
     LOGF("[SEQ] Step %d/%d complete\n", currentSequenceStepIndex + 1, currentSequence().length);
     
-    // Remember which key we're resetting before incrementing step index
     uint8_t previousKeyIndex = currentSequenceStep().keyIndex;
     resetKey(previousKeyIndex);
 
@@ -655,6 +656,24 @@ void handleTeachingMode() {
     } else {
       executeSequenceStep(currentSequenceStep());
     }
+  }
+}
+
+void handleGuidedMode() {
+  if (keyJustPressed == currentSequenceStep().keyIndex) {
+    LOGF("[SEQ] Correct key %d pressed, advancing sequence.\n", keyJustPressed);
+
+    resetKey(currentSequenceStep().keyIndex);
+
+    currentSequenceStepIndex++;
+    if (currentSequenceStepIndex >= currentSequence().length) {
+      LOGLN("[SEQ] Sequence complete");
+      stopSequence();
+      return;
+    }
+
+    // Note: does not currently wait for sequence step duration before executing next step
+    executeSequenceStep(currentSequenceStep());
   }
 }
 
@@ -820,6 +839,8 @@ void checkButtons() {
 
         startKeyTone(i);
         unsigned long audioStartedMs = millis();
+        
+        keyJustPressed = i; // Register this key press event for guided mode
 
         testLogLogManualPress(i, pressDetectedMs, audioStartedMs);
       }
