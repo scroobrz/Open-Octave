@@ -16,7 +16,7 @@
 #define NUM_SEQUENCES 8
 
 #define WIFI_SSID "Open Octave"
-#define WIFI_PASSWORD "oop2563"
+#define WIFI_PASSWORD "oop321321"
 
 #define SPEAKER_PIN 8
 
