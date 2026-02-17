@@ -23,6 +23,7 @@
 // ============ FUNCTION PROTOTYPES ============
 
 void setupWiFi();
+void handleWiFiStatus();
 void handleWebSerialCommands(uint8_t *data, size_t len);
 void handleSerialCommands();
 void processSerialCommand(char cmd);
@@ -96,6 +97,9 @@ uint8_t testLogManualRepeatStreak = 0;
 unsigned long testLogExpectedNextStepStartTime = 0;
 int8_t testLogLastAutoKey = -1;
 uint8_t testLogAutoRepeatStreak = 0;
+
+unsigned long lastWifiCheckTime = 0;
+bool isWifiConnected = false;
 
 /*
 ===============================
@@ -179,6 +183,7 @@ void loop() {
   WebSerial.loop();        // handle web serial commands
   handleSerialCommands();  // handle serial commands
   checkButtons();          // detect any key presses and play sounds
+  handleWiFiStatus();      // check wifi connection state
 
   // if we're in an automatic mode, handle the sequence playback
   if (currentMode != MANUAL) {
@@ -195,7 +200,8 @@ void loop() {
 void setupWiFi() {
   WiFi.mode(WIFI_STA);
   WiFi.begin(WIFI_SSID, WIFI_PASSWORD);
-  while (WiFi.status() != WL_CONNECTED) { delay(500); }
+  LOGLN("[WIFI] Connecting in background...");
+  // Note: We do NOT wait here. loop() will handle connection checks.
   
   // ============ API ENDPOINTS ============
 
@@ -386,6 +392,27 @@ void setupWiFi() {
   WebSerial.msgCallback(handleWebSerialCommands);
 
   server.begin();
+  LOGLN("[SETUP] WebServer started (waiting for WiFi connection)");
+}
+
+void handleWiFiStatus() {
+  // Check WiFi status every 1000ms
+  if (millis() - lastWifiCheckTime > 1000) {
+    lastWifiCheckTime = millis();
+    
+    if (WiFi.status() == WL_CONNECTED) {
+      if (!isWifiConnected) {
+        isWifiConnected = true;
+        LOG("[WIFI] Connected! IP: ");
+        LOGLN_VAL(WiFi.localIP());
+      }
+    } else {
+      if (isWifiConnected) {
+        isWifiConnected = false;
+        LOGLN("[WIFI] Connection lost...");
+      }
+    }
+  }
 }
 
 void handleWebSerialCommands(uint8_t *data, size_t len) {
