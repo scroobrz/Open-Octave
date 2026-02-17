@@ -201,11 +201,10 @@ void setupWiFi() {
   WiFi.mode(WIFI_STA);
   WiFi.begin(WIFI_SSID, WIFI_PASSWORD);
   LOGLN("[WIFI] Connecting in background...");
-  // Note: We do NOT wait here. loop() will handle connection checks.
   
   // ============ API ENDPOINTS ============
 
-   // ---- MODE CONTROL ----
+  // ---- MODE CONTROL ----
 
   // POST /api/modes?mode=manual|auto_leds|full_auto
   server.on("/api/modes", HTTP_POST, []() {
@@ -216,43 +215,41 @@ void setupWiFi() {
     
     String mode = server.arg("mode");
     
-    switch (mode) {
+    if (mode == "manual") { 
 
-    // ---- MODE CONTROL ----
-
-    case "manual": // Manual mode
       LOGLN("\n[CMD] Received: Switch to MANUAL mode");
       if (currentMode == MANUAL) {
         LOGLN("\n[CMD] Already in MANUAL mode");
       } else {
         setMode(MANUAL);
       }
-      break;
 
-    case "auto_leds": // Automatic LEDs mode
+    } else if (mode == "auto_leds") {
+
       LOGLN("\n[CMD] Received: Switch to AUTOMATIC_LEDS mode");
       if (currentMode == AUTOMATIC_LEDS) {
         LOGLN("\n[CMD] Already in AUTOMATIC_LEDS mode");
       } else {
         setMode(AUTOMATIC_LEDS);
       }
-      break;
 
-    case "full_auto": // Full automatic mode
+    } else if (mode == "full_auto") {
+
       LOGLN("\n[CMD] Received: Switch to FULL_AUTOMATIC mode");
       if (currentMode == FULL_AUTOMATIC) {
         LOGLN("\n[CMD] Already in FULL_AUTOMATIC mode");
       } else {
         setMode(FULL_AUTOMATIC);
       }
-      break;
-    
-    default:
+
+    } else {
+
       server.send(400, "application/json", "{\"error\":\"Invalid mode type\"}");
       return;
     }
-    
-    String json = "{\"mode\":\"" + String(getCurrentModeString()) + "\"}";
+
+    char json[64];
+    snprintf(json, sizeof(json), "{\"mode\":\"%s\"}", getCurrentModeString());
     server.send(200, "application/json", json);
   });
 
@@ -267,49 +264,50 @@ void setupWiFi() {
     
     String cmd = server.arg("cmd");
     
-    switch (cmd) {
-      case "start": // Start sequence
-        LOGLN("\n[CMD] Received: Start sequence");
-        if (currentMode == MANUAL) {
-          LOGLN("\n[CMD] Cannot start sequence in MANUAL mode");
-          server.send(409, "application/json", "{\"error\":\"Cannot start sequence in MANUAL mode\"}");
-          return;
-        } else {
-          startSequence();
-        }
-        break;
+    if (cmd == "start") {
 
-      case "stop": // Stop sequence
-        LOGLN("\n[CMD] Received: Stop sequence");
-        if (currentMode == MANUAL) {
-          LOGLN("\n[CMD] Cannot stop sequence in MANUAL mode");
-          server.send(409, "application/json", "{"error":"Cannot stop sequence in MANUAL mode"}");
-          return;
-        } else if (!sequenceRunning) {
-          LOGLN("\n[CMD] Sequence is not running");
-          server.send(409, "application/json", "{"error":"Sequence is not running"}");
-          return;
-        } else {
-          stopSequence();
-        }
-        break;
-
-      case "next": // Next sequence
-        LOGLN("\n[CMD] Received: Next sequence");
-        nextSequence();
-        break;
-
-      case "prev": // Previous sequence
-        LOGLN("\n[CMD] Received: Previous sequence");
-        prevSequence();
-        break;
-
-      default:
-        server.send(400, "application/json", "{\"error\":\"Invalid command\"}");
+      LOGLN("\n[CMD] Received: Start sequence");
+      if (currentMode == MANUAL) {
+        LOGLN("\n[CMD] Cannot start sequence in MANUAL mode");
+        server.send(409, "application/json", "{\"error\":\"Cannot start sequence in MANUAL mode\"}");
         return;
+      } else {
+        startSequence();
+      }
+
+    } else if (cmd == "stop") {
+      
+      LOGLN("\n[CMD] Received: Stop sequence");
+      if (currentMode == MANUAL) {
+        LOGLN("\n[CMD] Cannot stop sequence in MANUAL mode");
+        server.send(409, "application/json", "{\"error\":\"Cannot stop sequence in MANUAL mode\"}");
+        return;
+      } else if (!sequenceRunning) {
+        LOGLN("\n[CMD] Sequence is not running");
+        server.send(409, "application/json", "{\"error\":\"Sequence is not running\"}");
+        return;
+      } else {
+        stopSequence();
+      }
+
+    } else if (cmd == "next") {
+
+      LOGLN("\n[CMD] Received: Next sequence");
+      nextSequence();
+
+    } else if (cmd == "prev") {
+
+      LOGLN("\n[CMD] Received: Previous sequence");
+      prevSequence();
+
+    } else {
+
+      server.send(400, "application/json", "{\"error\":\"Invalid command\"}");
+      return;
     }
     
-    String json = "{\"status\":\"ok\",\"seq_id\":" + String(currentSequenceIndex) + "}";
+    char json[64];
+    snprintf(json, sizeof(json), "{\"status\":\"ok\",\"seq_id\":%d}", currentSequenceIndex);
     server.send(200, "application/json", json);
   });
 
@@ -328,35 +326,40 @@ void setupWiFi() {
 
     LOGF("\n[CMD] Received: Select sequence %d\n", id);
     selectSequence(id);
-    String json = "{\"id\":" + String(currentSequenceIndex) + ",\"name\":\"" + String(currentSequence().name) + "\"}";
+    
+    char json[128];
+    snprintf(json, sizeof(json), "{\"id\":%d,\"name\":\"%s\"}", currentSequenceIndex, currentSequence().name);
     server.send(200, "application/json", json);
   });
 
   // GET /api/seq/list
   server.on("/api/seq/list", HTTP_GET, []() {
-    String json = "{\"sequences\":[";
+    server.setContentLength(CONTENT_LENGTH_UNKNOWN);
+    server.send(200, "application/json", "{\"sequences\":[");
 
+    char buffer[128];
     for (int i = 0; i < NUM_SEQUENCES; i++) {
-      json += "{\"id\":" + String(i) + ",\"name\":\"" + String(sequences[i].name) + "\"}";
-      if (i < NUM_SEQUENCES - 1) {
-        json += ",";
-      }
+      snprintf(buffer, sizeof(buffer), "{\"id\":%d,\"name\":\"%s\"}%s", 
+               i, sequences[i].name, (i < NUM_SEQUENCES - 1) ? "," : "");
+      server.sendContent(buffer);
     }
 
-    json += "]}";
-    server.send(200, "application/json", json);
+    server.sendContent("]}");
   });
 
   // ---- SYSTEM & TESTING ----
 
   // GET /api/status
   server.on("/api/status", HTTP_GET, []() {
-    String json = "{";
-    json += "\"mode\":\"" + String(getCurrentModeString()) + "\",";
-    json += "\"running\":" + String(sequenceRunning ? "true" : "false") + ",";
-    json += "\"seq_id\":" + String(currentSequenceIndex) + ",";
-    json += "\"seq_name\":\"" + String(currentSequence().name) + "\"";
-    json += "}";
+    char json[256];
+    snprintf(json, sizeof(json), 
+      "{\"mode\":\"%s\",\"running\":%s,\"seq_id\":%d,\"seq_name\":\"%s\"}",
+      getCurrentModeString(),
+      sequenceRunning ? "true" : "false",
+      currentSequenceIndex,
+      currentSequence().name
+    );
+
     server.send(200, "application/json", json);
   });
 
@@ -369,20 +372,20 @@ void setupWiFi() {
     
     String target = server.arg("target");
     
-    switch (target) {
-      case "leds": // Test LEDs
-        LOGLN("\n[CMD] Received: Test LEDs");
-        testLEDs();
-        break;
+    if (target == "leds") {
 
-      case "servos": // Test servos
-        LOGLN("\n[CMD] Received: Test servos");
-        testServos();
-        break;
+      LOGLN("\n[CMD] Received: Test LEDs");
+      testLEDs();
 
-      default:
-        server.send(400, "application/json", "{\"error\":\"Invalid target\"}");
-        return;
+    } else if (target == "servos") {
+
+      LOGLN("\n[CMD] Received: Test servos");
+      testServos();
+
+    } else {
+
+      server.send(400, "application/json", "{\"error\":\"Invalid target\"}");
+      return;
     }
     
     server.send(200, "application/json", "{\"status\":\"ok\"}");
@@ -392,7 +395,7 @@ void setupWiFi() {
   WebSerial.msgCallback(handleWebSerialCommands);
 
   server.begin();
-  LOGLN("[SETUP] WebServer started (waiting for WiFi connection)");
+  LOGLN("[SETUP] WebServer started");
 }
 
 void handleWiFiStatus() {
