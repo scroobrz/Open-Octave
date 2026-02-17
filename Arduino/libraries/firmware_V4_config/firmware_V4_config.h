@@ -15,6 +15,9 @@
 #define MAX_SEQUENCE_LENGTH 16
 #define NUM_SEQUENCES 8
 
+#define WIFI_SSID "Open Octave"
+#define WIFI_PASSWORD "oop2563"
+
 #define SPEAKER_PIN 8
 
 #define SERVO_FREQ 50

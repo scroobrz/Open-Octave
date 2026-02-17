@@ -1,6 +1,7 @@
 #ifndef FIRMWARE_V4_DEBUG_H
 #define FIRMWARE_V4_DEBUG_H
 
+#include <WebSerial.h>
 #include <stdarg.h>
 
 // ============ DEBUG CONFIGURATION ============
@@ -20,13 +21,13 @@
     }                                                                          \
   } while (0)
 
-// Print string literals (automatically stored in flash)
-#define LOG(str) Serial.print(F(str))
-#define LOGLN(str) Serial.println(F(str))
+// Print string literals
+#define LOG(str)   { Serial.print(F(str));   WebSerial.print(F(str)); }
+#define LOGLN(str) { Serial.println(F(str)); WebSerial.println(F(str)); }
 
 // Print variables/values
-#define LOG_VAL(x) Serial.print(x)
-#define LOGLN_VAL(x) Serial.println(x)
+#define LOG_VAL(x)   { Serial.print(x);   WebSerial.print(x); }
+#define LOGLN_VAL(x) { Serial.println(x); WebSerial.println(x); }
 
 // Lightweight printf that reads format string from flash
 inline void LOGF_P(const char *str_P, ...) {
@@ -48,48 +49,67 @@ inline void LOGF_P(const char *str_P, ...) {
       switch (c) {
       case 'd': // Signed decimal
       case 'i':
-        if (isLong)
+        if (isLong) {
           Serial.print(va_arg(args, long));
-        else
+          WebSerial.print(va_arg(args, long));
+        } else {
           Serial.print(va_arg(args, int));
+          WebSerial.print(va_arg(args, int));
+        }
         break;
 
       case 'u': // Unsigned decimal
-        if (isLong)
+        if (isLong) {
           Serial.print(va_arg(args, unsigned long));
-        else
+          WebSerial.print(va_arg(args, unsigned long));
+        } else {
           Serial.print(va_arg(args, unsigned int));
+          WebSerial.print(va_arg(args, unsigned int));
+        }
         break;
 
       case 'x': // Hex lowercase
       case 'X': // Hex uppercase
-        if (isLong)
+        if (isLong) {
           Serial.print(va_arg(args, unsigned long), HEX);
-        else
+          WebSerial.print(va_arg(args, unsigned long), HEX);
+        } else {
           Serial.print(va_arg(args, unsigned int), HEX);
+          WebSerial.print(va_arg(args, unsigned int), HEX);
+        }
         break;
 
       case 's': // String (from RAM)
         Serial.print(va_arg(args, const char *));
+        WebSerial.print(va_arg(args, const char *));
         break;
 
       case 'c': // Character
         Serial.print((char)va_arg(args, int));
+        WebSerial.print((char)va_arg(args, int));
         break;
 
       case '%': // Literal %
         Serial.print('%');
+        WebSerial.print('%');
         break;
 
       default: // Unknown - print as-is
         Serial.print('%');
-        if (isLong)
+        WebSerial.print('%');
+
+        if (isLong) {
           Serial.print('l');
+          WebSerial.print('l');
+        }
+        
         Serial.print(c);
+        WebSerial.print(c);
         break;
       }
     } else {
       Serial.print(c);
+      WebSerial.print(c);
     }
   }
 

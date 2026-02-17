@@ -16,10 +16,16 @@
 #include "firmware_v4_sequences.h"
 #include <Adafruit_NeoPixel.h>
 #include <Wire.h>
+#include <WiFi.h>
+#include <WebServer.h>
+#include <WebSerial.h>
 
 // ============ FUNCTION PROTOTYPES ============
 
-void processSerialCommands();
+void setupWiFi();
+void handleWebSerialCommands(uint8_t *data, size_t len);
+void handleSerialCommands();
+void processSerialCommand(char cmd);
 void setMode(Mode mode);
 void handleAutomaticModes();
 void startSequence();
@@ -63,7 +69,8 @@ Key keys[NUM_KEYS] = {
     {KEY2_BUTTON_PIN, KEY2_LED_PIN, nullptr, KEY2_SERVO_CHANNEL, KEY2_NOTE, false}  // E4
 };
 
-ServoDriver servoDriver; // controls all servos via I2C
+ServoDriver servoDriver;
+WebServer server(80);
 
 // ============ GLOBAL STATE ============
 
@@ -157,6 +164,10 @@ void setup() {
   }
   LOGF("OK (%d keys initialized)\n", NUM_KEYS);
 
+  LOGLN("[SETUP] Connecting to WiFi...");
+  setupWiFi();
+  LOGLN("[SETUP] WiFi & WebServer Active!");
+
   LOGLN("========================================");
   LOGF("[SETUP] Complete! Starting in %s mode\n", getCurrentModeString());
   LOGLN("========================================\n");
@@ -164,7 +175,9 @@ void setup() {
 
 // runs repeatedly forever
 void loop() {
-  processSerialCommands(); // check for serial commands
+  server.handleClient();   // handle web server requests
+  WebSerial.loop();        // handle web serial commands
+  handleSerialCommands();  // handle serial commands
   checkButtons();          // detect any key presses and play sounds
 
   // if we're in an automatic mode, handle the sequence playback
@@ -175,22 +188,227 @@ void loop() {
 
 /*
 ===============================
-    MODE CONTROL FUNCTIONS
+            API
 ===============================
-These handle switching between and handling the MANUAL, AUTOMATIC_LEDS, and
-FULL_AUTOMATIC modes.
 */
 
-void processSerialCommands() {
-  if (Serial.available() > 0) {
-    char cmd = Serial.read();
+void setupWiFi() {
+  WiFi.mode(WIFI_STA);
+  WiFi.begin(WIFI_SSID, WIFI_PASSWORD);
+  while (WiFi.status() != WL_CONNECTED) { delay(500); }
+  
+  // ============ API ENDPOINTS ============
 
-    // Convert to lowercase
-    if (cmd >= 'A' && cmd <= 'Z') {
-      cmd = cmd + ('a' - 'A');
+   // ---- MODE CONTROL ----
+
+  // POST /api/modes?mode=manual|auto_leds|full_auto
+  server.on("/api/modes", HTTP_POST, []() {
+    if (!server.hasArg("mode")) {
+      server.send(400, "application/json", "{\"error\":\"Missing mode parameter\"}");
+      return;
+    }
+    
+    String mode = server.arg("mode");
+    
+    switch (mode) {
+
+    // ---- MODE CONTROL ----
+
+    case "manual": // Manual mode
+      LOGLN("\n[CMD] Received: Switch to MANUAL mode");
+      if (currentMode == MANUAL) {
+        LOGLN("\n[CMD] Already in MANUAL mode");
+      } else {
+        setMode(MANUAL);
+      }
+      break;
+
+    case "auto_leds": // Automatic LEDs mode
+      LOGLN("\n[CMD] Received: Switch to AUTOMATIC_LEDS mode");
+      if (currentMode == AUTOMATIC_LEDS) {
+        LOGLN("\n[CMD] Already in AUTOMATIC_LEDS mode");
+      } else {
+        setMode(AUTOMATIC_LEDS);
+      }
+      break;
+
+    case "full_auto": // Full automatic mode
+      LOGLN("\n[CMD] Received: Switch to FULL_AUTOMATIC mode");
+      if (currentMode == FULL_AUTOMATIC) {
+        LOGLN("\n[CMD] Already in FULL_AUTOMATIC mode");
+      } else {
+        setMode(FULL_AUTOMATIC);
+      }
+      break;
+    
+    default:
+      server.send(400, "application/json", "{\"error\":\"Invalid mode type\"}");
+      return;
+    }
+    
+    String json = "{\"mode\":\"" + String(getCurrentModeString()) + "\"}";
+    server.send(200, "application/json", json);
+  });
+
+  // ---- SEQUENCE CONTROL ----
+
+  // POST /api/seq/control?cmd=start|stop|next|prev
+  server.on("/api/seq/control", HTTP_POST, []() {
+    if (!server.hasArg("cmd")) {
+      server.send(400, "application/json", "{\"error\":\"Missing cmd parameter\"}");
+      return;
+    }
+    
+    String cmd = server.arg("cmd");
+    
+    switch (cmd) {
+      case "start": // Start sequence
+        LOGLN("\n[CMD] Received: Start sequence");
+        if (currentMode == MANUAL) {
+          LOGLN("\n[CMD] Cannot start sequence in MANUAL mode");
+          server.send(409, "application/json", "{\"error\":\"Cannot start sequence in MANUAL mode\"}");
+          return;
+        } else {
+          startSequence();
+        }
+        break;
+
+      case "stop": // Stop sequence
+        LOGLN("\n[CMD] Received: Stop sequence");
+        if (currentMode == MANUAL) {
+          LOGLN("\n[CMD] Cannot stop sequence in MANUAL mode");
+          server.send(409, "application/json", "{"error":"Cannot stop sequence in MANUAL mode"}");
+          return;
+        } else if (!sequenceRunning) {
+          LOGLN("\n[CMD] Sequence is not running");
+          server.send(409, "application/json", "{"error":"Sequence is not running"}");
+          return;
+        } else {
+          stopSequence();
+        }
+        break;
+
+      case "next": // Next sequence
+        LOGLN("\n[CMD] Received: Next sequence");
+        nextSequence();
+        break;
+
+      case "prev": // Previous sequence
+        LOGLN("\n[CMD] Received: Previous sequence");
+        prevSequence();
+        break;
+
+      default:
+        server.send(400, "application/json", "{\"error\":\"Invalid command\"}");
+        return;
+    }
+    
+    String json = "{\"status\":\"ok\",\"seq_id\":" + String(currentSequenceIndex) + "}";
+    server.send(200, "application/json", json);
+  });
+
+  // POST /api/seq/select?id=X
+  server.on("/api/seq/select", HTTP_POST, []() {
+    if (!server.hasArg("id")) {
+      server.send(400, "application/json", "{\"error\":\"Missing id parameter\"}");
+      return;
     }
 
-    switch (cmd) {
+    int id = server.arg("id").toInt();
+    if (id < 0 || id >= NUM_SEQUENCES) {
+       server.send(400, "application/json", "{\"error\":\"Invalid sequence ID\"}");
+       return;
+    }
+
+    LOGF("\n[CMD] Received: Select sequence %d\n", id);
+    selectSequence(id);
+    String json = "{\"id\":" + String(currentSequenceIndex) + ",\"name\":\"" + String(currentSequence().name) + "\"}";
+    server.send(200, "application/json", json);
+  });
+
+  // GET /api/seq/list
+  server.on("/api/seq/list", HTTP_GET, []() {
+    String json = "{\"sequences\":[";
+
+    for (int i = 0; i < NUM_SEQUENCES; i++) {
+      json += "{\"id\":" + String(i) + ",\"name\":\"" + String(sequences[i].name) + "\"}";
+      if (i < NUM_SEQUENCES - 1) {
+        json += ",";
+      }
+    }
+
+    json += "]}";
+    server.send(200, "application/json", json);
+  });
+
+  // ---- SYSTEM & TESTING ----
+
+  // GET /api/status
+  server.on("/api/status", HTTP_GET, []() {
+    String json = "{";
+    json += "\"mode\":\"" + String(getCurrentModeString()) + "\",";
+    json += "\"running\":" + String(sequenceRunning ? "true" : "false") + ",";
+    json += "\"seq_id\":" + String(currentSequenceIndex) + ",";
+    json += "\"seq_name\":\"" + String(currentSequence().name) + "\"";
+    json += "}";
+    server.send(200, "application/json", json);
+  });
+
+  // POST /api/test?target=leds|servos
+  server.on("/api/test", HTTP_POST, []() {
+    if (!server.hasArg("target")) {
+      server.send(400, "application/json", "{\"error\":\"Missing target parameter\"}");
+      return;
+    }
+    
+    String target = server.arg("target");
+    
+    switch (target) {
+      case "leds": // Test LEDs
+        LOGLN("\n[CMD] Received: Test LEDs");
+        testLEDs();
+        break;
+
+      case "servos": // Test servos
+        LOGLN("\n[CMD] Received: Test servos");
+        testServos();
+        break;
+
+      default:
+        server.send(400, "application/json", "{\"error\":\"Invalid target\"}");
+        return;
+    }
+    
+    server.send(200, "application/json", "{\"status\":\"ok\"}");
+  });
+  
+  WebSerial.begin(&server);
+  WebSerial.msgCallback(handleWebSerialCommands);
+
+  server.begin();
+}
+
+void handleWebSerialCommands(uint8_t *data, size_t len) {
+  if (len > 0) {
+    char cmd = (char)data[0]; 
+    processSerialCommand(cmd);
+  }
+}
+
+void handleSerialCommands() {
+  if (Serial.available() > 0) {
+    char cmd = Serial.read();
+    processSerialCommand(cmd);
+  }
+}
+
+void processSerialCommand(char cmd) {
+  // Convert to lowercase
+  if (cmd >= 'A' && cmd <= 'Z') {
+    cmd = cmd + ('a' - 'A');
+  }
+
+  switch (cmd) {
 
     // ---- MODE CONTROL ----
 
@@ -335,8 +553,13 @@ void processSerialCommands() {
       LOGF("[CMD] Unknown command: '%c' (type 'h' for help)\n", cmd);
       break;
     }
-  }
 }
+
+/*
+===============================
+    MODE CONTROL FUNCTIONS
+===============================
+*/
 
 // switches to a new mode and resets everything to a clean state
 void setMode(Mode mode) {
