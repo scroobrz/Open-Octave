@@ -10,7 +10,7 @@ const PORT = process.env.APP_PORT || 3000;
 
 const COMM_MODE = process.env.COMM_MODE || 'WIFI';
 const ESP_HOST = process.env.ESP32_HOST;
-const SERIAL_PATH = process.env.SERIAL_PORT || '/dev/tty.usbmodem1101';
+const SERIAL_PATH = process.env.SERIAL_PORT || '/dev/ttyACM0';
 const BAUD_RATE = 115200;
 
 app.use(cors());
