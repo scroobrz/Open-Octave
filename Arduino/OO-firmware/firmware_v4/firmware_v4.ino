@@ -11,9 +11,9 @@
  */
 
 #include "PCA9685.h"
-#include "firmware_v4_config.h"
-#include "firmware_v4_debug.h"
-#include "firmware_v4_sequences.h"
+#include "firmware_V4_config.h"
+#include "firmware_V4_debug.h"
+#include "firmware_V4_sequences.h"
 #include <Adafruit_NeoPixel.h>
 #include <Wire.h>
 
