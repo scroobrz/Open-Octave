@@ -2,3 +2,4 @@
 .vscode
 .Rhistory
 .env
+node_modules
