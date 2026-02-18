@@ -695,9 +695,6 @@ void stopSequence() {
     resetKey(i);
   }
   
-  // Ensure speaker is silenced (resetKey bypasses normal release detection)
-  noTone(SPEAKER_PIN);
-
   if (testLogEnabled) {
     testLogExpectedNextStepStartTime = 0;
     testLogLastAutoKey = -1;
