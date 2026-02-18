@@ -2,130 +2,169 @@ require('dotenv').config();
 const express = require('express');
 const cors = require('cors');
 const fetch = require('node-fetch');
+const { SerialPort } = require('serialport');
+const { ReadlineParser } = require('@serialport/parser-readline');
 
 const app = express();
 const PORT = process.env.APP_PORT || 3000;
+
+const COMM_MODE = process.env.COMM_MODE || 'WIFI';
 const ESP_HOST = process.env.ESP32_HOST;
+const SERIAL_PATH = process.env.SERIAL_PORT || '/dev/tty.usbmodem1101';
+const BAUD_RATE = 115200;
 
 app.use(cors());
 app.use(express.json());
 
-// Helper for forwarding requests to ESP32
-async function forwardToEsp(endpoint, method = 'GET', queryParams = {}) {
+let port;
+let parser;
+
+if (COMM_MODE === 'SERIAL') {
+    console.log(`[INIT] Starting in SERIAL mode on ${SERIAL_PATH}...`);
     try {
-        // Construct query string
-        const urlParams = new URLSearchParams(queryParams);
-        const url = `${ESP_HOST}${endpoint}?${urlParams.toString()}`;
+        port = new SerialPort({ path: SERIAL_PATH, baudRate: BAUD_RATE });
+        parser = port.pipe(new ReadlineParser({ delimiter: '\n' }));
         
-        console.log(`[PROXY] ${method} ${url}`);
+        port.on('open', () => console.log('[SERIAL] Port Open'));
+        port.on('error', (err) => console.error('[SERIAL] Error: ', err.message));
         
-        const options = {
+        // Simple listener for debug
+        parser.on('data', (data) => {
+            console.log(`[ESP32] ${data.toString().trim()}`);
+        });
+        
+    } catch (err) {
+        console.error(`[FATAL] Could not open serial port: ${err.message}`);
+    }
+} else {
+    console.log(`[INIT] Starting in WIFI mode targeting ${ESP_HOST}...`);
+}
+
+function translateToSerialCmd(endpoint, query) {
+    if (endpoint === '/api/modes') {
+        if (query.mode === 'manual') return 'm';
+        if (query.mode === 'auto_leds') return 'a';
+        if (query.mode === 'full_auto') return 'f';
+    }
+    
+    if (endpoint === '/api/seq/control') {
+        if (query.cmd === 'start') return 's';
+        if (query.cmd === 'stop') return 'x';
+        if (query.cmd === 'next') return 'n';
+        if (query.cmd === 'prev') return 'p';
+    }
+
+    if (endpoint === '/api/seq/select') {
+        if (query.id !== undefined) return query.id.toString(); 
+    }
+
+    if (endpoint === '/api/test') {
+        if (query.target === 'leds') return 't';
+        if (query.target === 'servos') return 'u';
+    }
+    return null;
+}
+
+async function sendCommand(endpoint, method, query = {}) {
+    
+    if (COMM_MODE === 'WIFI') {
+        return await sendWifiCommand(endpoint, method, query);
+    }
+
+    if (COMM_MODE === 'SERIAL') {
+        return await sendSerialCommand(endpoint, query);
+    }
+}
+
+async function sendWifiCommand(endpoint, method, query) {
+    if (!ESP_HOST) {
+        console.error("ESP32_HOST is missing!");
+        return { error: "Configuration Error" };
+    }
+
+    const urlParams = new URLSearchParams(query);
+    const url = `${ESP_HOST}${endpoint}?${urlParams.toString()}`;
+    
+    console.log(`[WIFI] ${method} ${url}`);
+    
+    try {
+        const response = await fetch(url, {
             method: method,
             headers: { 'Content-Type': 'application/json' },
-            timeout: 5000 // 5s timeout
-        };
-
-        const response = await fetch(url, options);
+            timeout: 5000
+        });
         
-        if (!response.ok) {
-            const errorText = await response.text();
-            throw new Error(`ESP32 Error ${response.status}: ${errorText}`);
-        }
-        
+        if (!response.ok) throw new Error(`HTTP ${response.status}`);
         return await response.json();
-    } catch (error) {
-        console.error(`[ERROR] Failed to contact ESP32: ${error.message}`);
-        throw error;
+    } catch (e) {
+        console.error(`[WIFI ERROR] ${e.message}`);
+        throw e;
     }
+}
+
+async function sendSerialCommand(endpoint, query) {
+    if (!port || !port.isOpen) {
+            console.error("Serial Port Closed");
+            return { error: "Serial Port Closed" };
+    }
+    
+    const cmd = translateToSerialCmd(endpoint, query);
+    
+    if (!cmd) {
+        console.warn(`[SERIAL] No mapping for ${endpoint} ${JSON.stringify(query)}`);
+        return { error: "Command not supported in Serial Mode" };
+    }
+
+    console.log(`[SERIAL] Sending: '${cmd}'`);
+    port.write(cmd); 
+    
+    return { success: true, mode: "serial", cmd: cmd };
 }
 
 // ============ API ROUTES ============
 
-// 1. MODE CONTROL
-// POST /api/mode?type=manual
 app.post('/api/modes', async (req, res) => {
     try {
-        const mode = req.query.mode;
-        if (!mode) return res.status(400).json({ error: "Missing 'mode' query parameter" });
-        
-        const data = await forwardToEsp('/api/modes', 'POST', { mode: mode });
-        res.json(data);
-    } catch (error) {
-        res.status(502).json({ error: "Device Unreachable", details: error.message });
-    }
+        const result = await sendCommand('/api/modes', 'POST', req.query);
+        res.json(result);
+    } catch (e) { res.status(500).json({ error: e.message }); }
 });
 
-// 2. SEQUENCE TRANSPORT
-// POST /api/seq/control?cmd=start
 app.post('/api/seq/control', async (req, res) => {
     try {
-        const cmd = req.query.cmd;
-        if (!cmd) return res.status(400).json({ error: "Missing 'cmd' query parameter" });
-        
-        const data = await forwardToEsp('/api/seq/control', 'POST', { cmd });
-        res.json(data);
-    } catch (error) {
-        res.status(502).json({ error: "Device Unreachable", details: error.message });
-    }
+        const result = await sendCommand('/api/seq/control', 'POST', req.query);
+        res.json(result);
+    } catch (e) { res.status(500).json({ error: e.message }); }
 });
 
-// 3. SEQUENCE SELECTION
-// POST /api/seq/select?id=2
 app.post('/api/seq/select', async (req, res) => {
     try {
-        const id = req.query.id;
-        if (id === undefined) return res.status(400).json({ error: "Missing 'id' query parameter" });
-        
-        const data = await forwardToEsp('/api/seq/select', 'POST', { id });
-        res.json(data);
-    } catch (error) {
-        res.status(502).json({ error: "Device Unreachable", details: error.message });
-    }
+        const result = await sendCommand('/api/seq/select', 'POST', req.query);
+        res.json(result);
+    } catch (e) { res.status(500).json({ error: e.message }); }
 });
 
-// 4. LIST SEQUENCES
-// GET /api/seq/list
-app.get('/api/seq/list', async (req, res) => {
-    try {
-        const data = await forwardToEsp('/api/seq/list', 'GET');
-        res.json(data);
-    } catch (error) {
-        res.status(502).json({ error: "Device Unreachable", details: error.message });
-    }
-});
-
-// 5. STATUS
-// GET /api/status
-app.get('/api/status', async (req, res) => {
-    try {
-        const data = await forwardToEsp('/api/status', 'GET');
-        res.json(data);
-    } catch (error) {
-        // Return structured error so frontend knows device is offline
-        res.status(503).json({ 
-            online: false, 
-            mode: "offline", 
-            error: "Device Unreachable" 
-        });
-    }
-});
-
-// 6. TESTING
-// POST /api/test?target=leds
 app.post('/api/test', async (req, res) => {
     try {
-        const target = req.query.target;
-        if (!target) return res.status(400).json({ error: "Missing 'target' query parameter" });
-        
-        const data = await forwardToEsp('/api/test', 'POST', { target });
-        res.json(data);
-    } catch (error) {
-        res.status(502).json({ error: "Device Unreachable", details: error.message });
+        const result = await sendCommand('/api/test', 'POST', req.query);
+        res.json(result);
+    } catch (e) { res.status(500).json({ error: e.message }); }
+});
+
+app.get('/api/status', async (req, res) => {
+    if (COMM_MODE === 'SERIAL') {
+        res.json({ online: true, mode: 'serial_assumed' });
+    } else {
+        try {
+            const result = await sendCommand('/api/status', 'GET');
+            res.json(result);
+        } catch (e) { res.status(503).json({ online: false }); }
     }
 });
+
 
 app.listen(PORT, () => {
     console.log(`\nOPEN OCTAVE CONTROLLER`);
     console.log(`Server running at: http://localhost:${PORT}`);
-    console.log(`Proxying to ESP32: ${ESP_HOST}\n`);
+    console.log(`Mode: ${COMM_MODE}\n`);
 });
