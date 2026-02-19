@@ -1003,17 +1003,17 @@ bool validateHardwareInit() {
     return false;
   }
 
-  if (SPEAKER_PIN < 2 || SPEAKER_PIN > 8) {
+  if (SPEAKER_PIN < 0 || SPEAKER_PIN > 33) {
     LOGF("[ERROR] Invalid SPEAKER_PIN: %d", SPEAKER_PIN);
     return false;
   }
 
   for (int i = 0; i < NUM_KEYS; i++) {
-    if (keys[i].buttonPin < 2 || keys[i].buttonPin > 8) {
+    if (keys[i].buttonPin < 0 || keys[i].buttonPin > 39) {
       LOGF("[ERROR] Invalid buttonPin: %d for key %d", keys[i].buttonPin, i);
       return false;
     }
-    if (keys[i].ledPin < 2 || keys[i].ledPin > 8) {
+    if (keys[i].ledPin < 0 || keys[i].ledPin > 33) {
       LOGF("[ERROR] Invalid ledPin: %d for key %d", keys[i].ledPin, i);
       return false;
     }
