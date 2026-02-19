@@ -204,9 +204,12 @@ void loop() {
 */
 
 void setupWiFi() {
-  WiFi.mode(WIFI_STA);
-  WiFi.begin(WIFI_SSID, WIFI_PASSWORD);
-  LOGLN("[WIFI] Connecting in background...");
+  WiFi.mode(WIFI_AP);
+  WiFi.softAP(WIFI_SSID, WIFI_PASSWORD);
+  LOG("[WIFI] Access Point started: ");
+  LOGLN(WIFI_SSID);
+  LOG("[WIFI] IP Address: ");
+  LOGLN_VAL(WiFi.softAPIP());
   
   // ============ API ENDPOINTS ============
 
@@ -405,22 +408,10 @@ void setupWiFi() {
 }
 
 void handleWiFiStatus() {
-  // Check WiFi status every 1000ms
-  if (millis() - lastWifiCheckTime > 1000) {
+  // In AP mode, report client connections periodically
+  if (millis() - lastWifiCheckTime > 5000) {
     lastWifiCheckTime = millis();
-    
-    if (WiFi.status() == WL_CONNECTED) {
-      if (!isWifiConnected) {
-        isWifiConnected = true;
-        LOG("[WIFI] Connected! IP: ");
-        LOGLN_VAL(WiFi.localIP());
-      }
-    } else {
-      if (isWifiConnected) {
-        isWifiConnected = false;
-        LOGLN("[WIFI] Connection lost...");
-      }
-    }
+    LOGF("[WIFI] AP clients connected: %d\n", WiFi.softAPgetStationNum());
   }
 }
 
