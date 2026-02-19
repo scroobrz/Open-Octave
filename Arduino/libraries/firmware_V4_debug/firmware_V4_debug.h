@@ -15,7 +15,7 @@
 #define LOG_INIT()                                                             \
   do {                                                                         \
     Serial.begin(SERIAL_BAUD_RATE);                                            \
-    delay(100);                                                                \
+    delay(2000);  /* Wait for Serial Monitor to connect */                     \
   } while (0)
 
 // Print string literals

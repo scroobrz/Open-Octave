@@ -409,7 +409,7 @@ void setupWiFi() {
 
 void handleWiFiStatus() {
   // In AP mode, report client connections periodically
-  if (millis() - lastWifiCheckTime > 5000) {
+  if (millis() - lastWifiCheckTime > 20000) {
     lastWifiCheckTime = millis();
     LOGF("[WIFI] AP clients connected: %d\n", WiFi.softAPgetStationNum());
   }
