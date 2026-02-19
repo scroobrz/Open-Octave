@@ -18,13 +18,13 @@
 #include <Wire.h>
 #include <WiFi.h>
 #include <WebServer.h>
-#include <WebSerial.h>
+// #include <WebSerial.h>  // TODO: Re-enable after migrating to AsyncWebServer
 
 // ============ FUNCTION PROTOTYPES ============
 
 void setupWiFi();
 void handleWiFiStatus();
-void handleWebSerialCommands(uint8_t *data, size_t len);
+// void handleWebSerialCommands(uint8_t *data, size_t len);  // WebSerial disabled
 void handleSerialCommands();
 void processSerialCommand(char cmd);
 void setMode(Mode mode);
@@ -186,7 +186,7 @@ void setup() {
 void loop() {
   keyJustPressed = -1;     // Reset key press tracking for this loop
   server.handleClient();   // handle web server requests
-  WebSerial.loop();        // handle web serial commands
+  // WebSerial.loop();     // WebSerial disabled
   handleSerialCommands();  // handle serial commands
   checkButtons();          // detect any key presses and play sounds
   handleWiFiStatus();      // check wifi connection state
@@ -397,8 +397,8 @@ void setupWiFi() {
     server.send(200, "application/json", "{\"status\":\"ok\"}");
   });
   
-  WebSerial.begin(&server);
-  WebSerial.msgCallback(handleWebSerialCommands);
+  // WebSerial.begin(&server);                    // WebSerial disabled
+  // WebSerial.msgCallback(handleWebSerialCommands); // WebSerial disabled
 
   server.begin();
   LOGLN("[SETUP] WebServer started");
@@ -424,12 +424,13 @@ void handleWiFiStatus() {
   }
 }
 
-void handleWebSerialCommands(uint8_t *data, size_t len) {
-  if (len > 0) {
-    char cmd = (char)data[0]; 
-    processSerialCommand(cmd);
-  }
-}
+// WebSerial disabled — function commented out until AsyncWebServer migration
+// void handleWebSerialCommands(uint8_t *data, size_t len) {
+//   if (len > 0) {
+//     char cmd = (char)data[0]; 
+//     processSerialCommand(cmd);
+//   }
+// }
 
 void handleSerialCommands() {
   if (Serial.available() > 0) {
