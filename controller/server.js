@@ -1,20 +1,23 @@
 require('dotenv').config();
 const express = require('express');
 const cors = require('cors');
-const fetch = require('node-fetch');
 const { SerialPort } = require('serialport');
 const { ReadlineParser } = require('@serialport/parser-readline');
+const WebSocket = require('ws');
 
 const app = express();
 const PORT = process.env.APP_PORT || 3000;
 
 const COMM_MODE = process.env.COMM_MODE || 'WIFI';
-const ESP_HOST = process.env.ESP32_HOST;
+const ESP_HOST = process.env.ESP32_HOST;    // e.g. "192.168.4.1"
+const WS_PORT = process.env.WS_PORT || 81;  // WebSocket port on the ESP32
 const SERIAL_PATH = process.env.SERIAL_PORT || '/dev/ttyACM0';
 const BAUD_RATE = 115200;
 
 app.use(cors());
 app.use(express.json());
+
+// ============ SERIAL MODE SETUP ============
 
 let port;
 let parser;
@@ -28,7 +31,7 @@ if (COMM_MODE === 'SERIAL') {
         port.on('open', () => console.log('[SERIAL] Port Open'));
         port.on('error', (err) => console.error('[SERIAL] Error: ', err.message));
         
-        // Simple listener for debug
+        // Print incoming serial data from the ESP32
         parser.on('data', (data) => {
             console.log(`[ESP32] ${data.toString().trim()}`);
         });
@@ -36,22 +39,94 @@ if (COMM_MODE === 'SERIAL') {
     } catch (err) {
         console.error(`[FATAL] Could not open serial port: ${err.message}`);
     }
-} else {
-    console.log(`[INIT] Starting in WIFI mode targeting ${ESP_HOST}...`);
 }
 
+// ============ WEBSOCKET MODE SETUP ============
+
+let ws;                         // WebSocket client instance
+let wsConnected = false;        // Connection state
+let wsReconnectTimer = null;    // Reconnect timer reference
+let wsReconnectDelay = 1000;    // Initial reconnect delay (ms)
+const WS_MAX_RECONNECT_DELAY = 10000;  // Cap at 10 seconds
+
+// Connects (or reconnects) the WebSocket client to the ESP32.
+// Uses exponential backoff: 1s -> 2s -> 4s -> 8s -> 10s (capped).
+function connectWebSocket() {
+    if (COMM_MODE !== 'WIFI') return;
+    
+    // Strip any trailing slash and protocol from ESP_HOST for the WS URL
+    const host = ESP_HOST.replace(/^https?:\/\//, '').replace(/\/$/, '');
+    const wsUrl = `ws://${host}:${WS_PORT}`;
+    
+    console.log(`[WS] Connecting to ${wsUrl}...`);
+    
+    ws = new WebSocket(wsUrl);
+    
+    ws.on('open', () => {
+        wsConnected = true;
+        wsReconnectDelay = 1000;  // Reset backoff on successful connect
+        console.log(`[WS] Connected to ESP32 at ${wsUrl}`);
+    });
+    
+    // Incoming messages are the ESP32's log output — print them like serial
+    ws.on('message', (data) => {
+        // data arrives as a Buffer; convert to string and print
+        const msg = data.toString().trim();
+        if (msg.length > 0) {
+            console.log(`[ESP32] ${msg}`);
+        }
+    });
+    
+    ws.on('close', () => {
+        wsConnected = false;
+        console.log('[WS] Connection closed');
+        scheduleReconnect();
+    });
+    
+    ws.on('error', (err) => {
+        // Suppress noisy ECONNREFUSED errors during reconnect attempts
+        if (err.code !== 'ECONNREFUSED') {
+            console.error(`[WS] Error: ${err.message}`);
+        }
+        // 'close' event will fire after error, triggering reconnect
+    });
+}
+
+// Schedules a reconnection attempt with exponential backoff.
+function scheduleReconnect() {
+    if (wsReconnectTimer) return;  // Already scheduled
+    
+    console.log(`[WS] Reconnecting in ${wsReconnectDelay / 1000}s...`);
+    wsReconnectTimer = setTimeout(() => {
+        wsReconnectTimer = null;
+        connectWebSocket();
+    }, wsReconnectDelay);
+    
+    // Exponential backoff: double the delay each time, capped at max
+    wsReconnectDelay = Math.min(wsReconnectDelay * 2, WS_MAX_RECONNECT_DELAY);
+}
+
+if (COMM_MODE === 'WIFI') {
+    console.log(`[INIT] Starting in WIFI (WebSocket) mode targeting ${ESP_HOST}...`);
+    connectWebSocket();
+}
+
+// ============ COMMAND TRANSLATION ============
+
+// Translates API endpoint + query parameters into a single-character serial
+// command. This is the shared command format used by both serial and WebSocket.
 function translateToSerialCmd(endpoint, query) {
     if (endpoint === '/api/modes') {
-        if (query.mode === 'manual') return 'm';
-        if (query.mode === 'auto_leds') return 'a';
-        if (query.mode === 'full_auto') return 'f';
+        if (query.mode === 'manual')   return 'm';
+        if (query.mode === 'guided')   return 'a';
+        if (query.mode === 'teaching') return 'f';
     }
     
     if (endpoint === '/api/seq/control') {
         if (query.cmd === 'start') return 's';
-        if (query.cmd === 'stop') return 'x';
-        if (query.cmd === 'next') return 'n';
-        if (query.cmd === 'prev') return 'p';
+        if (query.cmd === 'stop')  return 'x';
+        if (query.cmd === 'next')  return 'n';
+        if (query.cmd === 'prev')  return 'p';
     }
 
     if (endpoint === '/api/seq/select') {
@@ -59,66 +134,61 @@ function translateToSerialCmd(endpoint, query) {
     }
 
     if (endpoint === '/api/test') {
-        if (query.target === 'leds') return 't';
+        if (query.target === 'leds')   return 't';
         if (query.target === 'servos') return 'u';
     }
+
+    if (endpoint === '/api/seq/list') return 'l';
+    if (endpoint === '/api/status')   return '?';
+
     return null;
 }
 
+// ============ COMMAND DISPATCH ============
+
+// Both WIFI and SERIAL modes now use the same fire-and-forget pattern:
+//   1. Translate the API call to a single-char command
+//   2. Send it over the active channel (WebSocket or serial)
+//   3. Return immediately with a confirmation
+// The ESP32's response (log output) streams back asynchronously.
+
 async function sendCommand(endpoint, method, query = {}) {
-    
-    if (COMM_MODE === 'WIFI') {
-        return await sendWifiCommand(endpoint, method, query);
-    }
-
-    if (COMM_MODE === 'SERIAL') {
-        return await sendSerialCommand(endpoint, query);
-    }
-}
-
-async function sendWifiCommand(endpoint, method, query) {
-    if (!ESP_HOST) {
-        console.error("ESP32_HOST is missing!");
-        return { error: "Configuration Error" };
-    }
-
-    const urlParams = new URLSearchParams(query);
-    const url = `${ESP_HOST}${endpoint}?${urlParams.toString()}`;
-    
-    console.log(`[WIFI] ${method} ${url}`);
-    
-    try {
-        const response = await fetch(url, {
-            method: method,
-            headers: { 'Content-Type': 'application/json' },
-            timeout: 5000
-        });
-        
-        if (!response.ok) throw new Error(`HTTP ${response.status}`);
-        return await response.json();
-    } catch (e) {
-        console.error(`[WIFI ERROR] ${e.message}`);
-        throw e;
-    }
-}
-
-async function sendSerialCommand(endpoint, query) {
-    if (!port || !port.isOpen) {
-            console.error("Serial Port Closed");
-            return { error: "Serial Port Closed" };
-    }
-    
     const cmd = translateToSerialCmd(endpoint, query);
     
     if (!cmd) {
-        console.warn(`[SERIAL] No mapping for ${endpoint} ${JSON.stringify(query)}`);
-        return { error: "Command not supported in Serial Mode" };
+        console.warn(`[CMD] No mapping for ${endpoint} ${JSON.stringify(query)}`);
+        return { error: 'Command not supported' };
+    }
+
+    if (COMM_MODE === 'WIFI') {
+        return sendWsCommand(cmd);
+    }
+
+    if (COMM_MODE === 'SERIAL') {
+        return sendSerialCommand(cmd);
+    }
+}
+
+function sendWsCommand(cmd) {
+    if (!ws || !wsConnected) {
+        console.error('[WS] Not connected to ESP32');
+        return { error: 'WebSocket not connected' };
+    }
+
+    console.log(`[WS] Sending: '${cmd}'`);
+    ws.send(cmd);
+    return { success: true, mode: 'websocket', cmd: cmd };
+}
+
+function sendSerialCommand(cmd) {
+    if (!port || !port.isOpen) {
+        console.error('[SERIAL] Port closed');
+        return { error: 'Serial port closed' };
     }
 
     console.log(`[SERIAL] Sending: '${cmd}'`);
-    port.write(cmd); 
-    
-    return { success: true, mode: "serial", cmd: cmd };
+    port.write(cmd);
+    return { success: true, mode: 'serial', cmd: cmd };
 }
 
 // ============ API ROUTES ============
@@ -159,16 +229,13 @@ app.post('/api/test', async (req, res) => {
 });
 
 app.get('/api/status', async (req, res) => {
-    if (COMM_MODE === 'SERIAL') {
-        res.json({ online: true, mode: 'serial_assumed' });
-    } else {
-        try {
-            const result = await sendCommand('/api/status', 'GET');
-            res.json(result);
-        } catch (e) { res.status(503).json({ online: false }); }
-    }
+    try {
+        const result = await sendCommand('/api/status', 'GET');
+        res.json(result);
+    } catch (e) { res.status(503).json({ online: false }); }
 });
 
+// ============ START SERVER ============
 
 app.listen(PORT, () => {
     console.log(`\nOPEN OCTAVE CONTROLLER`);

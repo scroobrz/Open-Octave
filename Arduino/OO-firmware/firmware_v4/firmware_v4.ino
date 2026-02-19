@@ -8,6 +8,13 @@
  *
  * Sound is always triggered by button presses - whether the user presses a key
  * or a servo pulls it down, the button underneath is what triggers the sound.
+ *
+ * NETWORKING:
+ *   The ESP32 hosts a WiFi Access Point and runs a WebSocket server on port 81.
+ *   Commands are received as single-character text messages (same format as USB
+ *   serial commands), and all log output is broadcast back to connected clients.
+ *   This "serial-over-WebSocket" design keeps the firmware simple and makes the
+ *   WiFi interface behave identically to the USB serial interface.
  */
 
 #include "PCA9685.h"
@@ -17,14 +24,14 @@
 #include <Adafruit_NeoPixel.h>
 #include <Wire.h>
 #include <WiFi.h>
-#include <WebServer.h>
-// #include <WebSerial.h>  // TODO: Re-enable after migrating to AsyncWebServer
+#include <WebSocketsServer.h>
 
 // ============ FUNCTION PROTOTYPES ============
 
 void setupWiFi();
 void handleWiFiStatus();
-// void handleWebSerialCommands(uint8_t *data, size_t len);  // WebSerial disabled
+void webSocketEvent(uint8_t num, WStype_t type, uint8_t *payload, size_t length);
+void wsBroadcastLog(const char* msg);
 void handleSerialCommands();
 void processSerialCommand(char cmd);
 void setMode(Mode mode);
@@ -73,7 +80,7 @@ Key keys[NUM_KEYS] = {
 };
 
 ServoDriver servoDriver;
-WebServer server(80);
+WebSocketsServer webSocket(81);
 
 // ============ GLOBAL STATE ============
 
@@ -102,6 +109,7 @@ uint8_t testLogAutoRepeatStreak = 0;
 
 unsigned long lastWifiCheckTime = 0;
 bool isWifiConnected = false;
+bool wsReady = false;  // Prevents wsBroadcastLog() from running before webSocket.begin()
 
 // Tracks the most recently pressed key index in the current loop (or -1 if none)
 int keyJustPressed = -1;
@@ -175,7 +183,7 @@ void setup() {
 
   LOGLN("[SETUP] Connecting to WiFi...");
   setupWiFi();
-  LOGLN("[SETUP] WiFi & WebServer Active!");
+  LOGLN("[SETUP] WiFi & WebSocket Active!");
 
   LOGLN("========================================");
   LOGF("[SETUP] Complete! Starting in %s mode\n", getCurrentModeString());
@@ -185,8 +193,7 @@ void setup() {
 // runs repeatedly forever
 void loop() {
   keyJustPressed = -1;     // Reset key press tracking for this loop
-  server.handleClient();   // handle web server requests
-  // WebSerial.loop();     // WebSerial disabled
+  webSocket.loop();        // handle WebSocket events
   handleSerialCommands();  // handle serial commands
   checkButtons();          // detect any key presses and play sounds
   handleWiFiStatus();      // check wifi connection state
@@ -199,8 +206,12 @@ void loop() {
 
 /*
 ===============================
-            API
+      WIFI & WEBSOCKET
 ===============================
+The ESP32 hosts a WiFi AP and a WebSocket server on port 81.
+Clients connect via WebSocket and send single-character text commands
+(same format as USB serial). All LOG output is broadcast back to
+connected clients, creating a "serial-over-WiFi" experience.
 */
 
 void setupWiFi() {
@@ -210,201 +221,52 @@ void setupWiFi() {
   LOGLN(WIFI_SSID);
   LOG("[WIFI] IP Address: ");
   LOGLN_VAL(WiFi.softAPIP());
-  
-  // ============ API ENDPOINTS ============
 
-  // ---- MODE CONTROL ----
+  // Start WebSocket server
+  webSocket.begin();
+  webSocket.onEvent(webSocketEvent);
+  wsReady = true;
+  LOGLN("[SETUP] WebSocket server started on port 81");
+}
 
-  // POST /api/modes?mode=manual|guided|teaching
-  server.on("/api/modes", HTTP_POST, []() {
-    if (!server.hasArg("mode")) {
-      server.send(400, "application/json", "{\"error\":\"Missing mode parameter\"}");
-      return;
-    }
-    
-    String mode = server.arg("mode");
-    
-    if (mode == "manual") { 
+// Called by the WebSocketsServer library whenever a WebSocket event occurs.
+// WStype_t tells us what kind of event it is (connect, disconnect, message, etc).
+void webSocketEvent(uint8_t num, WStype_t type, uint8_t *payload, size_t length) {
+  switch (type) {
 
-      LOGLN("\n[CMD] Received: Switch to MANUAL mode");
-      if (currentMode == MANUAL) {
-        LOGLN("\n[CMD] Already in MANUAL mode");
-      } else {
-        setMode(MANUAL);
+    case WStype_DISCONNECTED:
+      LOGF("[WS] Client %u disconnected\n", num);
+      break;
+
+    case WStype_CONNECTED:
+      {
+        // 'payload' contains the URL path the client connected to
+        LOGF("[WS] Client %u connected\n", num);
       }
+      break;
 
-    } else if (mode == "guided") {
-
-      LOGLN("\n[CMD] Received: Switch to GUIDED mode");
-      if (currentMode == GUIDED) {
-        LOGLN("\n[CMD] Already in GUIDED mode");
-      } else {
-        setMode(GUIDED);
+    case WStype_TEXT:
+      // Treat every incoming text message as a serial-style command.
+      // We process only the first character, just like USB serial.
+      if (length > 0) {
+        char cmd = (char)payload[0];
+        LOGF("[WS] Received command '%c' from client %u\n", cmd, num);
+        processSerialCommand(cmd);
       }
+      break;
 
-    } else if (mode == "teaching") {
+    default:
+      // Ignore binary, ping/pong, and other frame types
+      break;
+  }
+}
 
-      LOGLN("\n[CMD] Received: Switch to TEACHING mode");
-      if (currentMode == TEACHING) {
-        LOGLN("\n[CMD] Already in TEACHING mode");
-      } else {
-        setMode(TEACHING);
-      }
-
-    } else {
-
-      server.send(400, "application/json", "{\"error\":\"Invalid mode type\"}");
-      return;
-    }
-
-    char json[64];
-    snprintf(json, sizeof(json), "{\"mode\":\"%s\"}", getCurrentModeString());
-    server.send(200, "application/json", json);
-  });
-
-  // ---- SEQUENCE CONTROL ----
-
-  // POST /api/seq/control?cmd=start|stop|next|prev
-  server.on("/api/seq/control", HTTP_POST, []() {
-    if (!server.hasArg("cmd")) {
-      server.send(400, "application/json", "{\"error\":\"Missing cmd parameter\"}");
-      return;
-    }
-    
-    String cmd = server.arg("cmd");
-    
-    if (cmd == "start") {
-
-      LOGLN("\n[CMD] Received: Start sequence");
-      if (currentMode == MANUAL) {
-        LOGLN("\n[CMD] Cannot start sequence in MANUAL mode");
-        server.send(409, "application/json", "{\"error\":\"Cannot start sequence in MANUAL mode\"}");
-        return;
-      } else {
-        startSequence();
-      }
-
-    } else if (cmd == "stop") {
-      
-      LOGLN("\n[CMD] Received: Stop sequence");
-      if (currentMode == MANUAL) {
-        LOGLN("\n[CMD] Cannot stop sequence in MANUAL mode");
-        server.send(409, "application/json", "{\"error\":\"Cannot stop sequence in MANUAL mode\"}");
-        return;
-      } else if (!sequenceRunning) {
-        LOGLN("\n[CMD] Sequence is not running");
-        server.send(409, "application/json", "{\"error\":\"Sequence is not running\"}");
-        return;
-      } else {
-        stopSequence();
-      }
-
-    } else if (cmd == "next") {
-
-      LOGLN("\n[CMD] Received: Next sequence");
-      nextSequence();
-
-    } else if (cmd == "prev") {
-
-      LOGLN("\n[CMD] Received: Previous sequence");
-      prevSequence();
-
-    } else {
-
-      server.send(400, "application/json", "{\"error\":\"Invalid command\"}");
-      return;
-    }
-    
-    char json[64];
-    snprintf(json, sizeof(json), "{\"status\":\"ok\",\"seq_id\":%d}", currentSequenceIndex);
-    server.send(200, "application/json", json);
-  });
-
-  // POST /api/seq/select?id=X
-  server.on("/api/seq/select", HTTP_POST, []() {
-    if (!server.hasArg("id")) {
-      server.send(400, "application/json", "{\"error\":\"Missing id parameter\"}");
-      return;
-    }
-
-    int id = server.arg("id").toInt();
-    if (id < 0 || id >= NUM_SEQUENCES) {
-       server.send(400, "application/json", "{\"error\":\"Invalid sequence ID\"}");
-       return;
-    }
-
-    LOGF("\n[CMD] Received: Select sequence %d\n", id);
-    selectSequence(id);
-    
-    char json[128];
-    snprintf(json, sizeof(json), "{\"id\":%d,\"name\":\"%s\"}", currentSequenceIndex, currentSequence().name);
-    server.send(200, "application/json", json);
-  });
-
-  // GET /api/seq/list
-  server.on("/api/seq/list", HTTP_GET, []() {
-    server.setContentLength(CONTENT_LENGTH_UNKNOWN);
-    server.send(200, "application/json", "{\"sequences\":[");
-
-    char buffer[128];
-    for (int i = 0; i < NUM_SEQUENCES; i++) {
-      snprintf(buffer, sizeof(buffer), "{\"id\":%d,\"name\":\"%s\"}%s", 
-               i, sequences[i].name, (i < NUM_SEQUENCES - 1) ? "," : "");
-      server.sendContent(buffer);
-    }
-
-    server.sendContent("]}");
-  });
-
-  // ---- SYSTEM & TESTING ----
-
-  // GET /api/status
-  server.on("/api/status", HTTP_GET, []() {
-    char json[256];
-    snprintf(json, sizeof(json), 
-      "{\"mode\":\"%s\",\"running\":%s,\"seq_id\":%d,\"seq_name\":\"%s\"}",
-      getCurrentModeString(),
-      sequenceRunning ? "true" : "false",
-      currentSequenceIndex,
-      currentSequence().name
-    );
-
-    server.send(200, "application/json", json);
-  });
-
-  // POST /api/test?target=leds|servos
-  server.on("/api/test", HTTP_POST, []() {
-    if (!server.hasArg("target")) {
-      server.send(400, "application/json", "{\"error\":\"Missing target parameter\"}");
-      return;
-    }
-    
-    String target = server.arg("target");
-    
-    if (target == "leds") {
-
-      LOGLN("\n[CMD] Received: Test LEDs");
-      testLEDs();
-
-    } else if (target == "servos") {
-
-      LOGLN("\n[CMD] Received: Test servos");
-      testServos();
-
-    } else {
-
-      server.send(400, "application/json", "{\"error\":\"Invalid target\"}");
-      return;
-    }
-    
-    server.send(200, "application/json", "{\"status\":\"ok\"}");
-  });
-  
-  // WebSerial.begin(&server);                    // WebSerial disabled
-  // WebSerial.msgCallback(handleWebSerialCommands); // WebSerial disabled
-
-  server.begin();
-  LOGLN("[SETUP] WebServer started");
+// Broadcasts a log message to ALL connected WebSocket clients.
+// Called by the LOG macros in firmware_V4_debug.h.
+// Uses broadcastTXT which sends to every connected client.
+void wsBroadcastLog(const char* msg) {
+  if (!wsReady) return;  // WebSocket not yet initialized
+  webSocket.broadcastTXT(msg);
 }
 
 void handleWiFiStatus() {
@@ -414,14 +276,6 @@ void handleWiFiStatus() {
     LOGF("[WIFI] AP clients connected: %d\n", WiFi.softAPgetStationNum());
   }
 }
-
-// WebSerial disabled — function commented out until AsyncWebServer migration
-// void handleWebSerialCommands(uint8_t *data, size_t len) {
-//   if (len > 0) {
-//     char cmd = (char)data[0]; 
-//     processSerialCommand(cmd);
-//   }
-// }
 
 void handleSerialCommands() {
   if (Serial.available() > 0) {

@@ -1,15 +1,21 @@
 #ifndef FIRMWARE_V4_DEBUG_H
 #define FIRMWARE_V4_DEBUG_H
 
-// #include <WebSerial.h>  // WebSerial disabled until AsyncWebServer migration
-
 // ============ DEBUG CONFIGURATION ============
 
 // Set to 1 to enable debug output, 0 to disable
 #define DEBUG_ENABLED 1
 #define SERIAL_BAUD_RATE 115200
 
+// Maximum length of a single formatted log message.
+// Kept small for SRAM; longer messages will be truncated.
+#define LOG_BUFFER_SIZE 128
+
 #if DEBUG_ENABLED
+
+// Forward declaration — implemented in the main .ino file.
+// Sends a null-terminated string to all connected WebSocket clients.
+void wsBroadcastLog(const char* msg);
 
 // Initialize serial communication
 #define LOG_INIT()                                                             \
@@ -18,16 +24,38 @@
     delay(2000);  /* Wait for Serial Monitor to connect */                     \
   } while (0)
 
-// Print string literals
-#define LOG(str)   { Serial.print(F(str)); }
-#define LOGLN(str) { Serial.println(F(str)); }
+// Print string literals (uses F() for flash storage)
+#define LOG(str)   do { Serial.print(F(str)); wsBroadcastLog(str); } while(0)
+#define LOGLN(str) do { Serial.println(F(str)); wsBroadcastLog(str); wsBroadcastLog("\n"); } while(0)
 
-// Print variables/values
-#define LOG_VAL(x)   { Serial.print(x); }
-#define LOGLN_VAL(x) { Serial.println(x); }
+// Print variables/values (non-string-literal values)
+// These use a small stack buffer to convert the value to a string,
+// then send it to both Serial and WebSocket.
+#define LOG_VAL(x)   do {                         \
+    Serial.print(x);                              \
+    char _buf[LOG_BUFFER_SIZE];                   \
+    String _tmp(x);                               \
+    _tmp.toCharArray(_buf, sizeof(_buf));          \
+    wsBroadcastLog(_buf);                          \
+  } while(0)
 
-// Print formatted strings
-#define LOGF(str, ...) Serial.printf(str, ##__VA_ARGS__)
+#define LOGLN_VAL(x) do {                         \
+    Serial.println(x);                            \
+    char _buf[LOG_BUFFER_SIZE];                   \
+    String _tmp(x);                               \
+    _tmp.toCharArray(_buf, sizeof(_buf));          \
+    wsBroadcastLog(_buf);                          \
+    wsBroadcastLog("\n");                          \
+  } while(0)
+
+// Print formatted strings (printf-style)
+// Uses a stack buffer so no heap allocation is needed.
+#define LOGF(fmt, ...) do {                       \
+    Serial.printf(fmt, ##__VA_ARGS__);            \
+    char _buf[LOG_BUFFER_SIZE];                   \
+    snprintf(_buf, sizeof(_buf), fmt, ##__VA_ARGS__); \
+    wsBroadcastLog(_buf);                          \
+  } while(0)
 
 #else
 
