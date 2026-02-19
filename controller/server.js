@@ -144,6 +144,13 @@ app.post('/api/seq/select', async (req, res) => {
     } catch (e) { res.status(500).json({ error: e.message }); }
 });
 
+app.get('/api/seq/list', async (req, res) => {
+    try {
+        const result = await sendCommand('/api/seq/list', 'GET');
+        res.json(result);
+    } catch (e) { res.status(500).json({ error: e.message }); }
+});
+
 app.post('/api/test', async (req, res) => {
     try {
         const result = await sendCommand('/api/test', 'POST', req.query);
