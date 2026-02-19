@@ -12,13 +12,11 @@
 
 #if DEBUG_ENABLED
 
-// Initialize serial communication and wait for connection
+// Initialize serial communication
 #define LOG_INIT()                                                             \
   do {                                                                         \
     Serial.begin(SERIAL_BAUD_RATE);                                            \
-    while (!Serial) {                                                          \
-      delay(10);                                                               \
-    }                                                                          \
+    delay(100);                                                                \
   } while (0)
 
 // Print string literals
