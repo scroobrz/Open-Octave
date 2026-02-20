@@ -256,13 +256,11 @@ void webSocketEvent(uint8_t num, WStype_t type, uint8_t *payload, size_t length)
       break;
 
     default:
-      // Ignore binary, ping/pong, and other frame types
       break;
   }
 }
 
 // Broadcasts a log message to ALL connected WebSocket clients.
-// Called by the LOG macros in firmware_V4_debug.h.
 // Uses broadcastTXT which sends to every connected client.
 void wsBroadcastLog(const char* msg) {
   if (!wsReady) return;  // WebSocket not yet initialized
@@ -270,7 +268,7 @@ void wsBroadcastLog(const char* msg) {
 }
 
 void handleWiFiStatus() {
-  // In AP mode, report client connections periodically
+  // report client connections periodically
   if (millis() - lastWifiCheckTime > 20000) {
     lastWifiCheckTime = millis();
     LOGF("[WIFI] AP clients connected: %d\n", WiFi.softAPgetStationNum());
