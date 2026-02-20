@@ -125,7 +125,7 @@ These are the two functions that Arduino calls automatically.
 void setup() {
   LOG_INIT();
   LOGLN("\n========================================");
-  LOGLN("    OPEN OCTAVE FIRMWARE V3 - INIT");
+  LOGLN("    OPEN OCTAVE FIRMWARE V4 - INIT");
   LOGLN("========================================");
 
   // ===== VALIDATION =====
