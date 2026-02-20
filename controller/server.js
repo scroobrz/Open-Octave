@@ -7,11 +7,10 @@ const WebSocket = require('ws');
 
 const app = express();
 const PORT = process.env.APP_PORT || 3000;
-
 const COMM_MODE = process.env.COMM_MODE || 'WIFI';
-const ESP_HOST = process.env.ESP32_HOST;    // e.g. "192.168.4.1"
-const WS_PORT = process.env.WS_PORT || 81;  // WebSocket port on the ESP32
-const SERIAL_PATH = process.env.SERIAL_PORT || '/dev/ttyACM0';
+const ESP32_IP = process.env.ESP32_IP || '192.168.4.1';
+const WS_PORT = process.env.WS_PORT || 81;
+const SERIAL_PATH = process.env.SERIAL_PORT;
 const BAUD_RATE = 115200;
 
 app.use(cors());
@@ -54,9 +53,7 @@ const WS_MAX_RECONNECT_DELAY = 10000;  // Cap at 10 seconds
 function connectWebSocket() {
     if (COMM_MODE !== 'WIFI') return;
     
-    // Strip any trailing slash and protocol from ESP_HOST for the WS URL
-    const host = ESP_HOST.replace(/^https?:\/\//, '').replace(/\/$/, '');
-    const wsUrl = `ws://${host}:${WS_PORT}`;
+    const wsUrl = `ws://${ESP32_IP}:${WS_PORT}`;
     
     console.log(`[WS] Connecting to ${wsUrl}...`);
     
@@ -107,7 +104,7 @@ function scheduleReconnect() {
 }
 
 if (COMM_MODE === 'WIFI') {
-    console.log(`[INIT] Starting in WIFI (WebSocket) mode targeting ${ESP_HOST}...`);
+    console.log(`[INIT] Starting in WIFI (WebSocket) mode targeting ${ESP32_IP}...`);
     connectWebSocket();
 }
 
