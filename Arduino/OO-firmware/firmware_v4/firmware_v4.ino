@@ -206,12 +206,22 @@ void loop() {
 
 /*
 ===============================
-      WIFI & WEBSOCKET
+           API
 ===============================
-The ESP32 hosts a WiFi AP and a WebSocket server on port 81.
-Clients connect via WebSocket and send single-character text commands
-(same format as USB serial). All LOG output is broadcast back to
-connected clients, creating a "serial-over-WiFi" experience.
+The firmware exposes a single command API over two transports:
+
+  1. USB Serial — commands arrive one character at a time via the
+     hardware UART (Serial.read). Log output is printed to Serial.
+
+  2. WiFi WebSocket — the ESP32 hosts a WiFi Access Point and runs a
+     WebSocket server on port 81. Clients send single-character text
+     messages which are treated identically to serial input. All log
+     output is broadcast back to every connected WebSocket client,
+     creating a "serial-over-WiFi" experience.
+
+Both transports feed into the shared processSerialCommand(char cmd)
+handler, so the command set is identical regardless of how a client
+is connected. See the 'h' (help) command for a full command listing.
 */
 
 void setupWiFi() {
