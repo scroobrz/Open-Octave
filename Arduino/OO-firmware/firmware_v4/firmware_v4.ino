@@ -3,11 +3,18 @@
  *
  * This firmware currently controls 3 keys across the following three modes:
  *   - MANUAL: User plays keys manually, no automation
- *   - AUTOMATIC_LEDS: LEDs light up in a sequence
- *   - FULL_AUTOMATIC: LEDs + servos play automatically (no user input needed)
+ *   - GUIDED: Guided mode - LEDs light up, user must press key to advance
+ *   - TEACHING: LEDs + servos play automatically (no user input needed)
  *
  * Sound is always triggered by button presses - whether the user presses a key
  * or a servo pulls it down, the button underneath is what triggers the sound.
+ *
+ * NETWORKING:
+ *   The ESP32 hosts a WiFi Access Point and runs a WebSocket server on port 81.
+ *   Commands are received as single-character text messages (same format as USB
+ *   serial commands), and all log output is broadcast back to connected clients.
+ *   This "serial-over-WebSocket" design keeps the firmware simple and makes the
+ *   WiFi interface behave identically to the USB serial interface.
  */
 
 #include "PCA9685.h"
@@ -16,12 +23,21 @@
 #include "firmware_V4_sequences.h"
 #include <Adafruit_NeoPixel.h>
 #include <Wire.h>
+#include <WiFi.h>
+#include <WebSocketsServer.h>
 
 // ============ FUNCTION PROTOTYPES ============
 
-void processSerialCommands();
+void setupWiFi();
+void handleWiFiStatus();
+void webSocketEvent(uint8_t num, WStype_t type, uint8_t *payload, size_t length);
+void wsBroadcastLog(const char* msg);
+void handleSerialCommands();
+void processSerialCommand(char cmd);
 void setMode(Mode mode);
 void handleAutomaticModes();
+void handleGuidedMode();
+void handleTeachingMode();
 void startSequence();
 void stopSequence();
 void executeSequenceStep(const SequenceStep &step);
@@ -63,7 +79,8 @@ Key keys[NUM_KEYS] = {
     {KEY2_BUTTON_PIN, KEY2_LED_PIN, nullptr, KEY2_SERVO_CHANNEL, KEY2_NOTE, false}  // E4
 };
 
-ServoDriver servoDriver; // controls all servos via I2C
+ServoDriver servoDriver;
+WebSocketsServer webSocket(81);
 
 // ============ GLOBAL STATE ============
 
@@ -89,6 +106,13 @@ uint8_t testLogManualRepeatStreak = 0;
 unsigned long testLogExpectedNextStepStartTime = 0;
 int8_t testLogLastAutoKey = -1;
 uint8_t testLogAutoRepeatStreak = 0;
+
+unsigned long lastWifiCheckTime = 0;
+bool isWifiConnected = false;
+bool wsReady = false;  // Prevents wsBroadcastLog() from running before webSocket.begin()
+
+// Tracks the most recently pressed key index in the current loop (or -1 if none)
+int keyJustPressed = -1;
 
 /*
 ===============================
@@ -157,6 +181,10 @@ void setup() {
   }
   LOGF("OK (%d keys initialized)\n", NUM_KEYS);
 
+  LOGLN("[SETUP] Connecting to WiFi...");
+  setupWiFi();
+  LOGLN("[SETUP] WiFi & WebSocket Active!");
+
   LOGLN("========================================");
   LOGF("[SETUP] Complete! Starting in %s mode\n", getCurrentModeString());
   LOGLN("========================================\n");
@@ -164,8 +192,11 @@ void setup() {
 
 // runs repeatedly forever
 void loop() {
-  processSerialCommands(); // check for serial commands
+  keyJustPressed = -1;     // Reset key press tracking for this loop
+  webSocket.loop();        // handle WebSocket events
+  handleSerialCommands();  // handle serial commands
   checkButtons();          // detect any key presses and play sounds
+  handleWiFiStatus();      // check wifi connection state
 
   // if we're in an automatic mode, handle the sequence playback
   if (currentMode != MANUAL) {
@@ -175,22 +206,99 @@ void loop() {
 
 /*
 ===============================
-    MODE CONTROL FUNCTIONS
+           API
 ===============================
-These handle switching between and handling the MANUAL, AUTOMATIC_LEDS, and
-FULL_AUTOMATIC modes.
+The firmware exposes a single command API over two transports:
+
+  1. USB Serial — commands arrive one character at a time via the
+     hardware UART (Serial.read). Log output is printed to Serial.
+
+  2. WiFi WebSocket — the ESP32 hosts a WiFi Access Point and runs a
+     WebSocket server on port 81. Clients send single-character text
+     messages which are treated identically to serial input. All log
+     output is broadcast back to every connected WebSocket client,
+     creating a "serial-over-WiFi" experience.
+
+Both transports feed into the shared processSerialCommand(char cmd)
+handler, so the command set is identical regardless of how a client
+is connected. See the 'h' (help) command for a full command listing.
 */
 
-void processSerialCommands() {
+void setupWiFi() {
+  WiFi.mode(WIFI_AP);
+  WiFi.softAP(WIFI_SSID, WIFI_PASSWORD);
+  LOG("[WIFI] Access Point started: ");
+  LOGLN(WIFI_SSID);
+  LOG("[WIFI] IP Address: ");
+  LOGLN_VAL(WiFi.softAPIP());
+
+  // Start WebSocket server
+  webSocket.begin();
+  webSocket.onEvent(webSocketEvent);
+  wsReady = true;
+  LOGLN("[SETUP] WebSocket server started on port 81");
+}
+
+// Called by the WebSocketsServer library whenever a WebSocket event occurs.
+// WStype_t tells us what kind of event it is (connect, disconnect, message, etc).
+void webSocketEvent(uint8_t num, WStype_t type, uint8_t *payload, size_t length) {
+  switch (type) {
+
+    case WStype_DISCONNECTED:
+      LOGF("[WS] Client %u disconnected\n", num);
+      break;
+
+    case WStype_CONNECTED:
+      {
+        // 'payload' contains the URL path the client connected to
+        LOGF("[WS] Client %u connected\n", num);
+      }
+      break;
+
+    case WStype_TEXT:
+      // Treat every incoming text message as a serial-style command.
+      // We process only the first character, just like USB serial.
+      if (length > 0) {
+        char cmd = (char)payload[0];
+        LOGF("[WS] Received command '%c' from client %u\n", cmd, num);
+        processSerialCommand(cmd);
+      }
+      break;
+
+    default:
+      break;
+  }
+}
+
+// Broadcasts a log message to ALL connected WebSocket clients.
+// Uses broadcastTXT which sends to every connected client.
+void wsBroadcastLog(const char* msg) {
+  if (!wsReady) return;  // WebSocket not yet initialized
+  webSocket.broadcastTXT(msg);
+}
+
+void handleWiFiStatus() {
+  // report client connections periodically
+  if (millis() - lastWifiCheckTime > 20000) {
+    lastWifiCheckTime = millis();
+    LOGF("[WIFI] AP clients connected: %d\n", WiFi.softAPgetStationNum());
+  }
+}
+
+void handleSerialCommands() {
   if (Serial.available() > 0) {
     char cmd = Serial.read();
+    processSerialCommand(cmd);
+  }
+}
 
-    // Convert to lowercase
-    if (cmd >= 'A' && cmd <= 'Z') {
-      cmd = cmd + ('a' - 'A');
-    }
+void processSerialCommand(char cmd) {
+  // Convert to lowercase
+  if (cmd >= 'A' && cmd <= 'Z') {
+    cmd = cmd + ('a' - 'A');
+  }
 
-    switch (cmd) {
+  switch (cmd) {
 
     // ---- MODE CONTROL ----
 
@@ -203,21 +311,21 @@ void processSerialCommands() {
       }
       break;
 
-    case 'a': // Automatic LEDs mode
-      LOGLN("\n[CMD] Received: Switch to AUTOMATIC_LEDS mode");
-      if (currentMode == AUTOMATIC_LEDS) {
-        LOGLN("\n[CMD] Already in AUTOMATIC_LEDS mode");
+    case 'a': // Guided mode
+      LOGLN("\n[CMD] Received: Switch to GUIDED mode");
+      if (currentMode == GUIDED) {
+        LOGLN("\n[CMD] Already in GUIDED mode");
       } else {
-        setMode(AUTOMATIC_LEDS);
+        setMode(GUIDED);
       }
       break;
 
-    case 'f': // Full automatic mode
-      LOGLN("\n[CMD] Received: Switch to FULL_AUTOMATIC mode");
-      if (currentMode == FULL_AUTOMATIC) {
-        LOGLN("\n[CMD] Already in FULL_AUTOMATIC mode");
+    case 'f': // Teaching mode
+      LOGLN("\n[CMD] Received: Switch to TEACHING mode");
+      if (currentMode == TEACHING) {
+        LOGLN("\n[CMD] Already in TEACHING mode");
       } else {
-        setMode(FULL_AUTOMATIC);
+        setMode(TEACHING);
       }
       break;
 
@@ -307,8 +415,8 @@ void processSerialCommands() {
       LOGLN("========================================");
       LOGLN("  MODE:");
       LOGLN("    m - Switch to MANUAL mode");
-      LOGLN("    a - Switch to AUTOMATIC_LEDS mode");
-      LOGLN("    f - Switch to FULL_AUTOMATIC mode");
+      LOGLN("    a - Switch to GUIDED mode");
+      LOGLN("    f - Switch to TEACHING mode");
       LOGLN("  SEQUENCE:");
       LOGLN("    s - Start sequence");
       LOGLN("    x - Stop sequence");
@@ -335,8 +443,13 @@ void processSerialCommands() {
       LOGF("[CMD] Unknown command: '%c' (type 'h' for help)\n", cmd);
       break;
     }
-  }
 }
+
+/*
+===============================
+    MODE CONTROL FUNCTIONS
+===============================
+*/
 
 // switches to a new mode and resets everything to a clean state
 void setMode(Mode mode) {
@@ -358,21 +471,26 @@ void handleAutomaticModes() {
     return;
   }
 
+  if (currentMode == TEACHING) {
+    handleTeachingMode();
+  } else if (currentMode == GUIDED) {
+    handleGuidedMode();
+  }
+}
+
+void handleTeachingMode() {
   // If we're waiting for the servo to release (between consecutive same-key steps)
   if (waitingForServoRelease) {
     if (millis() - servoReleaseStartTime >= SERVO_RELEASE_DELAY) {
-      // Delay complete, now execute the next step
       waitingForServoRelease = false;
       executeSequenceStep(currentSequenceStep());
     }
-    // While waiting, checkButtons() still runs in the main loop
     return;
   }
 
   if (millis() - currentStepStartTime >= currentSequenceStep().duration) {
     LOGF("[SEQ] Step %d/%d complete\n", currentSequenceStepIndex + 1, currentSequence().length);
     
-    // Remember which key we're resetting before incrementing step index
     uint8_t previousKeyIndex = currentSequenceStep().keyIndex;
     resetKey(previousKeyIndex);
 
@@ -395,11 +513,28 @@ void handleAutomaticModes() {
   }
 }
 
+void handleGuidedMode() {
+  if (keyJustPressed == currentSequenceStep().keyIndex) {
+    LOGF("[SEQ] Correct key %d pressed, advancing sequence.\n", keyJustPressed);
+
+    resetKey(currentSequenceStep().keyIndex);
+
+    currentSequenceStepIndex++;
+    if (currentSequenceStepIndex >= currentSequence().length) {
+      LOGLN("[SEQ] Sequence complete");
+      stopSequence();
+      return;
+    }
+
+    // Note: does not currently wait for sequence step duration before executing next step
+    executeSequenceStep(currentSequenceStep());
+  }
+}
+
 /*
 ===============================
-   SEQUENCE CONTROL FUNCTIONS
+       SEQUENCE HANDLING
 ===============================
-These handle starting, stopping, and playing automatic sequences.
 */
 
 // starts playing the sequence from the beginning
@@ -442,9 +577,6 @@ void stopSequence() {
     resetKey(i);
   }
   
-  // Ensure speaker is silenced (resetKey bypasses normal release detection)
-  noTone(SPEAKER_PIN);
-
   if (testLogEnabled) {
     testLogExpectedNextStepStartTime = 0;
     testLogLastAutoKey = -1;
@@ -485,8 +617,8 @@ void executeSequenceStep(const SequenceStep &step) {
   unsigned long ledCmdLatencyMs = millis() - ledCmdStart;
 
   unsigned long servoCmdLatencyMs = 0;
-  // if we're in full automatic mode, also press the key with the servo
-  if (currentMode == FULL_AUTOMATIC) {
+  // if we're in teaching mode, also press the key with the servo
+  if (currentMode == TEACHING) {
     LOGF("[SERVO] Auto-pressing key %d (channel %d)\n", step.keyIndex, keys[step.keyIndex].servoChannel);
     unsigned long servoCmdStart = millis();
     autoPressKey(step.keyIndex);
@@ -560,6 +692,8 @@ void checkButtons() {
 
         startKeyTone(i);
         unsigned long audioStartedMs = millis();
+        
+        keyJustPressed = i; // Register this key press event for guided mode
 
         testLogLogManualPress(i, pressDetectedMs, audioStartedMs);
       }
@@ -722,17 +856,17 @@ bool validateHardwareInit() {
     return false;
   }
 
-  if (SPEAKER_PIN < 2 || SPEAKER_PIN > 8) {
+  if (SPEAKER_PIN < 0 || SPEAKER_PIN > 33) {
     LOGF("[ERROR] Invalid SPEAKER_PIN: %d", SPEAKER_PIN);
     return false;
   }
 
   for (int i = 0; i < NUM_KEYS; i++) {
-    if (keys[i].buttonPin < 2 || keys[i].buttonPin > 8) {
+    if (keys[i].buttonPin < 0 || keys[i].buttonPin > 39) {
       LOGF("[ERROR] Invalid buttonPin: %d for key %d", keys[i].buttonPin, i);
       return false;
     }
-    if (keys[i].ledPin < 2 || keys[i].ledPin > 8) {
+    if (keys[i].ledPin < 0 || keys[i].ledPin > 33) {
       LOGF("[ERROR] Invalid ledPin: %d for key %d", keys[i].ledPin, i);
       return false;
     }
@@ -819,10 +953,10 @@ const char *getCurrentModeString() {
   switch (currentMode) {
   case MANUAL:
     return "MANUAL";
-  case AUTOMATIC_LEDS:
-    return "AUTOMATIC_LEDS";
-  case FULL_AUTOMATIC:
-    return "FULL_AUTOMATIC";
+  case GUIDED:
+    return "GUIDED";
+  case TEACHING:
+    return "TEACHING";
   default:
     return "UNKNOWN";
   }

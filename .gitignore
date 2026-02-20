@@ -1,4 +1,5 @@
 .DS_Store
-.agent
 .vscode
 .Rhistory
+.env
+node_modules

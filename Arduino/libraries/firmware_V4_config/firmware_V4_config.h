@@ -15,7 +15,10 @@
 #define MAX_SEQUENCE_LENGTH 16
 #define NUM_SEQUENCES 8
 
-#define SPEAKER_PIN 8
+#define WIFI_SSID "Open Octave"
+#define WIFI_PASSWORD "oop321321"
+
+#define SPEAKER_PIN 25          // D2 (IO25) — DAC-capable, good for audio
 
 #define SERVO_FREQ 50
 #define SERVO_REST_ANGLE 0
@@ -28,18 +31,22 @@
 #define LEDS_PER_KEY 1
 #define LED_BRIGHTNESS 50
 
-#define KEY0_BUTTON_PIN 5
-#define KEY0_LED_PIN 2
+// FireBeetle ESP32 V4.0 GPIO Pin Assignments
+// Using D-labeled pins for easy identification on the board
+// AVOID: IO6-IO11 (SPI flash), IO1/IO3 (UART), IO34-IO39 (input-only)
+// RESERVED: IO21 (SDA) and IO22 (SCL) for I2C to PCA9685
+#define KEY0_BUTTON_PIN 26      // D3 (IO26)
+#define KEY0_LED_PIN 27         // D4 (IO27)
 #define KEY0_SERVO_CHANNEL 1
 #define KEY0_NOTE 392
 
-#define KEY1_BUTTON_PIN 6
-#define KEY1_LED_PIN 3
+#define KEY1_BUTTON_PIN 13      // D7 (IO13)
+#define KEY1_LED_PIN 5          // D8 (IO5)
 #define KEY1_SERVO_CHANNEL 2
 #define KEY1_NOTE 330
 
-#define KEY2_BUTTON_PIN 7
-#define KEY2_LED_PIN 4
+#define KEY2_BUTTON_PIN 2       // D9 (IO2)
+#define KEY2_LED_PIN 16         // DI (IO16)
 #define KEY2_SERVO_CHANNEL 3
 #define KEY2_NOTE 262
 
@@ -57,8 +64,8 @@
 
 enum Mode {
   MANUAL,         // no automatic functions, user plays manually
-  AUTOMATIC_LEDS, // LEDs light up in sequence
-  FULL_AUTOMATIC  // LEDs + servos play automatically
+  GUIDED,         // LEDs light up in sequence, user must press key to advance
+  TEACHING        // LEDs + servos play automatically
 };
 
 struct Key {
