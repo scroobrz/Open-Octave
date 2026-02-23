@@ -605,7 +605,7 @@ Not selected for Demo 2.
 
 ---
 
-# 11.11 Architectural Risk Summary
+# 11.1 Architectural Risk Summary
 
 | Risk | Mitigation |
 |------|------------|
