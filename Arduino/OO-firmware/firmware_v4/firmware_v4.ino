@@ -36,6 +36,7 @@ void handleWiFiStatus();
 void webSocketEvent(uint8_t num, WStype_t type, uint8_t *payload, size_t length);
 void handleSequenceCommand(char *str);
 void processSequenceUploadCommand(char *str);
+void processSequenceEndCommand(char *str);
 void processSequenceStepString(uint8_t stepIndex, char *str);
 void handleSerialCommands();
 void processSerialCommand(char cmd);
@@ -93,6 +94,7 @@ Sequence currentSequence;
 
 bool uploadingSequence = false;
 uint8_t uploadStepCount = 0;
+int uploadingSequenceId = -1;
 Sequence uploadSequenceBuffer;
 
 bool sequenceRunning = false;
@@ -297,8 +299,8 @@ void handleSequenceCommand(char *cmd){
       // Reset old upload buffer
       uploadingSequence = true;
       uploadStepCount = 0;
+      uploadingSequenceId = -1;
       memset(&uploadSequenceBuffer, 0, sizeof(uploadSequenceBuffer));
-      LOGLN("[SEQ] Starting sequence upload...");
 
       cmd++;
       processSequenceUploadCommand(cmd);
@@ -317,26 +319,17 @@ void handleSequenceCommand(char *cmd){
       break;
 
     case 'E':
-      if (uploadingSequence) {
-        uploadingSequence = false;
-        
-        uploadSequenceBuffer.length = uploadStepCount;
-        
-        // If a name wasn't properly provided, set a default name
-        if (strlen(uploadSequenceBuffer.name) == 0) {
-            strcpy(uploadSequenceBuffer.name, "Unnamed Sequence");
-        }
-        
-        currentSequence = uploadSequenceBuffer;
-        uploadStepCount = 0;
-        LOGF("[SEQ] Sequence upload complete: %s (%d steps)\n", currentSequence.name, currentSequence.length);
-      } else {
+      if (!uploadingSequence){
         LOGLN("[SEQ] Upload complete command ignored: no upload in progress");
+        break;
+      } else {
+        cmd++;
+        processSequenceEndCommand(cmd);
       }
       break;
 
     default:
-      LOGF("[SEQ] Unknown command: %c\n", cmd);
+      LOGF("[SEQ] Unknown command: %c\n", cmd[0]);
       break;
   }
 }
@@ -353,6 +346,14 @@ void processSequenceUploadCommand(char *cmd){
 
         toLowercase(cmd[i]);
         switch (cmd[i]){
+          // Sequence ID
+          case 'i': {
+            uploadingSequenceId = atoi(&cmd[i+2]);
+            LOGF("[SEQ] Starting sequence upload (id=%d)...\n", uploadingSequenceId);
+            break;
+          }
+
+          // Sequence name
           case 'n': {
             const char *nameStart = &cmd[i+2];
             int nameLen = strcspn(nameStart, " \n\r");
@@ -366,11 +367,12 @@ void processSequenceUploadCommand(char *cmd){
             break;
           }
 
+          // Number of steps
           case 's': {
             int parsedSteps = atoi(&cmd[i+2]);
 
             if (parsedSteps < 0 || parsedSteps > MAX_SEQUENCE_LENGTH) {
-              LOGF( "[SEQ] Sequence upload failed: Invalid number of steps; max is %d\n", MAX_SEQUENCE_LENGTH);
+              LOGF("[SEQ] Sequence upload failed: Invalid number of steps; max is %d\n", MAX_SEQUENCE_LENGTH);
               uploadingSequence = false;
             }
 
@@ -384,6 +386,40 @@ void processSequenceUploadCommand(char *cmd){
     }
     i++;
   }
+}
+
+void processSequenceEndCommand(char *cmd){
+  int endSeqId = -1;
+
+  // Parse the i= (sequence ID) field if present
+  int i = 0;
+  while (cmd[i] != '\n' && cmd[i] != '\0') {
+    if ((i == 0 || cmd[i-1] == ' ') && cmd[i+1] == '=') {
+      toLowercase(cmd[i]);
+      if (cmd[i] == 'i') {
+        endSeqId = atoi(&cmd[i+2]);
+      }
+    }
+    i++;
+  }
+
+  uploadingSequence = false;
+
+  if (endSeqId != uploadingSequenceId){
+    LOGF("[SEQ] Sequence upload failed: ID mismatch; expected %d, got %d\n", uploadingSequenceId, endSeqId);
+    return;
+  }
+
+  uploadSequenceBuffer.length = uploadStepCount;
+    
+  // If a name wasn't properly provided, set a default name
+  if (strlen(uploadSequenceBuffer.name) == 0) {
+    strcpy(uploadSequenceBuffer.name, "Unnamed Sequence");
+  }
+    
+  currentSequence = uploadSequenceBuffer;
+  uploadStepCount = 0;
+  LOGF("[SEQ] Sequence upload complete (id=%d): %s (%d steps)\n", endSeqId, currentSequence.name, currentSequence.length);
 }
 
 void processSequenceStepString(uint8_t stepIndex, char *cmd){
@@ -402,6 +438,7 @@ void processSequenceStepString(uint8_t stepIndex, char *cmd){
 
         toLowercase(cmd[i]);
         switch (cmd[i]){
+          // Key index
           case 'k': {
             int parsedKey = atoi(&cmd[i+2]);
 
@@ -411,6 +448,7 @@ void processSequenceStepString(uint8_t stepIndex, char *cmd){
             break;
           }
 
+          // LED Color
           case 'c': {
             uint32_t parsedColor = strtoul(&cmd[i+2], NULL, 16);
 
@@ -420,6 +458,7 @@ void processSequenceStepString(uint8_t stepIndex, char *cmd){
             break;
           }
             
+          // Note duration
           case 'd': {
             int parsedDuration = atoi(&cmd[i+2]);
 
