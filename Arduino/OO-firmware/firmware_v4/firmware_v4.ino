@@ -119,12 +119,9 @@ unsigned long lastWifiCheckTime = 0;
 bool isWifiConnected = false;
 bool wsReady = false;  // Prevents wsBroadcastLog() from running before webSocket.begin()
 
-// Serial input buffer for multi-character commands (e.g. sequence uploads).
-// Characters are accumulated here one-by-one until a newline arrives,
-// then the complete line is dispatched to the appropriate handler.
-#define SERIAL_BUF_SIZE 64
 char serialBuf[SERIAL_BUF_SIZE];
 uint8_t serialBufPos = 0;
+bool serialBufOverflow = false;  // true = discard bytes until next newline
 
 // Tracks the most recently pressed key index in the current loop (or -1 if none)
 int keyJustPressed = -1;
@@ -449,33 +446,52 @@ void handleSerialCommands() {
   // Serial data arrives byte-by-byte (unlike WebSocket, which delivers
   // complete payloads), so we must accumulate characters until a newline
   // signals the end of a line and a complete command is ready.
+
+  // NOTE: Serial monitor must be set to "Newline" or "Both NL and CR" for 
+  // commands to be properly processed by this function
+
   while (Serial.available()) {
     char c = (char)Serial.read();
 
-    // When we see a newline (or carriage-return), the line is complete
+    // Process accumulated characters when we reach a new line
     if (c == '\n' || c == '\r') {
-      if (serialBufPos == 0) continue;  // ignore empty lines / trailing CR
+      // If this line overflowed, just clear the flag and move on
+      if (serialBufOverflow) {
+        serialBufOverflow = false;
+        memset(serialBuf, 0, SERIAL_BUF_SIZE);
+        serialBufPos = 0;
+        continue;
+      }
 
-      serialBuf[serialBufPos] = '\0';  // null-terminate the string
-
-      if (serialBufPos == 1) {
-        // Single character → regular command (same as WebSocket length==1)
+      if (serialBufPos == 0) {
+        // ignore empty lines / trailing CR
+        continue;
+      } else if (serialBufPos == 1) {
+        // regular single-character command
         processSerialCommand(serialBuf[0]);
       } else {
-        // Multi-character → sequence command string
+        // sequence command; string of characters
+        serialBuf[serialBufPos] = '\0';
         handleSequenceCommand(serialBuf);
       }
 
-      serialBufPos = 0;  // reset buffer for next line
+      // Reset buffer for next line
+      memset(serialBuf, 0, SERIAL_BUF_SIZE);
+      serialBufPos = 0;
       continue;
     }
+
+    // If we're in overflow mode, discard bytes until the next newline
+    if (serialBufOverflow) continue;
 
     // Accumulate character into buffer (guard against overflow)
     if (serialBufPos < SERIAL_BUF_SIZE - 1) {
       serialBuf[serialBufPos++] = c;
     } else {
-      // Buffer full without newline — discard and warn
+      // Buffer full without newline — enter overflow mode
       LOGLN("[SERIAL] Input buffer overflow — line discarded");
+      serialBufOverflow = true;
+      memset(serialBuf, 0, SERIAL_BUF_SIZE);
       serialBufPos = 0;
     }
   }

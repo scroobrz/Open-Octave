@@ -13,6 +13,8 @@
 
 #define MAX_SEQUENCE_LENGTH 16
 
+#define SERIAL_BUF_SIZE 64
+
 #define WIFI_SSID "Open Octave"
 #define WIFI_PASSWORD "oop321321"
 
