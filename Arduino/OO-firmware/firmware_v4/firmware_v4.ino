@@ -37,7 +37,7 @@ void webSocketEvent(uint8_t num, WStype_t type, uint8_t *payload, size_t length)
 void handleSequenceCommand(char *str);
 void processSequenceUploadCommand(char *str);
 void processSequenceEndCommand(char *str);
-void processSequenceStepString(uint8_t stepIndex, char *str);
+bool processSequenceStepString(uint8_t stepIndex, char *str);
 void handleSerialCommands();
 void processSerialCommand(char cmd);
 void setMode(Mode mode);
@@ -318,8 +318,9 @@ void handleSequenceCommand(char *cmd){
         LOGF("[SEQ] Sequence step definition command rejected: sequence is full (max %d)\n", MAX_SEQUENCE_LENGTH);
       } else {
         cmd++;
-        processSequenceStepString(uploadStepCount, cmd);
-        uploadStepCount++;
+        if (processSequenceStepString(uploadStepCount, cmd)) {
+          uploadStepCount++;
+        }
       }
       break;
 
@@ -435,11 +436,12 @@ void processSequenceEndCommand(char *cmd){
   LOGF("[SEQ] Sequence upload complete (id=%d): %s (%d steps)\n", endSeqId, currentSequence.name, currentSequence.length);
 }
 
-void processSequenceStepString(uint8_t stepIndex, char *cmd){
+bool processSequenceStepString(uint8_t stepIndex, char *cmd){
   uint8_t keyIndex = 0;
   uint32_t color = 0;
   uint16_t duration = 0;
-
+  
+  bool valid = true;
   int i = 0;
   while (cmd[i] != '\n' && cmd[i] != '\0') {
     // Make sure we have enough characters remaining to verify '=' and capture at least a 1-character value
@@ -457,16 +459,25 @@ void processSequenceStepString(uint8_t stepIndex, char *cmd){
 
             if (parsedKey >= 0 && parsedKey < NUM_KEYS) {
               keyIndex = parsedKey;
+            } else {
+              LOGF("[SEQ] Step %d: invalid key index\n", stepIndex);
+              valid = false;
             }
             break;
           }
 
           // LED Color
           case 'c': {
-            uint32_t parsedColor = strtoul(&cmd[i+2], NULL, 16);
+            // use endptr to track how many characters were parsed
+            char *endPtr;
+            uint32_t parsedColor = strtoul(&cmd[i+2], &endPtr, 16);
 
-            if (parsedColor == 0 || strcmp(getColorString(parsedColor), "N/A") != 0) {
+            // if endptr is not the same as the start pointer, then the value was parsed
+            if (endPtr != &cmd[i+2]) {
               color = parsedColor;
+            } else {
+              LOGF("[SEQ] Step %d: invalid color value\n", stepIndex);
+              valid = false;
             }
             break;
           }
@@ -477,6 +488,9 @@ void processSequenceStepString(uint8_t stepIndex, char *cmd){
 
             if (parsedDuration > 0) {
               duration = parsedDuration;
+            } else {
+              LOGF("[SEQ] Step %d: invalid duration\n", stepIndex);
+              valid = false;
             }
             break;
           }
@@ -489,8 +503,14 @@ void processSequenceStepString(uint8_t stepIndex, char *cmd){
     i++;
   }
 
+  if (!valid) {
+    LOGF("[SEQ] Step %d REJECTED due to invalid fields\n", stepIndex);
+    return false;
+  }
+
   LOGF("[SEQ] Uploaded step %d: key %d, color 0x%06X, duration %dms\n", stepIndex, keyIndex, color, duration);
   uploadSequenceBuffer.steps[stepIndex] = SequenceStep{keyIndex, color, duration};
+  return true;
 }
 
 void handleSerialCommands() {
@@ -1157,7 +1177,7 @@ const char *getColorString(uint32_t color) {
   case COLOR_WHITE:
     return "WHITE";
   default:
-    return "N/A";
+    return "CUSTOM";
   }
 }
 
