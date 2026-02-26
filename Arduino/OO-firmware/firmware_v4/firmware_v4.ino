@@ -14,24 +14,29 @@
  *   Commands are received as single-character text messages (same format as USB
  *   serial commands), and all log output is broadcast back to connected clients.
  *   This "serial-over-WebSocket" design keeps the firmware simple and makes the
- *   WiFi interface behave identically to the USB serial interface.
+ *   WiFi interface behave identically to the USB serial interface. Sequences are
+ *   uploaded through a specialised protocol; these are the only commands
+ *   that are not single-character.
  */
 
+#include "Arduino.h"
 #include "PCA9685.h"
 #include "firmware_V4_config.h"
 #include "firmware_V4_debug.h"
-#include "firmware_V4_sequences.h"
 #include <Adafruit_NeoPixel.h>
 #include <Wire.h>
 #include <WiFi.h>
 #include <WebSocketsServer.h>
+#include <cstdint>
 
 // ============ FUNCTION PROTOTYPES ============
 
 void setupWiFi();
 void handleWiFiStatus();
 void webSocketEvent(uint8_t num, WStype_t type, uint8_t *payload, size_t length);
-void wsBroadcastLog(const char* msg);
+void handleSequenceCommand(char *str);
+void processSequenceUploadCommand(char *str);
+void processSequenceStepString(uint8_t stepIndex, char *str);
 void handleSerialCommands();
 void processSerialCommand(char cmd);
 void setMode(Mode mode);
@@ -41,22 +46,19 @@ void handleTeachingMode();
 void startSequence();
 void stopSequence();
 void executeSequenceStep(const SequenceStep &step);
-void selectSequence(int index);
-void nextSequence();
-void prevSequence();
 void startKeyTone(int keyIndex);
 void stopKeyTone(int keyIndex);
 void checkButtons();
 void lightUpKey(int keyIndex, uint32_t color);
 void lightDownKey(int keyIndex);
 void resetKey(int keyIndex);
-void safeServoSetAngle(uint8_t servoChannel, int angle);
+void safeServoSetAngle(uint8_t servoChannel, uint16_t angle);
 bool validateSequenceData();
 bool validateHardwareInit();
 void testLEDs();
 void testServos();
-const Sequence& currentSequence();
-const SequenceStep& currentSequenceStep();
+const Sequence& getCurrentSequence();
+const SequenceStep& getCurrentSequenceStep();
 void servoPull(int channel);
 void servoRest(int channel);
 void autoPressKey(int keyIndex);
@@ -64,6 +66,8 @@ void autoReleaseKey(int keyIndex);
 bool isValidKeyIndex(int keyIndex);
 const char *getCurrentModeString();
 const char *getColorString(uint32_t color);
+void toLowercase(char &c);
+void wsBroadcastLog(const char* msg);
 void testLogPrintHeader();
 void testLogStart();
 void testLogStop();
@@ -85,14 +89,18 @@ WebSocketsServer webSocket(81);
 // ============ GLOBAL STATE ============
 
 Mode currentMode = MANUAL;
+Sequence currentSequence;
 
-unsigned long lastKeyPressTime[NUM_KEYS] = {0};
-unsigned long toneStartTime[NUM_KEYS] = {0};
+bool uploadingSequence = false;
+uint8_t uploadStepCount = 0;
+Sequence uploadSequenceBuffer;
 
 bool sequenceRunning = false;
 int currentSequenceStepIndex = 0;
 unsigned long currentStepStartTime = 0;
-int currentSequenceIndex = 0;
+
+unsigned long lastKeyPressTime[NUM_KEYS] = {0};
+unsigned long toneStartTime[NUM_KEYS] = {0};
 
 bool waitingForServoRelease = false;
 unsigned long servoReleaseStartTime = 0;
@@ -139,13 +147,9 @@ void setup() {
   }
   LOGLN("OK");
 
-  LOG("[SETUP] Validating sequence data... ");
-  if (!validateSequenceData()) {
-    LOGLN("WARNING: Sequence data has errors! Automatic modes may not work correctly.");
-    // Continue but automatic modes may not work correctly
-  } else {
-    LOGLN("OK");
-  }
+  LOGLN("[SETUP] Initializing sequence memory... ");
+  currentSequence.length = 0;
+  strcpy(currentSequence.name, "Empty Sequence");
 
   // ===== INITIALIZATION =====
   LOG("[SETUP] Configuring speaker... ");
@@ -239,6 +243,14 @@ void setupWiFi() {
   LOGLN("[SETUP] WebSocket server started on port 81");
 }
 
+void handleWiFiStatus() {
+  // report client connections periodically
+  if (millis() - lastWifiCheckTime > 20000) {
+    lastWifiCheckTime = millis();
+    LOGF("[WIFI] AP clients connected: %d\n", WiFi.softAPgetStationNum());
+  }
+}
+
 // Called by the WebSocketsServer library whenever a WebSocket event occurs.
 // WStype_t tells us what kind of event it is (connect, disconnect, message, etc).
 void webSocketEvent(uint8_t num, WStype_t type, uint8_t *payload, size_t length) {
@@ -256,12 +268,16 @@ void webSocketEvent(uint8_t num, WStype_t type, uint8_t *payload, size_t length)
       break;
 
     case WStype_TEXT:
-      // Treat every incoming text message as a serial-style command.
-      // We process only the first character, just like USB serial.
       if (length > 0) {
-        char cmd = (char)payload[0];
-        LOGF("[WS] Received command '%c' from client %u\n", cmd, num);
-        processSerialCommand(cmd);
+        LOGF("[WS] Received payload from client %u (%d bytes)\n", num, (int)length);
+
+        if (length == 1){
+          // regular single-character command
+          processSerialCommand((char)payload[0]);
+        } else {
+          // sequence command; string of characters
+          handleSequenceCommand((char*)payload);
+        }
       }
       break;
 
@@ -270,34 +286,167 @@ void webSocketEvent(uint8_t num, WStype_t type, uint8_t *payload, size_t length)
   }
 }
 
-// Broadcasts a log message to ALL connected WebSocket clients.
-// Uses broadcastTXT which sends to every connected client.
-void wsBroadcastLog(const char* msg) {
-  if (!wsReady) return;  // WebSocket not yet initialized
-  webSocket.broadcastTXT(msg);
-}
+void handleSequenceCommand(char *cmd){
+  // These command strings should start with explicitly uppercase letters
+  switch (cmd[0]){
+    case 'U':
+      // Reset old upload buffer
+      uploadingSequence = true;
+      uploadStepCount = 0;
+      memset(&uploadSequenceBuffer, 0, sizeof(uploadSequenceBuffer));
+      LOGLN("[SEQ] Starting sequence upload...");
 
-void handleWiFiStatus() {
-  // report client connections periodically
-  if (millis() - lastWifiCheckTime > 20000) {
-    lastWifiCheckTime = millis();
-    LOGF("[WIFI] AP clients connected: %d\n", WiFi.softAPgetStationNum());
+      cmd++;
+      processSequenceUploadCommand(cmd);
+      break;
+
+    case 'S':
+      if (!uploadingSequence){
+        LOGLN("[SEQ] Sequence step definition command rejected as no sequence is currently being uploaded");
+      } else if (uploadStepCount >= MAX_SEQUENCE_LENGTH) {
+        LOGF("[SEQ] Sequence step definition command rejected: sequence is full (max %d)\n", MAX_SEQUENCE_LENGTH);
+      } else {
+        cmd++;
+        processSequenceStepString(uploadStepCount, cmd);
+        uploadStepCount++;
+      }
+      break;
+
+    case 'E':
+      if (uploadingSequence) {
+        uploadingSequence = false;
+        
+        uploadSequenceBuffer.length = uploadStepCount;
+        
+        // If a name wasn't properly provided, set a default name
+        if (strlen(uploadSequenceBuffer.name) == 0) {
+            strcpy(uploadSequenceBuffer.name, "Unnamed Sequence");
+        }
+        
+        currentSequence = uploadSequenceBuffer;
+        uploadStepCount = 0;
+        LOGF("[SEQ] Sequence upload complete: %s (%d steps)\n", currentSequence.name, currentSequence.length);
+      } else {
+        LOGLN("[SEQ] Upload complete command ignored: no upload in progress");
+      }
+      break;
+
+    default:
+      LOGF("[SEQ] Unknown command: %c\n", cmd);
+      break;
   }
 }
 
+void processSequenceUploadCommand(char *cmd){
+  int i = 0;
+  while (cmd[i] != '\n' && cmd[i] != '\0') {
+    // Make sure we have enough characters remaining to verify '=' and capture at least a 1-character value
+    if (cmd[i+1] != '\0' && cmd[i+1] != '\n' && 
+        cmd[i+2] != '\0' && cmd[i+2] != '\n') {
+      
+      // Only read characters at the start of the string or succeeding a space
+      if ((i == 0 || cmd[i-1] == ' ') && cmd[i+1] == '=') {
+
+        toLowercase(cmd[i]);
+        switch (cmd[i]){
+          case 'n': {
+            const char *nameStart = &cmd[i+2];
+            int nameLen = strcspn(nameStart, " \n\r");
+            
+            if (nameLen >= sizeof(uploadSequenceBuffer.name)) {
+                nameLen = sizeof(uploadSequenceBuffer.name) - 1;
+            }
+
+            strncpy(uploadSequenceBuffer.name, nameStart, nameLen);
+            uploadSequenceBuffer.name[nameLen] = '\0';
+            break;
+          }
+
+          case 's': {
+            int parsedSteps = atoi(&cmd[i+2]);
+
+            if (parsedSteps < 0 || parsedSteps > MAX_SEQUENCE_LENGTH) {
+              LOGF( "[SEQ] Sequence upload failed: Invalid number of steps; max is %d\n", MAX_SEQUENCE_LENGTH);
+              uploadingSequence = false;
+            }
+
+            break;
+          }
+
+          default:
+            break;
+        }
+      }
+    }
+    i++;
+  }
+}
+
+void processSequenceStepString(uint8_t stepIndex, char *cmd){
+  uint8_t keyIndex = 0;
+  uint32_t color = 0;
+  uint16_t duration = 0;
+
+  int i = 0;
+  while (cmd[i] != '\n' && cmd[i] != '\0') {
+    // Make sure we have enough characters remaining to verify '=' and capture at least a 1-character value
+    if (cmd[i+1] != '\0' && cmd[i+1] != '\n' && 
+        cmd[i+2] != '\0' && cmd[i+2] != '\n') {
+      
+      // Only read characters at the start of the string or succeeding a space
+      if ((i == 0 || cmd[i-1] == ' ') && cmd[i+1] == '=') {
+
+        toLowercase(cmd[i]);
+        switch (cmd[i]){
+          case 'k': {
+            int parsedKey = atoi(&cmd[i+2]);
+
+            if (parsedKey >= 0 && parsedKey < NUM_KEYS) {
+              keyIndex = parsedKey;
+            }
+            break;
+          }
+
+          case 'c': {
+            uint32_t parsedColor = strtoul(&cmd[i+2], NULL, 16);
+
+            if (parsedColor == 0 || strcmp(getColorString(parsedColor), "N/A") != 0) {
+              color = parsedColor;
+            }
+            break;
+          }
+            
+          case 'd': {
+            int parsedDuration = atoi(&cmd[i+2]);
+
+            if (parsedDuration > 0) {
+              duration = parsedDuration;
+            }
+            break;
+          }
+
+          default:
+            break;
+        }
+      }
+    }
+    i++;
+  }
+
+  LOGF("[SEQ] Uploaded step %d: key %d, color 0x%06X, duration %dms\n", stepIndex, keyIndex, color, duration);
+  uploadSequenceBuffer.steps[stepIndex] = SequenceStep{keyIndex, color, duration};
+}
+
 void handleSerialCommands() {
-  if (Serial.available() > 0) {
+  if (Serial.available()){
     char cmd = Serial.read();
     processSerialCommand(cmd);
   }
 }
 
 void processSerialCommand(char cmd) {
-  // Convert to lowercase
-  if (cmd >= 'A' && cmd <= 'Z') {
-    cmd = cmd + ('a' - 'A');
-  }
 
+  toLowercase(cmd);
   switch (cmd) {
 
     // ---- MODE CONTROL ----
@@ -351,34 +500,18 @@ void processSerialCommand(char cmd) {
       }
       break;
 
-    case 'n': // Next sequence
-      LOGLN("\n[CMD] Received: Next sequence");
-      nextSequence();
-      break;
-
-    case 'p': // Previous sequence
-      LOGLN("\n[CMD] Received: Previous sequence");
-      prevSequence();
-      break;
-
-    case '0': case '1': case '2': case '3': case '4':
-    case '5': case '6': case '7': case '8': case '9':
-      // Direct sequence selection by number
-      {
-        int seqIndex = cmd - '0';
-        LOGF("\n[CMD] Received: Select sequence %d\n", seqIndex);
-        selectSequence(seqIndex);
-      }
-      break;
-
-    case 'l': // List sequences
+    case 'l': // List current sequence
       LOGLN("\n========================================");
-      LOGLN("         AVAILABLE SEQUENCES");
+      LOGLN("         CURRENT SEQUENCE");
       LOGLN("========================================");
-      for (int i = 0; i < NUM_SEQUENCES; i++) {
-        LOGF("  %d - %s (%d steps)%s\n", 
-             i, sequences[i].name, sequences[i].length,
-             (i == currentSequenceIndex) ? " [ACTIVE]" : "");
+      LOGF("  Name: %s\n", currentSequence.name);
+      LOGF("  Length: %d steps\n", currentSequence.length);
+      for (int i = 0; i < currentSequence.length; i++) {
+        LOGF("    Step %d: Key %d, Color %s, Duration %dms\n", 
+             i, 
+             currentSequence.steps[i].keyIndex, 
+             getColorString(currentSequence.steps[i].color), 
+             currentSequence.steps[i].duration);
       }
       LOGLN("========================================\n");
       break;
@@ -420,10 +553,7 @@ void processSerialCommand(char cmd) {
       LOGLN("  SEQUENCE:");
       LOGLN("    s - Start sequence");
       LOGLN("    x - Stop sequence");
-      LOGLN("    n - Next sequence");
-      LOGLN("    p - Previous sequence");
-      LOGLN("    0-9 - Select sequence by number");
-      LOGLN("    l - List all sequences");
+      LOGLN("    l - View current sequence");
       LOGLN("  TESTING:");
       LOGLN("    t - Test LEDs");
       LOGLN("    u - Test servos");
@@ -464,7 +594,7 @@ void handleAutomaticModes() {
     return;
 
   // Defensive check: ensure currentSequenceStep is valid
-  if (currentSequenceStepIndex < 0 || currentSequenceStepIndex >= currentSequence().length) {
+  if (currentSequenceStepIndex < 0 || currentSequenceStepIndex >= getCurrentSequence().length) {
     LOGF("[ERROR] Invalid step index: %d encountered while handling automatic modes\n", currentSequenceStepIndex);
     testLogLogError(TESTLOG_INVALID_STEP_INDEX, F("ERROR_INVALID_STEP_INDEX"));
     stopSequence();
@@ -483,51 +613,51 @@ void handleTeachingMode() {
   if (waitingForServoRelease) {
     if (millis() - servoReleaseStartTime >= SERVO_RELEASE_DELAY) {
       waitingForServoRelease = false;
-      executeSequenceStep(currentSequenceStep());
+      executeSequenceStep(getCurrentSequenceStep());
     }
     return;
   }
 
-  if (millis() - currentStepStartTime >= currentSequenceStep().duration) {
-    LOGF("[SEQ] Step %d/%d complete\n", currentSequenceStepIndex + 1, currentSequence().length);
+  if (millis() - currentStepStartTime >= getCurrentSequenceStep().duration) {
+    LOGF("[SEQ] Step %d/%d complete\n", currentSequenceStepIndex + 1, getCurrentSequence().length);
     
-    uint8_t previousKeyIndex = currentSequenceStep().keyIndex;
+    uint8_t previousKeyIndex = getCurrentSequenceStep().keyIndex;
     resetKey(previousKeyIndex);
 
     currentSequenceStepIndex++;
-    if (currentSequenceStepIndex >= currentSequence().length) {
+    if (currentSequenceStepIndex >= getCurrentSequence().length) {
       LOGLN("[SEQ] Sequence complete");
       stopSequence();
       return;
     }
 
     // Manually handle successive sequence steps by adding a delay to ensure proper movement up and down
-    if (currentSequenceStep().keyIndex == previousKeyIndex) {
+    if (getCurrentSequenceStep().keyIndex == previousKeyIndex) {
       LOGF("[SEQ] Same key %d in consecutive steps - waiting for servo release\n", previousKeyIndex);
       waitingForServoRelease = true;
       servoReleaseStartTime = millis();
       // Don't execute step yet - will be done on next loop iteration after delay
     } else {
-      executeSequenceStep(currentSequenceStep());
+      executeSequenceStep(getCurrentSequenceStep());
     }
   }
 }
 
 void handleGuidedMode() {
-  if (keyJustPressed == currentSequenceStep().keyIndex) {
+  if (keyJustPressed == getCurrentSequenceStep().keyIndex) {
     LOGF("[SEQ] Correct key %d pressed, advancing sequence.\n", keyJustPressed);
 
-    resetKey(currentSequenceStep().keyIndex);
+    resetKey(getCurrentSequenceStep().keyIndex);
 
     currentSequenceStepIndex++;
-    if (currentSequenceStepIndex >= currentSequence().length) {
+    if (currentSequenceStepIndex >= getCurrentSequence().length) {
       LOGLN("[SEQ] Sequence complete");
       stopSequence();
       return;
     }
 
     // Note: does not currently wait for sequence step duration before executing next step
-    executeSequenceStep(currentSequenceStep());
+    executeSequenceStep(getCurrentSequenceStep());
   }
 }
 
@@ -544,13 +674,13 @@ void startSequence() {
     return;
   }
   
-  if (currentSequence().length <= 0) {
-    LOGF("[ERROR] Invalid sequence length: %d encountered while starting sequence\n", currentSequence().length);
+  if (getCurrentSequence().length <= 0) {
+    LOGF("[ERROR] Invalid sequence length: %d encountered while starting sequence\n", getCurrentSequence().length);
     return;
   }
 
   LOGLN("\n[SEQ] ======== STARTING SEQUENCE ========");
-  LOGF("[SEQ] Sequence: %s (%d steps)\n", currentSequence().name, currentSequence().length);
+  LOGF("[SEQ] Sequence: %s (%d steps)\n", getCurrentSequence().name, getCurrentSequence().length);
 
   sequenceRunning = true;
   currentSequenceStepIndex = 0;
@@ -563,7 +693,7 @@ void startSequence() {
   }
 
   // immediately play the first step
-  executeSequenceStep(currentSequenceStep());
+  executeSequenceStep(getCurrentSequenceStep());
 }
 
 // stops the sequence and turns off all keys
@@ -571,7 +701,7 @@ void stopSequence() {
   if (!sequenceRunning) return;  // Nothing to stop
   
   LOGLN("\n[SEQ] ======== STOPPING SEQUENCE ========");
-  LOGF("[SEQ] Total steps completed: %d/%d\n", currentSequenceStepIndex, currentSequence().length);
+  LOGF("[SEQ] Total steps completed: %d/%d\n", currentSequenceStepIndex, getCurrentSequence().length);
 
   for (int i = 0; i < NUM_KEYS; i++) {
     resetKey(i);
@@ -597,7 +727,7 @@ void executeSequenceStep(const SequenceStep &step) {
   }
 
   LOGF("[SEQ] Step %d/%d: key=%d, color=%s, duration=%dms\n",
-       currentSequenceStepIndex + 1, currentSequence().length, 
+       currentSequenceStepIndex + 1, getCurrentSequence().length, 
        step.keyIndex, getColorString(step.color), step.duration);
 
     unsigned long stepStartCallTime = millis();
@@ -628,42 +758,13 @@ void executeSequenceStep(const SequenceStep &step) {
   if (testLogEnabled) {
     int nextIndex = currentSequenceStepIndex + 1;
     bool nextIsSameKey = false;
-    if (nextIndex >= 0 && nextIndex < currentSequence().length) {
-      nextIsSameKey = (currentSequence().steps[nextIndex].keyIndex == step.keyIndex);
+    if (nextIndex >= 0 && nextIndex < getCurrentSequence().length) {
+      nextIsSameKey = (getCurrentSequence().steps[nextIndex].keyIndex == step.keyIndex);
     }
     testLogLogAutoStep(step.keyIndex, autoplayTimingErrorMs, ledCmdLatencyMs, servoCmdLatencyMs, (uint16_t)step.duration, nextIsSameKey);
   }
 
   currentStepStartTime = millis();
-}
-
-// Select a specific sequence by index
-void selectSequence(int index) {
-  if (index < 0 || index >= NUM_SEQUENCES) {
-    LOGF("[ERROR] Invalid sequence index: %d (valid: 0-%d)\n", index, NUM_SEQUENCES - 1);
-    return;
-  }
-  
-  // Stop current sequence if running
-  if (sequenceRunning) {
-    stopSequence();
-  }
-  
-  currentSequenceIndex = index;
-  LOGF("[SEQ] Selected sequence %d: %s (%d steps)\n", 
-       index, sequences[index].name, sequences[index].length);
-}
-
-// Cycle to next sequence
-void nextSequence() {
-  int newIndex = (currentSequenceIndex + 1) % NUM_SEQUENCES;
-  selectSequence(newIndex);
-}
-
-// Cycle to previous sequence
-void prevSequence() {
-  int newIndex = (currentSequenceIndex - 1 + NUM_SEQUENCES) % NUM_SEQUENCES;
-  selectSequence(newIndex);
 }
 
 /*
@@ -786,8 +887,8 @@ void resetKey(int keyIndex) {
   autoReleaseKey(keyIndex);
 }
 
-void safeServoSetAngle(uint8_t channel, int angle) {
-  int clampedAngle = constrain(angle, SERVO_MIN_SAFE_ANGLE, SERVO_MAX_SAFE_ANGLE);
+void safeServoSetAngle(uint8_t channel, uint16_t angle) {
+  uint16_t clampedAngle = constrain(angle, SERVO_MIN_SAFE_ANGLE, SERVO_MAX_SAFE_ANGLE);
   
   if (clampedAngle != angle) {
     LOGF("[WARN] Servo angle clamped: %d -> %d (valid: %d-%d)\n", 
@@ -799,42 +900,12 @@ void safeServoSetAngle(uint8_t channel, int angle) {
 
 // ============ VALIDATION & TESTING FUNCTIONS ============
 
-bool validateSequenceData() {
-  // Validate all sequences
-  for (int s = 0; s < NUM_SEQUENCES; s++) {
-    const Sequence& seq = sequences[s];
-    
-    if (seq.length <= 0 || seq.length > MAX_SEQUENCE_LENGTH) {
-      LOGF("[ERROR] Sequence %d (%s) has invalid length: %d\n", s, seq.name, seq.length);
-      return false;
-    }
-    
-    for (int i = 0; i < seq.length; i++) {
-      if (!isValidKeyIndex(seq.steps[i].keyIndex)) {
-        LOGF("[ERROR] Sequence %d step %d has invalid keyIndex: %d\n", s, i, seq.steps[i].keyIndex);
-        return false;
-      }
-
-      if (seq.steps[i].duration <= 0) {
-        LOGF("[ERROR] Sequence %d step %d has invalid duration: %d\n", s, i, seq.steps[i].duration);
-        return false;
-      }
-    }
-  }
-
-  return true;
-}
-
 bool validateHardwareInit() {
   if (NUM_KEYS <= 0) {
     LOGF("[ERROR] Invalid NUM_KEYS: %d", NUM_KEYS);
     return false;
   }
 
-  if (NUM_SEQUENCES <= 0) {
-    LOGF("[ERROR] Invalid NUM_SEQUENCES: %d", NUM_SEQUENCES);
-    return false;
-  }
 
   if (MAX_SEQUENCE_LENGTH <= 0) {
     LOGF("[ERROR] Invalid MAX_SEQUENCE_LENGTH: %d", MAX_SEQUENCE_LENGTH);
@@ -921,12 +992,12 @@ void testServos() {
 
 // ============ HELPERS ============
 
-inline const Sequence& currentSequence() {
-  return sequences[currentSequenceIndex];
+inline const Sequence& getCurrentSequence() {
+  return currentSequence;
 }
 
-inline const SequenceStep& currentSequenceStep() {
-  return sequences[currentSequenceIndex].steps[currentSequenceStepIndex];
+inline const SequenceStep& getCurrentSequenceStep() {
+  return currentSequence.steps[currentSequenceStepIndex];
 }
 
 inline void servoPull(int channel) {
@@ -981,8 +1052,21 @@ const char *getColorString(uint32_t color) {
   case COLOR_WHITE:
     return "WHITE";
   default:
-    return "CUSTOM";
+    return "N/A";
   }
+}
+
+void toLowercase(char &c) {
+  if (c >= 'A' && c <= 'Z') {
+    c = c + ('a' - 'A');
+  }
+}
+
+// Broadcasts a log message to ALL connected WebSocket clients.
+// Uses broadcastTXT which sends to every connected client.
+void wsBroadcastLog(const char* msg) {
+  if (!wsReady) return;  // WebSocket not yet initialized
+  webSocket.broadcastTXT(msg);
 }
 
 // ============ TEST LOGGING (CSV STREAM) ============

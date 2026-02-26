@@ -1,7 +1,6 @@
 #ifndef FIRMWARE_V4_CONFIG_H
 #define FIRMWARE_V4_CONFIG_H
 
-#include "PCA9685.h"
 #include <Adafruit_NeoPixel.h>
 #include <Wire.h>
 #include <stdint.h>
@@ -13,7 +12,6 @@
 #define MIN_NOTE_DURATION 100     // Minimum time (ms) a note will play when key is pressed
 
 #define MAX_SEQUENCE_LENGTH 16
-#define NUM_SEQUENCES 8
 
 #define WIFI_SSID "Open Octave"
 #define WIFI_PASSWORD "oop321321"
@@ -84,9 +82,9 @@ struct SequenceStep {
 };
 
 struct Sequence {
-  const SequenceStep* steps;  // Pointer to step array
-  uint8_t length;             // Number of steps in this sequence
-  const char* name;           // Display name for logging
+  SequenceStep steps[MAX_SEQUENCE_LENGTH];
+  uint8_t length;
+  char name[32];
 };
 
 enum TestLogErrorCode : uint8_t {
