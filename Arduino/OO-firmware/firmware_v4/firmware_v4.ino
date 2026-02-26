@@ -296,6 +296,11 @@ void handleSequenceCommand(char *cmd){
   // These command strings should start with explicitly uppercase letters
   switch (cmd[0]){
     case 'U':
+      if (uploadingSequence) {
+        LOGLN("[SEQ] Upload rejected: another upload already in progress");
+        break;
+      }
+
       // Reset old upload buffer
       uploadingSequence = true;
       uploadStepCount = 0;
