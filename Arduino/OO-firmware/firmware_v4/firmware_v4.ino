@@ -119,6 +119,13 @@ unsigned long lastWifiCheckTime = 0;
 bool isWifiConnected = false;
 bool wsReady = false;  // Prevents wsBroadcastLog() from running before webSocket.begin()
 
+// Serial input buffer for multi-character commands (e.g. sequence uploads).
+// Characters are accumulated here one-by-one until a newline arrives,
+// then the complete line is dispatched to the appropriate handler.
+#define SERIAL_BUF_SIZE 64
+char serialBuf[SERIAL_BUF_SIZE];
+uint8_t serialBufPos = 0;
+
 // Tracks the most recently pressed key index in the current loop (or -1 if none)
 int keyJustPressed = -1;
 
@@ -438,9 +445,39 @@ void processSequenceStepString(uint8_t stepIndex, char *cmd){
 }
 
 void handleSerialCommands() {
-  if (Serial.available()){
-    char cmd = Serial.read();
-    processSerialCommand(cmd);
+  // Read all available bytes into the line buffer one at a time.
+  // Serial data arrives byte-by-byte (unlike WebSocket, which delivers
+  // complete payloads), so we must accumulate characters until a newline
+  // signals the end of a line and a complete command is ready.
+  while (Serial.available()) {
+    char c = (char)Serial.read();
+
+    // When we see a newline (or carriage-return), the line is complete
+    if (c == '\n' || c == '\r') {
+      if (serialBufPos == 0) continue;  // ignore empty lines / trailing CR
+
+      serialBuf[serialBufPos] = '\0';  // null-terminate the string
+
+      if (serialBufPos == 1) {
+        // Single character → regular command (same as WebSocket length==1)
+        processSerialCommand(serialBuf[0]);
+      } else {
+        // Multi-character → sequence command string
+        handleSequenceCommand(serialBuf);
+      }
+
+      serialBufPos = 0;  // reset buffer for next line
+      continue;
+    }
+
+    // Accumulate character into buffer (guard against overflow)
+    if (serialBufPos < SERIAL_BUF_SIZE - 1) {
+      serialBuf[serialBufPos++] = c;
+    } else {
+      // Buffer full without newline — discard and warn
+      LOGLN("[SERIAL] Input buffer overflow — line discarded");
+      serialBufPos = 0;
+    }
   }
 }
 
