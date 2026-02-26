@@ -379,6 +379,8 @@ void processSequenceUploadCommand(char *cmd){
             if (parsedSteps < 0 || parsedSteps > MAX_SEQUENCE_LENGTH) {
               LOGF("[SEQ] Sequence upload failed: Invalid number of steps; max is %d\n", MAX_SEQUENCE_LENGTH);
               uploadingSequence = false;
+            } else {
+              uploadSequenceBuffer.length = parsedSteps;
             }
 
             break;
@@ -415,8 +417,14 @@ void processSequenceEndCommand(char *cmd){
     return;
   }
 
-  uploadSequenceBuffer.length = uploadStepCount;
-    
+  if (uploadStepCount == 0){
+    LOGF("[SEQ] Sequence upload failed: No steps provided\n");
+    return;
+  } else if (uploadStepCount != uploadSequenceBuffer.length) {
+    LOGF("[SEQ] Upload failed: expected %d steps, received %d\n", uploadSequenceBuffer.length, uploadStepCount);
+    return;
+  }
+      
   // If a name wasn't properly provided, set a default name
   if (strlen(uploadSequenceBuffer.name) == 0) {
     strcpy(uploadSequenceBuffer.name, "Unnamed Sequence");
