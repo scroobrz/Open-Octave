@@ -354,8 +354,19 @@ void processSequenceUploadCommand(char *cmd){
         switch (cmd[i]){
           // Sequence ID
           case 'i': {
-            uploadingSequenceId = atoi(&cmd[i+2]);
-            LOGF("[SEQ] Starting sequence upload (id=%d)...\n", uploadingSequenceId);
+            // use endPtr to track how many characters were parsed
+            char *endPtr;
+            int parsedId = (int)strtol(&cmd[i+2], &endPtr, 10);
+
+            // if endPtr is not the same as the start pointer, then the value was parsed
+            if (endPtr != &cmd[i+2] && parsedId >= 0) {
+              uploadingSequenceId = parsedId;
+              LOGF("[SEQ] Starting sequence upload (id=%d)...\n", uploadingSequenceId);
+            } else {
+              LOGLN("[SEQ] Sequence upload failed: invalid sequence ID");
+              uploadingSequence = false;
+            }
+
             break;
           }
 
@@ -375,13 +386,16 @@ void processSequenceUploadCommand(char *cmd){
 
           // Number of steps
           case 's': {
-            int parsedSteps = atoi(&cmd[i+2]);
+            // use endPtr to track how many characters were parsed
+            char *endPtr;
+            int parsedSteps = (int)strtol(&cmd[i+2], &endPtr, 10);
 
-            if (parsedSteps < 0 || parsedSteps > MAX_SEQUENCE_LENGTH) {
-              LOGF("[SEQ] Sequence upload failed: Invalid number of steps; max is %d\n", MAX_SEQUENCE_LENGTH);
-              uploadingSequence = false;
-            } else {
+            // if endPtr is not the same as the start pointer, then the value was parsed
+            if (endPtr != &cmd[i+2] && parsedSteps > 0 && parsedSteps <= MAX_SEQUENCE_LENGTH) {
               uploadSequenceBuffer.length = parsedSteps;
+            } else {
+              LOGF("[SEQ] Sequence upload failed: invalid step count (max %d)\n", MAX_SEQUENCE_LENGTH);
+              uploadingSequence = false;
             }
 
             break;
@@ -455,14 +469,18 @@ bool processSequenceStepString(uint8_t stepIndex, char *cmd){
         switch (cmd[i]){
           // Key index
           case 'k': {
-            int parsedKey = atoi(&cmd[i+2]);
+            // use endPtr to track how many characters were parsed
+            char *endPtr;
+            int parsedKey = (int)strtol(&cmd[i+2], &endPtr, 10);
 
-            if (parsedKey >= 0 && parsedKey < NUM_KEYS) {
+            // if endPtr is not the same as the start pointer, then the value was parsed
+            if (endPtr != &cmd[i+2] && parsedKey >= 0 && parsedKey < NUM_KEYS) {
               keyIndex = parsedKey;
             } else {
               LOGF("[SEQ] Step %d: invalid key index\n", stepIndex);
               valid = false;
             }
+
             break;
           }
 
@@ -479,6 +497,7 @@ bool processSequenceStepString(uint8_t stepIndex, char *cmd){
               LOGF("[SEQ] Step %d: invalid color value\n", stepIndex);
               valid = false;
             }
+
             break;
           }
             
@@ -492,6 +511,7 @@ bool processSequenceStepString(uint8_t stepIndex, char *cmd){
               LOGF("[SEQ] Step %d: invalid duration\n", stepIndex);
               valid = false;
             }
+
             break;
           }
 
