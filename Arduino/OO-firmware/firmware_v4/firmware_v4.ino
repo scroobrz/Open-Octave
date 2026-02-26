@@ -37,7 +37,7 @@ void webSocketEvent(uint8_t num, WStype_t type, uint8_t *payload, size_t length)
 void handleSequenceCommand(char *str);
 void processSequenceUploadCommand(char *str);
 void processSequenceEndCommand(char *str);
-bool processSequenceStepString(uint8_t stepIndex, char *str);
+bool processSequenceStepCommand(uint8_t stepIndex, char *str);
 void handleSerialCommands();
 void processSerialCommand(char cmd);
 void setMode(Mode mode);
@@ -218,20 +218,32 @@ void loop() {
 ===============================
            API
 ===============================
-The firmware exposes a single command API over two transports:
+The firmware exposes a command API over two transports:
 
-  1. USB Serial — commands arrive one character at a time via the
-     hardware UART (Serial.read). Log output is printed to Serial.
+  1. USB Serial — characters arrive one byte at a time via the hardware
+     UART (Serial.read). handleSerialCommands() accumulates them into a
+     line buffer until a newline is received, then dispatches the
+     complete line. Log output is printed to Serial.
 
   2. WiFi WebSocket — the ESP32 hosts a WiFi Access Point and runs a
-     WebSocket server on port 81. Clients send single-character text
-     messages which are treated identically to serial input. All log
-     output is broadcast back to every connected WebSocket client,
+     WebSocket server on port 81. Each WebSocket text message is
+     delivered as a complete payload, so no line buffering is needed.
+     All log output is broadcast back to every connected client,
      creating a "serial-over-WiFi" experience.
 
-Both transports feed into the shared processSerialCommand(char cmd)
-handler, so the command set is identical regardless of how a client
-is connected. See the 'h' (help) command for a full command listing.
+Two kinds of commands are supported:
+
+  • Single-character commands (e.g. 'm', 's', 'h') are routed to
+    processSerialCommand(char cmd) for mode control, sequence
+    playback, testing, and help. See the 'h' command for a full list.
+
+  • Multi-character sequence-upload commands begin with an uppercase
+    letter ('U', 'S', or 'E') and are routed to
+    handleSequenceCommand(char *cmd), which manages the upload
+    protocol (start upload, define steps, finalise).
+
+Both transports use identical routing logic: a 1-byte payload goes to
+processSerialCommand(); anything longer goes to handleSequenceCommand().
 */
 
 void setupWiFi() {
@@ -318,7 +330,7 @@ void handleSequenceCommand(char *cmd){
         LOGF("[SEQ] Sequence step definition command rejected: sequence is full (max %d)\n", MAX_SEQUENCE_LENGTH);
       } else {
         cmd++;
-        if (processSequenceStepString(uploadStepCount, cmd)) {
+        if (processSequenceStepCommand(uploadStepCount, cmd)) {
           uploadStepCount++;
         }
       }
@@ -410,47 +422,7 @@ void processSequenceUploadCommand(char *cmd){
   }
 }
 
-void processSequenceEndCommand(char *cmd){
-  int endSeqId = -1;
-
-  // Parse the i= (sequence ID) field if present
-  int i = 0;
-  while (cmd[i] != '\n' && cmd[i] != '\0') {
-    if ((i == 0 || cmd[i-1] == ' ') && cmd[i+1] == '=') {
-      toLowercase(cmd[i]);
-      if (cmd[i] == 'i') {
-        endSeqId = atoi(&cmd[i+2]);
-      }
-    }
-    i++;
-  }
-
-  uploadingSequence = false;
-
-  if (endSeqId != uploadingSequenceId){
-    LOGF("[SEQ] Sequence upload failed: ID mismatch; expected %d, got %d\n", uploadingSequenceId, endSeqId);
-    return;
-  }
-
-  if (uploadStepCount == 0){
-    LOGF("[SEQ] Sequence upload failed: No steps provided\n");
-    return;
-  } else if (uploadStepCount != uploadSequenceBuffer.length) {
-    LOGF("[SEQ] Upload failed: expected %d steps, received %d\n", uploadSequenceBuffer.length, uploadStepCount);
-    return;
-  }
-      
-  // If a name wasn't properly provided, set a default name
-  if (strlen(uploadSequenceBuffer.name) == 0) {
-    strcpy(uploadSequenceBuffer.name, "Unnamed Sequence");
-  }
-    
-  currentSequence = uploadSequenceBuffer;
-  uploadStepCount = 0;
-  LOGF("[SEQ] Sequence upload complete (id=%d): %s (%d steps)\n", endSeqId, currentSequence.name, currentSequence.length);
-}
-
-bool processSequenceStepString(uint8_t stepIndex, char *cmd){
+bool processSequenceStepCommand(uint8_t stepIndex, char *cmd){
   uint8_t keyIndex = 0;
   uint32_t color = 0;
   uint16_t duration = 0;
@@ -533,6 +505,46 @@ bool processSequenceStepString(uint8_t stepIndex, char *cmd){
   return true;
 }
 
+void processSequenceEndCommand(char *cmd){
+  int endSeqId = -1;
+
+  // Parse the i= (sequence ID) field if present
+  int i = 0;
+  while (cmd[i] != '\n' && cmd[i] != '\0') {
+    if ((i == 0 || cmd[i-1] == ' ') && cmd[i+1] == '=') {
+      toLowercase(cmd[i]);
+      if (cmd[i] == 'i') {
+        endSeqId = atoi(&cmd[i+2]);
+      }
+    }
+    i++;
+  }
+
+  uploadingSequence = false;
+
+  if (endSeqId != uploadingSequenceId){
+    LOGF("[SEQ] Sequence upload failed: ID mismatch; expected %d, got %d\n", uploadingSequenceId, endSeqId);
+    return;
+  }
+
+  if (uploadStepCount == 0){
+    LOGF("[SEQ] Sequence upload failed: No steps provided\n");
+    return;
+  } else if (uploadStepCount != uploadSequenceBuffer.length) {
+    LOGF("[SEQ] Upload failed: expected %d steps, received %d\n", uploadSequenceBuffer.length, uploadStepCount);
+    return;
+  }
+      
+  // If a name wasn't properly provided, set a default name
+  if (strlen(uploadSequenceBuffer.name) == 0) {
+    strcpy(uploadSequenceBuffer.name, "Unnamed Sequence");
+  }
+    
+  currentSequence = uploadSequenceBuffer;
+  uploadStepCount = 0;
+  LOGF("[SEQ] Sequence upload complete (id=%d): %s (%d steps)\n", endSeqId, currentSequence.name, currentSequence.length);
+}
+
 void handleSerialCommands() {
   // Read all available bytes into the line buffer one at a time.
   // Serial data arrives byte-by-byte (unlike WebSocket, which delivers
@@ -590,7 +602,6 @@ void handleSerialCommands() {
 }
 
 void processSerialCommand(char cmd) {
-
   toLowercase(cmd);
   switch (cmd) {
 
