@@ -49,7 +49,7 @@ void stopSequence();
 void executeSequenceStep(const SequenceStep &step);
 void startKeyTone(int keyIndex);
 void stopKeyTone(int keyIndex);
-void checkButtons();
+void handleKeyPresses();
 void lightUpKey(int keyIndex, uint32_t color);
 void lightDownKey(int keyIndex);
 void resetKey(int keyIndex);
@@ -205,7 +205,7 @@ void loop() {
   keyJustPressed = -1;     // Reset key press tracking for this loop
   webSocket.loop();        // handle WebSocket events
   handleSerialCommands();  // handle serial commands
-  checkButtons();          // detect any key presses and play sounds
+  handleKeyPresses();      // detect any key presses and play sounds
   handleWiFiStatus();      // check wifi connection state
 
   // if we're in an automatic mode, handle the sequence playback
@@ -931,7 +931,7 @@ These handle button detection, sound playback, and LED control for the keys.
 */
 
 // checks all buttons and plays/stops tones based on their state
-void checkButtons() {
+void handleKeyPresses() {
   for (int i = 0; i < NUM_KEYS; i++) {
     bool buttonPressed = digitalRead(keys[i].buttonPin) == HIGH;
 
@@ -1026,13 +1026,13 @@ void lightDownKey(int keyIndex) {
 }
 
 // resets a key to its default state (LED off, servo at rest)
-// NOTE: We do NOT clear isPressed here. checkButtons() tracks the physical
+// NOTE: We do NOT clear isPressed here. handleKeyPresses() tracks the physical
 // button state and will detect the actual release when the servo lets go.
 // Clearing it prematurely caused phantom PRESSED events because the servo
-// hadn't physically released yet, so checkButtons() would see the button
+// hadn't physically released yet, so handleKeyPresses() would see the button
 // still HIGH with isPressed==false and register a ghost "new press".
 // For consecutive same-key steps, the SERVO_RELEASE_DELAY provides enough
-// time for the physical release + checkButtons() to detect it.
+// time for the physical release + handleKeyPresses() to detect it.
 void resetKey(int keyIndex) {
   if (!isValidKeyIndex(keyIndex)) {
     LOGF("[ERROR] Invalid keyIndex: %d encountered while resetting key\n", keyIndex);
