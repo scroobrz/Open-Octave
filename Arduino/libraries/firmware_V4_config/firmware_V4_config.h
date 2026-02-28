@@ -9,9 +9,11 @@
 
 #define DEBOUNCE_DELAY 50
 #define SERVO_RELEASE_DELAY 50   // ms to wait for servo to physically release
-#define MIN_NOTE_DURATION 100     // Minimum time (ms) a note will play when key is pressed
 
 #define MAX_SEQUENCE_LENGTH 16
+
+#define MIN_NOTE_DURATION 100
+#define MAX_NOTE_DURATION 10000
 
 #define SERIAL_BUF_SIZE 64
 
