@@ -16,6 +16,25 @@ const BAUD_RATE = 115200;
 app.use(cors());
 app.use(express.json());
 
+// ============ LOG BUFFER (UI SUPPORT) ============
+// The UI needs to display recent logs (Logs tab + Sync panel). We keep a small,
+// in-memory ring buffer of the most recent lines. only records what we already print.
+const LOG_BUFFER_MAX = 500;
+const logBuffer = [];
+
+function pushLog(source, message) {
+    const line = {
+        ts: new Date().toISOString(),
+        source: source, // e.g. 'ESP32', 'CTRL', 'WS', 'SERIAL'
+        message: message
+    };
+
+    logBuffer.push(line);
+    if (logBuffer.length > LOG_BUFFER_MAX) {
+        logBuffer.shift();
+    }
+}
+
 // ============ SERIAL MODE SETUP ============
 
 let port;
@@ -32,7 +51,12 @@ if (COMM_MODE === 'SERIAL') {
         
         // Print incoming serial data from the ESP32
         parser.on('data', (data) => {
-            console.log(`[ESP32] ${data.toString().trim()}`);
+            const msg = data.toString().trim();
+            if (msg.length === 0) return;
+
+            console.log(`[ESP32] ${msg}`);
+            // keep a copy for the UI Logs tab.
+            pushLog('ESP32', msg);
         });
         
     } catch (err) {
@@ -71,6 +95,8 @@ function connectWebSocket() {
         const msg = data.toString().trim();
         if (msg.length > 0) {
             console.log(`[ESP32] ${msg}`);
+            // keep a copy for the UI Logs tab.
+            pushLog('ESP32', msg);
         }
     });
     
@@ -173,6 +199,8 @@ function sendWsCommand(cmd) {
     }
 
     console.log(`[WS] Sending: '${cmd}'`);
+    // record controller actions for UI debugging.
+    pushLog('CTRL', `WS send: ${cmd}`);
     ws.send(cmd);
     return { success: true, mode: 'websocket', cmd: cmd };
 }
@@ -183,8 +211,18 @@ function sendSerialCommand(cmd) {
         return { error: 'Serial port closed' };
     }
 
-    console.log(`[SERIAL] Sending: '${cmd}'`);
-    port.write(cmd);
+    // The firmware's USB-Serial command handler only dispatches a command
+    // when it receives a line ending (\n or \r). Without this, single-char
+    // commands can sit in the firmware's input buffer and never execute.
+    // WebSocket mode does not need this because each WS message is already
+    // a complete "frame".
+    const serialPayload = `${cmd}\n`;
+
+    console.log(`[SERIAL] Sending: '${cmd}' (with newline)`);
+    // record controller actions for UI debugging.
+    pushLog('CTRL', `SERIAL send: ${cmd}`);
+    port.write(serialPayload);
+
     return { success: true, mode: 'serial', cmd: cmd };
 }
 
@@ -230,6 +268,52 @@ app.get('/api/status', async (req, res) => {
         const result = await sendCommand('/api/status', 'GET');
         res.json(result);
     } catch (e) { res.status(503).json({ online: false }); }
+});
+
+// Simple health endpoint for UI and for no-hardware testing.
+// only reports current controller state.
+app.get('/api/health', (req, res) => {
+    const mode = process.env.COMM_MODE || 'WIFI';
+
+    const wsConnected = !!(ws && ws.readyState === WebSocket.OPEN);
+    const serialOpen = !!(port && port.isOpen);
+
+    res.json({
+        ok: true,
+        mode: mode,
+        appPort: process.env.APP_PORT || 3000,
+        wifi: {
+            target: `ws://${process.env.ESP32_IP || '192.168.4.1'}:${process.env.WS_PORT || 81}`,
+            connected: wsConnected
+        },
+        serial: {
+            port: process.env.SERIAL_PORT || null,
+            open: serialOpen
+        }
+    });
+});
+
+// Returns the most recent controller/ESP32 log lines for the UI.
+// Query:
+//   tail=<n> (default 200, max LOG_BUFFER_MAX)
+app.get('/api/logs', (req, res) => {
+    const rawTail = req.query.tail;
+    const requested = rawTail ? Number(rawTail) : 200;
+
+    // Validate tail
+    let tail = Number.isFinite(requested) ? Math.floor(requested) : 200;
+    if (tail <= 0) tail = 200;
+    if (tail > LOG_BUFFER_MAX) tail = LOG_BUFFER_MAX;
+
+    const start = Math.max(logBuffer.length - tail, 0);
+    const items = logBuffer.slice(start);
+
+    res.json({
+        ok: true,
+        max: LOG_BUFFER_MAX,
+        returned: items.length,
+        items: items
+    });
 });
 
 // ============ START SERVER ============
