@@ -745,7 +745,7 @@ app.post('/api/db/sequences', (req, res) => {
   }
 });
 
-// Seeds two demo sequences into SQLite.
+// Seeds the demo preset sequences into SQLite (mirroring the firmware preset library).
 // NOTE: uploadLines are sent verbatim to the firmware, so ensure they match the firmware_v4 upload protocol.
 app.post('/api/db/sequences/seed', (req, res) => {
   try {
