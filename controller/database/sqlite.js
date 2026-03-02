@@ -133,9 +133,9 @@ function upsertSequence(seq) {
 // ------------------------------
 // Upload Line Generator
 // ------------------------------
-// replaces spaces with underscores
+// replaces spaces with hyphens to match firmware contract
 function sanitizeNameForFirmware(name) {
-  return String(name || '').trim().replace(/\s+/g, '_');
+  return String(name || '').trim().replace(/\s+/g, '-');
 }
 
 function generateUploadLinesFromData(id, name, data) {
