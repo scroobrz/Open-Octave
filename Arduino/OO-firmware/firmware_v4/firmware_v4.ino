@@ -800,6 +800,9 @@ void handleTeachingMode() {
 }
 
 void handleGuidedMode() {
+  if (millis() - currentStepStartTime < getCurrentSequenceStep().duration) {
+    return; // Do nothing until the current step's duration has elapsed
+  }
   if (keyJustPressed == getCurrentSequenceStep().keyIndex) {
     LOGF("[SEQ] Correct key %d pressed, advancing sequence.\n", keyJustPressed);
 
@@ -811,7 +814,6 @@ void handleGuidedMode() {
       stopSequence();
       return;
     }
-
     // Note: does not currently wait for sequence step duration before executing next step
     executeSequenceStep(getCurrentSequenceStep());
   }
