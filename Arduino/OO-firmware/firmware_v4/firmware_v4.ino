@@ -21,6 +21,7 @@
 
 #include "Arduino.h"
 #include "PCA9685.h"
+#include "clsPCA9555.h"
 #include "firmware_V4_config.h"
 #include "firmware_V4_debug.h"
 #include <Adafruit_NeoPixel.h>
