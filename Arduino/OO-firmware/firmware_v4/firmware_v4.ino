@@ -170,6 +170,10 @@ void setup() {
   Wire.begin(21, 22);
   LOGLN("OK");
 
+  LOG("[SETUP] Initializing expansion board... ");
+  ioport.begin();
+  LOGLN("OK");
+
   LOG("[SETUP] Initializing servo driver... ");
   servoDriver.init();
   servoDriver.setFrequency(SERVO_FREQ);
@@ -1143,7 +1147,7 @@ bool validateHardwareInit() {
   }
 
   for (int i = 0; i < NUM_KEYS; i++) {
-    if (keys[i].buttonPin < 0 || keys[i].buttonPin > 39) {
+    if (keys[i].buttonPin < 0 || keys[i].buttonPin > 15) {
       LOGF("[ERROR] Invalid buttonPin: %d for key %d", keys[i].buttonPin, i);
       return false;
     }
