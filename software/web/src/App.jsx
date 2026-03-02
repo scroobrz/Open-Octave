@@ -4,13 +4,51 @@ function pretty(obj) {
   return JSON.stringify(obj, null, 2);
 }
 
+async function readErrorPayload(res) {
+  // Best-effort: try JSON first, fallback to text.
+  try {
+    const data = await res.json();
+    if (data && typeof data === 'object') return data;
+    return { error: String(data) };
+  } catch {
+    try {
+      const text = await res.text();
+      return { error: text || `HTTP ${res.status}` };
+    } catch {
+      return { error: `HTTP ${res.status}` };
+    }
+  }
+}
+
 async function apiGet(path) {
   const res = await fetch(path);
+
+  // Important: treat non-2xx as failure so caller try/catch works correctly.
+  if (!res.ok) {
+    const payload = await readErrorPayload(res);
+    const msg =
+      typeof payload?.error === 'string' && payload.error.trim()
+        ? payload.error
+        : `GET ${path} failed: ${res.status} ${res.statusText}`;
+    throw new Error(msg);
+  }
+
   return res.json();
 }
 
 async function apiPost(path) {
   const res = await fetch(path, { method: 'POST' });
+
+  // Important: treat non-2xx as failure so caller try/catch works correctly.
+  if (!res.ok) {
+    const payload = await readErrorPayload(res);
+    const msg =
+      typeof payload?.error === 'string' && payload.error.trim()
+        ? payload.error
+        : `POST ${path} failed: ${res.status} ${res.statusText}`;
+    throw new Error(msg);
+  }
+
   return res.json();
 }
 
@@ -275,9 +313,20 @@ export default function App() {
       // Step 1: Status query (if firmware/controller supports it)
       let statusResp = null;
       let statusOk = false;
+
+      const isApiSuccess = (obj) => {
+        // If backend returns a structured { ok: boolean } or { success: boolean }, respect it.
+        // Otherwise, treat presence of `error` as failure and assume best-effort success.
+        if (!obj || typeof obj !== 'object') return true;
+        if (obj.error) return false;
+        if (Object.prototype.hasOwnProperty.call(obj, 'ok')) return Boolean(obj.ok);
+        if (Object.prototype.hasOwnProperty.call(obj, 'success')) return Boolean(obj.success);
+        return true;
+      };
+
       try {
         statusResp = await apiGet('/api/status');
-        statusOk = true;
+        statusOk = isApiSuccess(statusResp);
       } catch (e) {
         statusResp = { error: e.message };
         statusOk = false;
@@ -289,7 +338,7 @@ export default function App() {
       let seqListOk = false;
       try {
         seqListResp = await apiGet('/api/seq/list');
-        seqListOk = true;
+        seqListOk = isApiSuccess(seqListResp);
         setSeqListResult(seqListResp);
         setSeqListError('');
       } catch (e) {

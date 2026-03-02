@@ -168,7 +168,26 @@ function refreshConnectionState() {
 let port;
 let parser;
 
-function connectSerial(pathOverride) {
+function closeSerialPortAsync() {
+    return new Promise((resolve) => {
+        if (!port || !port.isOpen) {
+            resolve({ closed: true, alreadyClosed: true });
+            return;
+        }
+
+        console.log('[SERIAL] Closing port...');
+        port.close((err) => {
+            if (err) {
+                console.error('[SERIAL] Close error:', err.message);
+                resolve({ closed: false, error: err.message });
+                return;
+            }
+            resolve({ closed: true });
+        });
+    });
+}
+
+async function connectSerial(pathOverride) {
     const pathToUse = pathOverride || currentSerialPath;
 
     if (!pathToUse) {
@@ -176,9 +195,20 @@ function connectSerial(pathOverride) {
         return { error: 'SERIAL_PORT not set' };
     }
 
-    // If already open on the same port, do nothing.
+    // If already open on the requested port, do nothing.
     if (port && port.isOpen) {
-        return { success: true, mode: 'serial', alreadyOpen: true, port: pathToUse };
+        const existingPath = port.path || currentSerialPath;
+        if (existingPath === pathToUse) {
+            return { success: true, mode: 'serial', alreadyOpen: true, port: pathToUse };
+        }
+
+        // Port is open on a different path; close it before reopening.
+        console.log(`[SERIAL] Port already open on ${existingPath}; switching to ${pathToUse}...`);
+        await closeSerialPortAsync();
+
+        // Clear references so we don't keep old listeners around.
+        port = undefined;
+        parser = undefined;
     }
 
     console.log(`[INIT] Starting in SERIAL mode on ${pathToUse}...`);
@@ -219,7 +249,11 @@ function disconnectSerial() {
     if (port.isOpen) {
         console.log('[SERIAL] Closing port...');
         try {
-            port.close();
+            port.close((err) => {
+                if (err) {
+                    console.error('[SERIAL] Close error:', err.message);
+                }
+            });
         } catch (e) {
             console.error('[SERIAL] Close error:', e.message);
         }
@@ -233,7 +267,7 @@ function disconnectSerial() {
 
 // Startup behavior preserved: open serial immediately if COMM_MODE=SERIAL.
 if (COMM_MODE === 'SERIAL') {
-    connectSerial();
+    connectSerial().catch((e) => console.error('[SERIAL] Startup connect error:', e.message));
 }
 
 // ============ WEBSOCKET MODE SETUP ============
@@ -503,7 +537,7 @@ function sendSerialCommand(cmd) {
 // Body examples:
 //   { "transport": "WIFI", "esp32Ip": "192.168.4.1", "wsPort": 81 }
 //   { "transport": "SERIAL", "serialPort": "/dev/cu.usbmodemXXXX" }
-app.post('/api/connect', (req, res) => {
+app.post('/api/connect', async (req, res) => {
     try {
         const body = req.body || {};
         const transport = String(body.transport || '').toUpperCase();
@@ -523,6 +557,7 @@ app.post('/api/connect', (req, res) => {
             const wsPort = body.wsPort !== undefined ? Number(body.wsPort) : undefined;
 
             const result = { transport: 'WIFI', connect: true, ws: connectWebSocket(ip, wsPort) };
+            refreshConnectionState();
             res.json({ success: true, result });
             return;
         }
@@ -533,7 +568,8 @@ app.post('/api/connect', (req, res) => {
         refreshConnectionState();
 
         const serialPort = body.serialPort ? String(body.serialPort) : undefined;
-        const serialResult = connectSerial(serialPort);
+        const serialResult = await connectSerial(serialPort);
+        refreshConnectionState();
         res.json({ success: true, result: { transport: 'SERIAL', connect: true, serial: serialResult } });
     } catch (e) {
         res.status(500).json({ error: e.message });
