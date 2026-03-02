@@ -24,7 +24,7 @@ Demo 2 software goals:
 
 ## Prerequisites (new laptop)
 
-1. Install Node.js (recommended: Node 18+ or 20+)
+1. Install Node.js (minimum: Node 20.x LTS)
 2. Install npm (usually comes with Node)
 3. For Serial control:
    - Install the appropriate USB serial driver if required by your board (varies by board/USB chip).
