@@ -87,6 +87,8 @@ Key keys[NUM_KEYS] = {
 };
 
 ServoDriver servoDriver;
+PCA9555 ioport(0x20);
+
 WebSocketsServer webSocket(81);
 
 // ============ GLOBAL STATE ============
@@ -165,7 +167,7 @@ void setup() {
   LOGF("OK (speaker_pin: %d)\n", SPEAKER_PIN);
 
   LOG("[SETUP] Initializing I2C... ");
-  Wire.begin();
+  Wire.begin(21, 22);
   LOGLN("OK");
 
   LOG("[SETUP] Initializing servo driver... ");
@@ -176,7 +178,7 @@ void setup() {
   // initialize each key
   LOGLN("[SETUP] Initializing keys:");
   for (int i = 0; i < NUM_KEYS; i++) {
-    pinMode(keys[i].buttonPin, INPUT);
+    ioport.pinMode(keys[i].buttonPin, INPUT);
     servoRest(keys[i].servoChannel);
 
     // Create NeoPixel object dynamically (can't be done at global scope)
@@ -985,7 +987,7 @@ These handle button detection, sound playback, and LED control for the keys.
 // checks all buttons and plays/stops tones based on their state
 void handleKeyPresses() {
   for (int i = 0; i < NUM_KEYS; i++) {
-    bool buttonPressed = digitalRead(keys[i].buttonPin) == HIGH;
+    bool buttonPressed = ioport.digitalRead(keys[i].buttonPin) == HIGH;
 
     if (buttonPressed && !keys[i].isPressed) {
 
