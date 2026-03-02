@@ -9,6 +9,7 @@
     "mock:esp32": "node mock_esp32_ws.js"
   },
   "dependencies": {
+    "better-sqlite3": "^12.6.2",
     "cors": "^2.8.5",
     "dotenv": "^16.4.5",
     "express": "^4.19.2",

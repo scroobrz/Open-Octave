@@ -20,7 +20,7 @@ function Badge({ connected }) {
   return <div className={cls}>{text}</div>;
 }
 
-function SeqSelect({ onSelect }) {
+function SeqSelect({ onSelect, disabled }) {
   const [value, setValue] = useState('');
 
   return (
@@ -36,6 +36,7 @@ function SeqSelect({ onSelect }) {
       />
       <button
         className="btn"
+        disabled={disabled}
         onClick={() => {
           const id = Number(value);
           if (!Number.isFinite(id) || id < 0 || id > 9) return;
@@ -62,15 +63,333 @@ export default function App() {
   const [logs, setLogs] = useState([]);
   const [tail, setTail] = useState(200);
   const [autoLogs, setAutoLogs] = useState(true);
+    // ============ LOGS TAB UI CONTROLS ============
+  const [logsPrefixedOnly, setLogsPrefixedOnly] = useState(false);
+  const [logsSearch, setLogsSearch] = useState('');
+  const [logsCopyMsg, setLogsCopyMsg] = useState('');
 
   const [lastResult, setLastResult] = useState(null);
+    // ============ CONTROLLER STATE MIRROR (from backend) ============
+  const [ctrlState, setCtrlState] = useState(null);
+  const [ctrlStateError, setCtrlStateError] = useState('');
+
+
+  // ============ SEQUENCES TAB STATE ============
+  const [seqListResult, setSeqListResult] = useState(null);
+  const [seqListError, setSeqListError] = useState('');
+
+  // ============ SOFTWARE SEQUENCE LIBRARY (SQLite) ============
+  const [dbSeqItems, setDbSeqItems] = useState([]);
+  const [dbSeqError, setDbSeqError] = useState('');
+  const [selectedDbSeqId, setSelectedDbSeqId] = useState('');
+  const [selectedDbSeq, setSelectedDbSeq] = useState(null);
+  const [dbActionBusy, setDbActionBusy] = useState(false);
+    // Last upload summary (for demo verification)
+  const [lastUploadSummary, setLastUploadSummary] = useState(null);
+
+  // ============ DB CREATE SEQUENCE (paste JSON) ============
+  const [dbCreateJson, setDbCreateJson] = useState(
+    pretty({
+      id: 'my_sequence_id',
+      name: 'My Sequence Name',
+      description: 'Optional description',
+      steps: [
+        { k: 0, c: 'P', d: 300 },
+        { k: 1, c: 'P', d: 300 }
+      ]
+    })
+  );
+  const [dbCreateMsg, setDbCreateMsg] = useState('');
+  const [dbCreateErr, setDbCreateErr] = useState('');
+  const [dbCreateBusy, setDbCreateBusy] = useState(false);
+
+  // ============ CONNECT TAB SYNC ============
+  const [syncState, setSyncState] = useState({
+    running: false,
+    phase: 'idle',       // 'idle' | 'status' | 'seq_list' | 'refresh' | 'complete'
+    statusOk: null,      // true/false/null
+    seqListOk: null,     // true/false/null
+    statusResp: null,
+    seqListResp: null,
+    error: ''
+  });
+
+  async function refreshSeqList() {
+    try {
+      setSeqListError('');
+      const data = await apiGet('/api/seq/list');
+      setSeqListResult(data);
+
+      // Keep lastResult in sync too (useful for global debugging)
+      setLastResult(data);
+
+      await refreshHealth();
+      await refreshLogs();
+      await refreshControllerState();
+    } catch (e) {
+      setSeqListResult(null);
+      setSeqListError(`Failed to load /api/seq/list: ${e.message}`);
+    }
+  }
+
+  async function refreshDbSequences() {
+    try {
+      setDbSeqError('');
+      const data = await apiGet('/api/db/sequences');
+      setDbSeqItems(Array.isArray(data?.items) ? data.items : []);
+    } catch (e) {
+      setDbSeqItems([]);
+      setDbSeqError(`Failed to load /api/db/sequences: ${e.message}`);
+    }
+  }
+
+  async function seedDemoSequences() {
+    try {
+      setDbActionBusy(true);
+      setDbSeqError('');
+      const data = await apiPost('/api/db/sequences/seed');
+      setLastResult(data);
+      await refreshDbSequences();
+    } catch (e) {
+      setDbSeqError(`Failed to seed demo sequences: ${e.message}`);
+    } finally {
+      setDbActionBusy(false);
+    }
+  }
+
+  async function loadSelectedDbSequence(id) {
+    try {
+      if (!id) {
+        setSelectedDbSeq(null);
+        return;
+      }
+      setDbSeqError('');
+      const data = await apiGet(`/api/db/sequences/${encodeURIComponent(id)}`);
+      setSelectedDbSeq(data?.item || null);
+    } catch (e) {
+      setSelectedDbSeq(null);
+      setDbSeqError(`Failed to load /api/db/sequences/${id}: ${e.message}`);
+    }
+  }
+
+  async function uploadSelectedDbSequence() {
+    try {
+      if (!selectedDbSeqId) return;
+      setDbActionBusy(true);
+      setDbSeqError('');
+
+      const data = await apiPost(`/api/db/sequences/${encodeURIComponent(selectedDbSeqId)}/upload`);
+      setLastResult(data);
+      setLastUploadSummary({
+        ts: new Date().toISOString(),
+        sequenceId: selectedDbSeqId,
+        ok: Boolean(data?.ok),
+        sentCount: data?.sentCount ?? null,
+        error: data?.error || null
+      });
+
+      // After upload, refresh device-side view for verification.
+      await refreshSeqList();
+      await refreshLogs();
+      await refreshControllerState();
+    } catch (e) {
+      setDbSeqError(`Failed to upload sequence: ${e.message}`);
+    } finally {
+      setDbActionBusy(false);
+    }
+  }
+
+  async function saveDbSequenceFromJson() {
+    try {
+      setDbCreateBusy(true);
+      setDbCreateMsg('');
+      setDbCreateErr('');
+
+      let payload;
+      try {
+        payload = JSON.parse(dbCreateJson);
+      } catch {
+        setDbCreateErr('Invalid JSON. Please fix formatting and try again.');
+        return;
+      }
+
+      // Basic client-side validation (server also validates)
+      if (!payload || typeof payload !== 'object') {
+        setDbCreateErr('JSON must be an object.');
+        return;
+      }
+      if (!payload.id || !String(payload.id).trim()) {
+        setDbCreateErr('Missing "id".');
+        return;
+      }
+      if (!payload.name || !String(payload.name).trim()) {
+        setDbCreateErr('Missing "name".');
+        return;
+      }
+      if (!Array.isArray(payload.steps)) {
+        setDbCreateErr('Missing "steps" array.');
+        return;
+      }
+
+      const res = await fetch('/api/db/sequences', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify(payload)
+      });
+
+      const data = await res.json();
+      setLastResult(data);
+
+      if (!data?.ok) {
+        setDbCreateErr(data?.error || 'Failed to save sequence.');
+        return;
+      }
+
+      setDbCreateMsg(`Saved sequence: ${payload.id}`);
+      await refreshDbSequences();
+
+      // Optionally auto-select the saved sequence
+      const newId = String(payload.id).trim();
+      setSelectedDbSeqId(newId);
+      await loadSelectedDbSequence(newId);
+    } catch (e) {
+      setDbCreateErr(e.message);
+    } finally {
+      setDbCreateBusy(false);
+    }
+  }
+
+  async function runSync() {
+    setSyncState((s) => ({
+      ...s,
+      running: true,
+      phase: 'status',
+      statusOk: null,
+      seqListOk: null,
+      statusResp: null,
+      seqListResp: null,
+      error: ''
+    }));
+
+    try {
+      // Step 1: Status query (if firmware/controller supports it)
+      let statusResp = null;
+      let statusOk = false;
+      try {
+        statusResp = await apiGet('/api/status');
+        statusOk = true;
+      } catch (e) {
+        statusResp = { error: e.message };
+        statusOk = false;
+      }
+
+      // Step 2: Sequence list (if firmware/controller supports it)
+      setSyncState((s) => ({ ...s, phase: 'seq_list' }));
+      let seqListResp = null;
+      let seqListOk = false;
+      try {
+        seqListResp = await apiGet('/api/seq/list');
+        seqListOk = true;
+        setSeqListResult(seqListResp);
+        setSeqListError('');
+      } catch (e) {
+        seqListResp = { error: e.message };
+        seqListOk = false;
+        setSeqListError(`Failed to load /api/seq/list: ${e.message}`);
+      }
+
+      setSyncState((s) => ({
+        ...s,
+        running: false,
+        statusOk,
+        seqListOk,
+        statusResp,
+        seqListResp
+      }));
+
+      // Refresh supporting views
+      setSyncState((s) => ({ ...s, phase: 'refresh' }));
+      await refreshHealth();
+      await refreshLogs();
+      await refreshControllerState();
+      setSyncState((s) => ({ ...s, phase: 'complete' }));
+
+      // Keep global lastResult helpful too
+      setLastResult({
+        sync: true,
+        statusOk,
+        seqListOk
+      });
+    } catch (e) {
+      setSyncState((s) => ({ ...s, running: false, phase: 'idle', error: e.message }));
+    }
+  }
 
   const timerRef = useRef(null);
+    const stateTimerRef = useRef(null);
 
   const isConnected = useMemo(() => {
+    // Prefer backend state mirror, fallback to /api/health.
+    if (ctrlState && typeof ctrlState.connected === 'boolean') {
+      return ctrlState.connected;
+    }
+
     if (!health) return false;
     return Boolean(health?.wifi?.connected || health?.serial?.open);
-  }, [health]);
+  }, [ctrlState, health]);
+
+  const controlsDisabled = !isConnected;
+
+  const displayedLogs = useMemo(() => {
+    let items = Array.isArray(logs) ? logs : [];
+
+    if (logsPrefixedOnly) {
+      items = items.filter((x) => {
+        const m = String(x.message || '');
+        return (
+          m.startsWith('ACK ') ||
+          m.startsWith('STATUS ') ||
+          m.startsWith('EVT ') ||
+          m.startsWith('ERR ')
+        );
+      });
+    }
+
+    const q = String(logsSearch || '').trim().toLowerCase();
+    if (q) {
+      items = items.filter((x) => {
+        const line = `[${x.ts}] ${x.source}: ${x.message}`.toLowerCase();
+        return line.includes(q);
+      });
+    }
+
+    return items;
+  }, [logs, logsPrefixedOnly, logsSearch]);
+
+  async function copyDisplayedLogs() {
+    try {
+      const text = displayedLogs.length
+        ? displayedLogs.map((x) => `[${x.ts}] ${x.source}: ${x.message}`).join('\n')
+        : '';
+
+      if (!text) {
+        setLogsCopyMsg('Nothing to copy.');
+        return;
+      }
+
+      await navigator.clipboard.writeText(text);
+      setLogsCopyMsg(`Copied ${displayedLogs.length} lines.`);
+      setTimeout(() => setLogsCopyMsg(''), 2000);
+    } catch (e) {
+      setLogsCopyMsg(`Copy failed: ${e.message}`);
+    }
+  }
+
+  function clearUiLogs() {
+    setLogs([]);
+    setLogsCopyMsg('Cleared UI logs (backend logs unchanged).');
+    setTimeout(() => setLogsCopyMsg(''), 2000);
+  }
 
   async function refreshHealth() {
     try {
@@ -93,6 +412,31 @@ export default function App() {
       setLogs(data.items || []);
     } catch (e) {
       setLogs([]);
+    }
+  }
+
+    async function refreshControllerState() {
+    try {
+      setCtrlStateError('');
+      const data = await apiGet('/api/state');
+      setCtrlState(data?.state || null);
+    } catch (e) {
+      setCtrlState(null);
+      setCtrlStateError(`Failed to load /api/state: ${e.message}`);
+    }
+  }
+
+  function startAutoState() {
+    stopAutoState();
+    stateTimerRef.current = setInterval(() => {
+      refreshControllerState();
+    }, 1000);
+  }
+
+  function stopAutoState() {
+    if (stateTimerRef.current) {
+      clearInterval(stateTimerRef.current);
+      stateTimerRef.current = null;
     }
   }
 
@@ -124,6 +468,7 @@ export default function App() {
 
       await refreshHealth();
       await refreshLogs();
+      await refreshControllerState();
     } catch (e) {
       setLastResult({ error: e.message });
     }
@@ -137,6 +482,7 @@ export default function App() {
 
       await refreshHealth();
       await refreshLogs();
+      await refreshControllerState();
     } catch (e) {
       setLastResult({ error: e.message });
     }
@@ -181,6 +527,7 @@ export default function App() {
       // After sending a command, refresh health and logs
       await refreshHealth();
       await refreshLogs();
+      await refreshControllerState();
     } catch (e) {
       setLastResult({ error: e.message });
     }
@@ -189,8 +536,16 @@ export default function App() {
   useEffect(() => {
     refreshHealth();
     refreshLogs();
+    refreshControllerState();
+    refreshDbSequences();
+
     startAutoLogs();
-    return () => stopAutoLogs();
+    startAutoState();
+
+    return () => {
+      stopAutoLogs();
+      stopAutoState();
+    };
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, []);
 
@@ -223,10 +578,22 @@ export default function App() {
             Control
           </button>
           <button
+            className={tab === 'sequences' ? 'nav-btn is-active' : 'nav-btn'}
+            onClick={() => setTab('sequences')}
+          >
+            Sequences
+          </button>
+          <button
             className={tab === 'logs' ? 'nav-btn is-active' : 'nav-btn'}
             onClick={() => setTab('logs')}
           >
             Logs
+          </button>
+          <button
+            className={tab === 'settings' ? 'nav-btn is-active' : 'nav-btn'}
+            onClick={() => setTab('settings')}
+          >
+            Settings
           </button>
         </nav>
 
@@ -236,6 +603,147 @@ export default function App() {
       </aside>
 
       <main className="main">
+        {tab === 'sequences' && (
+          <section className="panel">
+            <h1>Sequences</h1>
+
+            <div className="card">
+              <h2>Software library (SQLite)</h2>
+
+              <div className="row">
+                <div className="label">
+                  Loads from <code>GET /api/db/sequences</code>. Upload sends <code>U/S/E</code> lines to the device.
+                </div>
+
+                <div className="btn-row">
+                  <button className="btn btn-secondary" onClick={refreshDbSequences} type="button" disabled={dbActionBusy}>
+                    Refresh DB
+                  </button>
+                  <button className="btn btn-secondary" onClick={seedDemoSequences} type="button" disabled={dbActionBusy}>
+                    Seed demos
+                  </button>
+                </div>
+              </div>
+
+              {dbSeqError ? <pre className="pre">{dbSeqError}</pre> : null}
+              {lastUploadSummary ? (
+                <pre className="pre">{pretty({ lastUpload: lastUploadSummary })}</pre>
+              ) : null}
+
+              <div className="row mt">
+                <div className="label">Select a sequence</div>
+                <select
+                  className="input"
+                  value={selectedDbSeqId}
+                  onChange={async (e) => {
+                    const id = e.target.value;
+                    setSelectedDbSeqId(id);
+                    await loadSelectedDbSequence(id);
+                  }}
+                >
+                  <option value="">(none)</option>
+                  {dbSeqItems.map((it) => (
+                    <option key={it.id} value={it.id}>
+                      {it.name} ({it.id}){typeof it.stepCount === 'number' ? ` • ${it.stepCount} steps` : ''}
+                    </option>
+                  ))}
+                </select>
+              </div>
+
+              <div className="row mt">
+                <div className="label">
+                  Selected: <b>{selectedDbSeqId || 'none'}</b>
+                </div>
+
+                <div className="btn-row">
+                  <button
+                    className="btn"
+                    type="button"
+                    disabled={!isConnected || !selectedDbSeqId || dbActionBusy}
+                    onClick={uploadSelectedDbSequence}
+                  >
+                    Upload to device
+                  </button>
+                  <button
+                    className="btn btn-secondary"
+                    type="button"
+                    disabled={!selectedDbSeqId || dbActionBusy}
+                    onClick={() => setLastResult(selectedDbSeq || { note: 'No sequence loaded yet' })}
+                  >
+                    Preview JSON
+                  </button>
+                </div>
+              </div>
+
+              <div className="hint">
+                Demo 2 model: firmware stores only the default sequence + the last uploaded sequence.
+                The full library lives in SQLite.
+              </div>
+            </div>
+
+            <div className="row" style={{ marginBottom: 12 }}>
+              <div className="label">
+                Connected: <b>{String(isConnected)}</b>
+                {'  '}|{'  '}
+                Transport: <b>{ctrlState?.transport || health?.mode || 'n/a'}</b>
+                {'  '}|{'  '}
+                Last cmd: <b>{ctrlState?.lastCommand?.cmd || 'n/a'}</b>
+              </div>
+              <div className="btn-row">
+                <button className="btn btn-secondary" onClick={refreshControllerState} type="button">
+                  Refresh State
+                </button>
+              </div>
+            </div>
+
+            <div className="card">
+              <h2>Current sequence on device (firmware 'l')</h2>
+
+              <div className="row">
+                <div className="label">
+                  Loads from <code>GET /api/seq/list</code> (maps to firmware <code>l</code>)
+                </div>
+                <div className="btn-row">
+                  <button
+                    className="btn"
+                    disabled={!isConnected}
+                    onClick={refreshSeqList}
+                    type="button"
+                  >
+                    Refresh (l)
+                  </button>
+                </div>
+              </div>
+
+              <div className="row mt">
+                <div className="label">Command result (controller)</div>
+              </div>
+
+              {seqListError ? (
+                <pre className="pre">{seqListError}</pre>
+              ) : (
+                <pre className="pre">{seqListResult ? pretty(seqListResult) : '(not loaded)'}</pre>
+              )}
+
+              <div className="row mt">
+                <div className="label">Device output (from logs)</div>
+              </div>
+              <pre className="pre pre-logs">
+                {logs.length
+                  ? logs
+                      .slice(-30)
+                      .map((x) => `[${x.ts}] ${x.source}: ${x.message}`)
+                      .join('\n')
+                  : '(no logs yet)'}
+              </pre>
+
+              <div className="hint">
+                Note: <code>GET /api/seq/list</code> triggers the firmware <code>l</code> command. The API response above only confirms the command was sent.
+                The actual printed sequence content is streamed back as log lines.
+              </div>
+            </div>
+          </section>
+        )}
         {tab === 'connect' && (
           <section className="panel">
             <h1>Connect</h1>
@@ -325,8 +833,109 @@ export default function App() {
             </div>
 
             <div className="card">
+              <h2>Sync</h2>
+
+              <div className="row" style={{ marginBottom: 8 }}>
+                <div className="label">
+                  Phase: <b>{syncState.phase}</b>
+                </div>
+                <div className="label">
+                  Showing last 50 logs
+                </div>
+              </div>
+              <div className="hint">
+                Phases: <b>idle</b> → <b>status</b> → <b>seq_list</b> → <b>refresh</b> → <b>complete</b>.<br />
+                If stuck:
+                <ul>
+                  <li><b>status</b>: /api/status not supported yet, or firmware not responding. Check logs for ERR/timeout.</li>
+                  <li><b>seq_list</b>: /api/seq/list not supported yet, or firmware not responding. Check logs for ERR/timeout.</li>
+                  <li><b>refresh</b>: controller/UI refresh calls failed. Try Refresh Health/Logs, or restart Node.</li>
+                </ul>
+              </div>
+
+              <div className="row">
+                <div className="label">
+                  Status: <b>{syncState.statusOk === null ? '—' : syncState.statusOk ? 'OK' : 'FAILED'}</b>
+                  {'  '}|{'  '}
+                  Current seq (l): <b>{syncState.seqListOk === null ? '—' : syncState.seqListOk ? 'OK' : 'FAILED'}</b>
+                </div>
+
+                <div className="btn-row">
+                  <button className="btn" onClick={runSync} disabled={!isConnected || syncState.running} type="button">
+                    {syncState.running ? 'Syncing…' : 'Run Sync'}
+                  </button>
+                  <button className="btn btn-secondary" onClick={refreshSeqList} disabled={!isConnected || syncState.running} type="button">
+                    Refresh current seq (l)
+                  </button>
+                </div>
+              </div>
+
+              {syncState.error ? <pre className="pre">{syncState.error}</pre> : null}
+
+              <div className="row mt">
+                <div className="label">/api/status response</div>
+              </div>
+              <pre className="pre">{syncState.statusResp ? pretty(syncState.statusResp) : '(not run)'}</pre>
+
+              <div className="row mt">
+                <div className="label">/api/seq/list response (firmware 'l')</div>
+              </div>
+              <pre className="pre">{syncState.seqListResp ? pretty(syncState.seqListResp) : '(not run)'}</pre>
+
+              <div className="row mt">
+                <div className="label">Sync log preview (latest 50)</div>
+              </div>
+              <pre className="pre pre-logs">
+                {logs.length
+                  ? logs
+                      .slice(-50)
+                      .map((x) => `[${x.ts}] ${x.source}: ${x.message}`)
+                      .join('\n')
+                  : '(no logs yet)'}
+              </pre>
+
+              <div className="hint">
+                This sync is PRD-aligned but best-effort. If an endpoint fails, it likely means the current firmware/controller build does not support it yet.
+              </div>
+            </div>
+
+            <div className="card">
               <h2>Last API result</h2>
               <pre className="pre">{lastResult ? pretty(lastResult) : '(none yet)'}</pre>
+            </div>
+
+            <div className="card">
+              <h2>Controller state (/api/state)</h2>
+
+              <div className="row">
+                <div className="label">
+                  Connected: <b>{String(ctrlState?.connected ?? false)}</b>
+                  {'  '}|{'  '}
+                  Transport: <b>{ctrlState?.transport || 'n/a'}</b>
+                  {'  '}|{'  '}
+                  Last cmd: <b>{ctrlState?.lastCommand?.cmd || 'n/a'}</b>
+                </div>
+
+                <div className="btn-row">
+                  <button
+                    className="btn btn-secondary"
+                    onClick={refreshControllerState}
+                    type="button"
+                  >
+                    Refresh
+                  </button>
+                </div>
+              </div>
+
+              {ctrlStateError ? (
+                <pre className="pre">{ctrlStateError}</pre>
+              ) : (
+                <pre className="pre">{ctrlState ? pretty(ctrlState) : '(not loaded)'}</pre>
+              )}
+
+              <div className="hint">
+                This is the backend state mirror used for Demo 2 verification.
+              </div>
             </div>
           </section>
         )}
@@ -339,13 +948,13 @@ export default function App() {
               <div className="card">
                 <h2>Mode</h2>
                 <div className="btn-row">
-                  <button className="btn" onClick={() => runCommand('mode', { mode: 'manual' })}>
+                  <button className="btn" disabled={controlsDisabled} onClick={() => runCommand('mode', { mode: 'manual' })}>
                     Manual (m)
                   </button>
-                  <button className="btn" onClick={() => runCommand('mode', { mode: 'guided' })}>
+                  <button className="btn" disabled={controlsDisabled} onClick={() => runCommand('mode', { mode: 'guided' })}>
                     Guided (a)
                   </button>
-                  <button className="btn" onClick={() => runCommand('mode', { mode: 'teaching' })}>
+                  <button className="btn" disabled={controlsDisabled} onClick={() => runCommand('mode', { mode: 'teaching' })}>
                     Teaching (f)
                   </button>
                 </div>
@@ -354,31 +963,36 @@ export default function App() {
               <div className="card">
                 <h2>Sequence</h2>
                 <div className="btn-row">
-                  <button className="btn" onClick={() => runCommand('seq', { action: 'start' })}>
+                  <button className="btn" disabled={controlsDisabled} onClick={() => runCommand('seq', { action: 'start' })}>
                     Start (s)
                   </button>
-                  <button className="btn" onClick={() => runCommand('seq', { action: 'stop' })}>
+                  <button className="btn" disabled={controlsDisabled} onClick={() => runCommand('seq', { action: 'stop' })}>
                     Stop (x)
                   </button>
-                  <button className="btn" onClick={() => runCommand('seq', { action: 'next' })}>
+                  <button className="btn" disabled={controlsDisabled} onClick={() => runCommand('seq', { action: 'next' })}>
                     Next (n)
                   </button>
-                  <button className="btn" onClick={() => runCommand('seq', { action: 'prev' })}>
+                  <button className="btn" disabled={controlsDisabled} onClick={() => runCommand('seq', { action: 'prev' })}>
                     Prev (p)
                   </button>
                 </div>
 
-                <SeqSelect onSelect={(id) => runCommand('seqSelect', { id })} />
+                <SeqSelect
+                  onSelect={(id) => runCommand('seqSelect', { id })}
+                  disabled={controlsDisabled}
+                />
 
                 <div className="row mt">
                   <button
                     className="btn btn-secondary"
+                    disabled={controlsDisabled}
                     onClick={() => runCommand('currentSeq', {})}
                   >
-                    Print Current Seq (l)
+                    Print current seq (l)
                   </button>
                   <button
                     className="btn btn-secondary"
+                    disabled={controlsDisabled}
                     onClick={() => runCommand('status', {})}
                   >
                     Help/Status (?)
@@ -389,10 +1003,10 @@ export default function App() {
               <div className="card">
                 <h2>Tests</h2>
                 <div className="btn-row">
-                  <button className="btn" onClick={() => runCommand('test', { target: 'leds' })}>
+                  <button className="btn" disabled={controlsDisabled} onClick={() => runCommand('test', { target: 'leds' })}>
                     Test LEDs (t)
                   </button>
-                  <button className="btn" onClick={() => runCommand('test', { target: 'servos' })}>
+                  <button className="btn" disabled={controlsDisabled} onClick={() => runCommand('test', { target: 'servos' })}>
                     Test Servos (u)
                   </button>
                 </div>
@@ -424,6 +1038,12 @@ export default function App() {
                   >
                     Auto: {autoLogs ? 'ON' : 'OFF'}
                   </button>
+                  <button className="btn btn-secondary" onClick={copyDisplayedLogs}>
+                    Copy
+                  </button>
+                  <button className="btn btn-secondary" onClick={clearUiLogs}>
+                    Clear UI
+                  </button>
                 </div>
 
                 <div className="row-right">
@@ -436,21 +1056,170 @@ export default function App() {
                     value={tail}
                     onChange={(e) => setTail(Number(e.target.value))}
                   />
+
+                  <div className="label">Search</div>
+                  <input
+                    className="input"
+                    value={logsSearch}
+                    onChange={(e) => setLogsSearch(e.target.value)}
+                    placeholder="Find text in logs"
+                  />
+
+                  <button
+                    className={logsPrefixedOnly ? 'btn' : 'btn btn-secondary'}
+                    onClick={() => setLogsPrefixedOnly((v) => !v)}
+                    type="button"
+                  >
+                    Prefixed only
+                  </button>
                 </div>
               </div>
 
+              <div className="hint">
+                Showing <b>{displayedLogs.length}</b> lines (filtered).
+                {logsCopyMsg ? `  •  ${logsCopyMsg}` : ''}
+              </div>
+
               <pre className="pre pre-logs">
-                {logs.length
-                  ? logs.map(
-                      (x) => `[${x.ts}] ${x.source}: ${x.message}`
-                    ).join('\n')
+                {displayedLogs.length
+                  ? displayedLogs
+                      .map((x) => `[${x.ts}] ${x.source}: ${x.message}`)
+                      .join('\n')
                   : '(no logs yet)'}
               </pre>
 
               <div className="hint">
-                This loads from <code>GET /api/logs</code>. With the mock ESP32,
-                you should at least see <code>[MOCK-ESP32] hello</code>.
+                This loads from <code>GET /api/logs</code>. Use <b>Prefixed only</b> to focus on protocol lines (<code>ACK/STATUS/EVT/ERR</code>).
+                Search filters locally in the browser.
               </div>
+            </div>
+          </section>
+        )}
+
+        {tab === 'settings' && (
+          <section className="panel">
+            <h1>Settings / Debug</h1>
+
+
+            <div className="card">
+              <h2>Connection</h2>
+
+              <div className="row">
+                <div className="label">
+                  Connected: <b>{String(isConnected)}</b>
+                  {'  '}|{'  '}
+                  Transport: <b>{ctrlState?.transport || health?.mode || 'n/a'}</b>
+                </div>
+
+                <div className="btn-row">
+                  <button className="btn btn-secondary" onClick={disconnectAll} type="button">
+                    Disconnect
+                  </button>
+                  <button
+                    className="btn btn-secondary"
+                    onClick={async () => {
+                      try {
+                        const data = await fetch('/api/state/reset', { method: 'POST' }).then((r) => r.json());
+                        setLastResult(data);
+                        await refreshControllerState();
+                      } catch (e) {
+                        setLastResult({ error: e.message });
+                      }
+                    }}
+                    type="button"
+                  >
+                    Reset State Mirror
+                  </button>
+                </div>
+              </div>
+
+              <div className="hint">
+                Reset clears the in-memory controller mirror (lastCommand/lastAck counters) without restarting Node.
+              </div>
+            </div>
+
+            <div className="card">
+              <h2>Quick Diagnostics</h2>
+              <div className="btn-row">
+                <button className="btn btn-secondary" disabled={!isConnected} onClick={() => runCommand('status', {})}>
+                  Status (GET /api/status)
+                </button>
+                <button className="btn btn-secondary" disabled={!isConnected} onClick={() => runCommand('currentSeq', {})}>
+                  Current seq (GET /api/seq/list, l)
+                </button>
+                <button className="btn btn-secondary" disabled={!isConnected} onClick={() => refreshHealth()}>
+                  Refresh Health
+                </button>
+                <button className="btn btn-secondary" disabled={!isConnected} onClick={() => refreshLogs()}>
+                  Refresh Logs
+                </button>
+                <button className="btn btn-secondary" disabled={!isConnected} onClick={() => refreshControllerState()}>
+                  Refresh State
+                </button>
+              </div>
+
+              <div className="hint">
+                NOTE: A true raw command sender will be added later. For Demo 2 we stick to existing endpoints to avoid breaking hardware.
+              </div>
+            </div>
+
+            <div className="card">
+              <h2>Create / Update sequence (SQLite)</h2>
+
+              <div className="row">
+                <div className="label">
+                  Paste JSON and save to the controller DB via <code>POST /api/db/sequences</code>.
+                  Uploading replaces the device’s previously uploaded sequence.
+                </div>
+
+                <div className="btn-row">
+                  <button className="btn" type="button" disabled={dbCreateBusy} onClick={saveDbSequenceFromJson}>
+                    {dbCreateBusy ? 'Saving…' : 'Save to DB'}
+                  </button>
+                  <button
+                    className="btn btn-secondary"
+                    type="button"
+                    disabled={dbCreateBusy}
+                    onClick={() => {
+                      setDbCreateMsg('');
+                      setDbCreateErr('');
+                      setDbCreateJson(
+                        pretty({
+                          id: 'my_sequence_id',
+                          name: 'My Sequence Name',
+                          description: 'Optional description',
+                          steps: [
+                            { k: 0, c: 'P', d: 300 },
+                            { k: 1, c: 'P', d: 300 }
+                          ]
+                        })
+                      );
+                    }}
+                  >
+                    Reset template
+                  </button>
+                </div>
+              </div>
+
+              {dbCreateErr ? <pre className="pre">{dbCreateErr}</pre> : null}
+              {dbCreateMsg ? <pre className="pre">{dbCreateMsg}</pre> : null}
+
+              <textarea
+                className="input"
+                style={{ minHeight: 240, fontFamily: 'var(--font-mono)' }}
+                value={dbCreateJson}
+                onChange={(e) => setDbCreateJson(e.target.value)}
+              />
+
+              <div className="hint">
+                Required fields: <code>id</code>, <code>name</code>, <code>steps</code> (array of step objects).
+                Steps should include <code>k</code> (key index), <code>c</code> (command), and <code>d</code> (duration ms).
+              </div>
+            </div>
+
+            <div className="card">
+              <h2>Last API result</h2>
+              <pre className="pre">{lastResult ? pretty(lastResult) : '(none yet)'}</pre>
             </div>
           </section>
         )}
@@ -576,6 +1345,12 @@ h2 { margin: 0 0 10px 0; font-size: 16px; color: var(--foreground); }
 
 .btn:hover {
   filter: brightness(1.05);
+}
+
+.btn:disabled {
+  opacity: 0.55;
+  cursor: not-allowed;
+  filter: none;
 }
 
 .btn-secondary {
