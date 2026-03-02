@@ -1,12 +1,26 @@
 /*
-  WebSerial Demo AP
-  ------
-  This example code works for both ESP8266 & ESP32 Microcontrollers
-  WebSerial is accessible at 192.168.4.1/webserial URL.
+  --------------
+  WebSerial Demo
+  --------------
+  
+  Skill Level: Beginner
 
-  Author: Ayush Sharma
+  This example provides with a bare minimal app with WebSerial functionality using softAP mode.
+
+  Github: https://github.com/ayushsharma82/WebSerial
+  Wiki: https://docs.webserial.pro
+
+  Works with following hardware:
+  - ESP8266
+  - ESP32
+  - RP2040+W
+  - RP2350+W
+
+  WebSerial terminal will be accessible at your microcontroller's <IPAddress>/webserial URL.
+
   Checkout WebSerial Pro: https://webserial.pro
 */
+
 #include <Arduino.h>
 #if defined(ESP8266)
   #include <ESP8266WiFi.h>
@@ -14,46 +28,66 @@
 #elif defined(ESP32)
   #include <WiFi.h>
   #include <AsyncTCP.h>
+#elif defined(TARGET_RP2040) || defined(TARGET_RP2350) || defined(PICO_RP2040) || defined(PICO_RP2350)
+  #include <WiFi.h>
+  #include <RPAsyncTCP.h>
 #endif
 #include <ESPAsyncWebServer.h>
 #include <WebSerial.h>
 
 AsyncWebServer server(80);
 
-const char* ssid = ""; // Your WiFi AP SSID 
-const char* password = ""; // Your WiFi Password
+const char* ssid = "WSLDemo"; // WiFi AP SSID
+const char* password = ""; // WiFi AP Password
 
-
-/* Message callback of WebSerial */
-void recvMsg(uint8_t *data, size_t len){
-  WebSerial.println("Received Data...");
-  String d = "";
-  for(int i=0; i < len; i++){
-    d += char(data[i]);
-  }
-  WebSerial.println(d);
-}
+unsigned long last_print_time = millis();
 
 void setup() {
-    Serial.begin(115200);
-    WiFi.softAP(ssid, password);
+  Serial.begin(115200);
+  WiFi.softAP(ssid, password);
+  // Once connected, print IP
+  Serial.print("IP Address: ");
+  Serial.println(WiFi.softAPIP());
 
-    IPAddress IP = WiFi.softAPIP();
-    Serial.print("AP IP address: ");
-    Serial.println(IP);
-    // WebSerial is accessible at "<IP Address>/webserial" in browser
-    WebSerial.begin(&server);
-    /* Attach Message Callback */
-    WebSerial.msgCallback(recvMsg);
-    server.begin();
+  server.on("/", HTTP_GET, [](AsyncWebServerRequest *request) {
+    request->send(200, "text/plain", "Hi! This is WebSerial demo. You can access webserial interface at http://" + WiFi.softAPIP().toString() + "/webserial");
+  });
+
+  // WebSerial is accessible at "<IP Address>/webserial" in browser
+  WebSerial.begin(&server);
+
+  /* Attach Message Callback */
+  WebSerial.onMessage([&](uint8_t *data, size_t len) {
+    Serial.printf("Received %u bytes from WebSerial: ", len);
+    Serial.write(data, len);
+    Serial.println();
+    WebSerial.println("Received Data...");
+    String d = "";
+    for(size_t i=0; i < len; i++){
+      d += char(data[i]);
+    }
+    WebSerial.println(d);
+  });
+
+  // Start server
+  server.begin();
 }
 
 void loop() {
-    delay(2000);
-    
+  // Print every 2 seconds (non-blocking)
+  if ((unsigned long)(millis() - last_print_time) > 2000) {
     WebSerial.print(F("IP address: "));
-    WebSerial.println(WiFi.localIP());
-    WebSerial.printf("Millis=%lu\n", millis());
-    WebSerial.printf("Free heap=[%u]\n", ESP.getFreeHeap());
+    WebSerial.println(WiFi.softAPIP());
+    WebSerial.printf("Uptime: %lums\n", millis());
+    #if defined(ESP8266)
+      WebSerial.printf("Free heap: %" PRIu32 "\n", ESP.getFreeHeap());
+    #elif defined(ESP32)
+      WebSerial.printf("Free heap: %" PRIu32 "\n", ESP.getFreeHeap());
+    #elif defined(TARGET_RP2040) || defined(TARGET_RP2350) || defined(PICO_RP2040) || defined(PICO_RP2350)
+      WebSerial.printf("Free heap: %" PRIu32 "\n", rp2040.getFreeHeap());
+    #endif
+    last_print_time = millis();
+  }
 
+  WebSerial.loop();
 }
