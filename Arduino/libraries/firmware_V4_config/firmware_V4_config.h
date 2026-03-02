@@ -86,6 +86,7 @@ struct SequenceStep {
 };
 
 struct Sequence {
+  int id;
   SequenceStep steps[MAX_SEQUENCE_LENGTH];
   uint8_t length;
   char name[32];
