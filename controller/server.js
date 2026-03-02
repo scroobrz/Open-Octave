@@ -785,9 +785,16 @@ app.post('/api/db/sequences', (req, res) => {
 // NOTE: uploadLines are sent verbatim to the firmware, so ensure they match the firmware_v4 upload protocol.
 app.post('/api/db/sequences/seed', (req, res) => {
   try {
-    // Seed sequences based on the firmware preset library.
     // Firmware sequences include LED colors, but the software DB only stores key + command + duration.
-    // We map every step to command `P` and preserve key index + duration.
+
+    // Firmware_v4 expects step.c to be a 6-digit HEX RGB string (no 0x).
+        // Map each key index to a deterministic color for Demo 2.
+    function colorForKey(k) {
+        if (k === 0) return "FF0000"; // red
+        if (k === 1) return "00FF00"; // green
+        if (k === 2) return "0000FF"; // blue
+        return "FFFFFF";              // fallback (white)
+    }
 
     const presets = [
       {
@@ -796,11 +803,11 @@ app.post('/api/db/sequences/seed', (req, res) => {
         description: 'Sequence 0: alternating pattern across keys 0-2.',
         data: {
           steps: [
-            { k: 0, c: 'P', d: 500 },
-            { k: 1, c: 'P', d: 500 },
-            { k: 2, c: 'P', d: 500 },
-            { k: 1, c: 'P', d: 500 },
-            { k: 0, c: 'P', d: 500 }
+            { k: 0, c: colorForKey(0), d: 500 },
+            { k: 1, c: colorForKey(1), d: 500 },
+            { k: 2, c: colorForKey(2), d: 500 },
+            { k: 1, c: colorForKey(1), d: 500 },
+            { k: 0, c: colorForKey(0), d: 500 }
           ]
         },
         uploadLines: []
@@ -811,12 +818,12 @@ app.post('/api/db/sequences/seed', (req, res) => {
         description: 'Sequence 1: three-key ascending/descending (adapted).',
         data: {
           steps: [
-            { k: 0, c: 'P', d: 400 },
-            { k: 1, c: 'P', d: 400 },
-            { k: 1, c: 'P', d: 400 },
-            { k: 0, c: 'P', d: 400 },
-            { k: 2, c: 'P', d: 400 },
-            { k: 0, c: 'P', d: 400 }
+            { k: 0, c: colorForKey(0), d: 400 },
+            { k: 1, c: colorForKey(1), d: 400 },
+            { k: 1, c: colorForKey(1), d: 400 },
+            { k: 0, c: colorForKey(0), d: 400 },
+            { k: 2, c: colorForKey(2), d: 400 },
+            { k: 0, c: colorForKey(0), d: 400 }
           ]
         },
         uploadLines: []
@@ -827,12 +834,12 @@ app.post('/api/db/sequences/seed', (req, res) => {
         description: 'Sequence 2: repeating pattern across keys 0-2.',
         data: {
           steps: [
-            { k: 1, c: 'P', d: 500 },
-            { k: 1, c: 'P', d: 500 },
-            { k: 0, c: 'P', d: 500 },
-            { k: 2, c: 'P', d: 500 },
-            { k: 2, c: 'P', d: 500 },
-            { k: 1, c: 'P', d: 500 }
+            { k: 1, c: colorForKey(1), d: 500 },
+            { k: 1, c: colorForKey(1), d: 500 },
+            { k: 0, c: colorForKey(0), d: 500 },
+            { k: 2, c: colorForKey(2), d: 500 },
+            { k: 2, c: colorForKey(2), d: 500 },
+            { k: 1, c: colorForKey(1), d: 500 }
           ]
         },
         uploadLines: []
@@ -843,20 +850,20 @@ app.post('/api/db/sequences/seed', (req, res) => {
         description: 'Sequence 3: slow-fast-slow arc across RGB keys (0,1,2).',
         data: {
           steps: [
-            { k: 0, c: 'P', d: 600 },
-            { k: 1, c: 'P', d: 500 },
-            { k: 2, c: 'P', d: 400 },
-            { k: 0, c: 'P', d: 300 },
-            { k: 1, c: 'P', d: 300 },
-            { k: 2, c: 'P', d: 300 },
-            { k: 0, c: 'P', d: 300 },
-            { k: 1, c: 'P', d: 300 },
-            { k: 2, c: 'P', d: 300 },
-            { k: 0, c: 'P', d: 300 },
-            { k: 1, c: 'P', d: 400 },
-            { k: 2, c: 'P', d: 500 },
-            { k: 0, c: 'P', d: 600 },
-            { k: 1, c: 'P', d: 700 }
+            { k: 0, c: colorForKey(0), d: 600 },
+            { k: 1, c: colorForKey(1), d: 500 },
+            { k: 2, c: colorForKey(2), d: 400 },
+            { k: 0, c: colorForKey(0), d: 300 },
+            { k: 1, c: colorForKey(1), d: 300 },
+            { k: 2, c: colorForKey(2), d: 300 },
+            { k: 0, c: colorForKey(0), d: 300 },
+            { k: 1, c: colorForKey(1), d: 300 },
+            { k: 2, c: colorForKey(2), d: 300 },
+            { k: 0, c: colorForKey(0), d: 300 },
+            { k: 1, c: colorForKey(1), d: 400 },
+            { k: 2, c: colorForKey(2), d: 500 },
+            { k: 0, c: colorForKey(0), d: 600 },
+            { k: 1, c: colorForKey(1), d: 700 }
           ]
         },
         uploadLines: []
@@ -867,22 +874,22 @@ app.post('/api/db/sequences/seed', (req, res) => {
         description: 'Sequence 4: irregular rhythm across all keys.',
         data: {
           steps: [
-            { k: 0, c: 'P', d: 300 },
-            { k: 2, c: 'P', d: 300 },
-            { k: 1, c: 'P', d: 600 },
-            { k: 0, c: 'P', d: 300 },
-            { k: 2, c: 'P', d: 300 },
-            { k: 1, c: 'P', d: 300 },
-            { k: 0, c: 'P', d: 300 },
-            { k: 1, c: 'P', d: 300 },
-            { k: 2, c: 'P', d: 300 },
-            { k: 0, c: 'P', d: 500 },
-            { k: 1, c: 'P', d: 300 },
-            { k: 2, c: 'P', d: 300 },
-            { k: 0, c: 'P', d: 400 },
-            { k: 1, c: 'P', d: 300 },
-            { k: 2, c: 'P', d: 300 },
-            { k: 0, c: 'P', d: 700 }
+            { k: 0, c: colorForKey(0), d: 300 },
+            { k: 2, c: colorForKey(2), d: 300 },
+            { k: 1, c: colorForKey(1), d: 600 },
+            { k: 0, c: colorForKey(0), d: 300 },
+            { k: 2, c: colorForKey(2), d: 300 },
+            { k: 1, c: colorForKey(1), d: 300 },
+            { k: 0, c: colorForKey(0), d: 300 },
+            { k: 1, c: colorForKey(1), d: 300 },
+            { k: 2, c: colorForKey(2), d: 300 },
+            { k: 0, c: colorForKey(0), d: 500 },
+            { k: 1, c: colorForKey(1), d: 300 },
+            { k: 2, c: colorForKey(2), d: 300 },
+            { k: 0, c: colorForKey(0), d: 400 },
+            { k: 1, c: colorForKey(1), d: 300 },
+            { k: 2, c: colorForKey(2), d: 300 },
+            { k: 0, c: colorForKey(0), d: 700 }
           ]
         },
         uploadLines: []
@@ -893,21 +900,21 @@ app.post('/api/db/sequences/seed', (req, res) => {
         description: 'Sequence 5: Ode to Joy (adapted for 3 keys).',
         data: {
           steps: [
-            { k: 1, c: 'P', d: 400 },
-            { k: 1, c: 'P', d: 400 },
-            { k: 0, c: 'P', d: 400 },
-            { k: 0, c: 'P', d: 400 },
-            { k: 0, c: 'P', d: 400 },
-            { k: 0, c: 'P', d: 400 },
-            { k: 1, c: 'P', d: 400 },
-            { k: 1, c: 'P', d: 400 },
-            { k: 2, c: 'P', d: 400 },
-            { k: 2, c: 'P', d: 400 },
-            { k: 1, c: 'P', d: 400 },
-            { k: 1, c: 'P', d: 400 },
-            { k: 1, c: 'P', d: 600 },
-            { k: 2, c: 'P', d: 400 },
-            { k: 2, c: 'P', d: 800 }
+            { k: 1, c: colorForKey(1), d: 400 },
+            { k: 1, c: colorForKey(1), d: 400 },
+            { k: 0, c: colorForKey(0), d: 400 },
+            { k: 0, c: colorForKey(0), d: 400 },
+            { k: 0, c: colorForKey(0), d: 400 },
+            { k: 0, c: colorForKey(0), d: 400 },
+            { k: 1, c: colorForKey(1), d: 400 },
+            { k: 1, c: colorForKey(1), d: 400 },
+            { k: 2, c: colorForKey(2), d: 400 },
+            { k: 2, c: colorForKey(2), d: 400 },
+            { k: 1, c: colorForKey(1), d: 400 },
+            { k: 1, c: colorForKey(1), d: 400 },
+            { k: 1, c: colorForKey(1), d: 600 },
+            { k: 2, c: colorForKey(2), d: 400 },
+            { k: 2, c: colorForKey(2), d: 800 }
           ]
         },
         uploadLines: []
@@ -918,20 +925,20 @@ app.post('/api/db/sequences/seed', (req, res) => {
         description: 'Sequence 6: gentle arpeggio (adapted for 3 keys).',
         data: {
           steps: [
-            { k: 2, c: 'P', d: 500 },
-            { k: 1, c: 'P', d: 500 },
-            { k: 0, c: 'P', d: 500 },
-            { k: 1, c: 'P', d: 500 },
-            { k: 2, c: 'P', d: 500 },
-            { k: 1, c: 'P', d: 500 },
-            { k: 0, c: 'P', d: 700 },
-            { k: 0, c: 'P', d: 300 },
-            { k: 1, c: 'P', d: 500 },
-            { k: 2, c: 'P', d: 500 },
-            { k: 1, c: 'P', d: 400 },
-            { k: 0, c: 'P', d: 600 },
-            { k: 1, c: 'P', d: 500 },
-            { k: 2, c: 'P', d: 900 }
+            { k: 2, c: colorForKey(2), d: 500 },
+            { k: 1, c: colorForKey(1), d: 500 },
+            { k: 0, c: colorForKey(0), d: 500 },
+            { k: 1, c: colorForKey(1), d: 500 },
+            { k: 2, c: colorForKey(2), d: 500 },
+            { k: 1, c: colorForKey(1), d: 500 },
+            { k: 0, c: colorForKey(0), d: 700 },
+            { k: 0, c: colorForKey(0), d: 300 },
+            { k: 1, c: colorForKey(1), d: 500 },
+            { k: 2, c: colorForKey(2), d: 500 },
+            { k: 1, c: colorForKey(1), d: 400 },
+            { k: 0, c: colorForKey(0), d: 600 },
+            { k: 1, c: colorForKey(1), d: 500 },
+            { k: 2, c: colorForKey(2), d: 900 }
           ]
         },
         uploadLines: []
@@ -942,19 +949,19 @@ app.post('/api/db/sequences/seed', (req, res) => {
         description: 'Sequence 7: Mary Had a Little Lamb (adapted for 3 keys).',
         data: {
           steps: [
-            { k: 1, c: 'P', d: 400 },
-            { k: 2, c: 'P', d: 400 },
-            { k: 2, c: 'P', d: 400 },
-            { k: 2, c: 'P', d: 400 },
-            { k: 1, c: 'P', d: 400 },
-            { k: 1, c: 'P', d: 400 },
-            { k: 1, c: 'P', d: 800 },
-            { k: 2, c: 'P', d: 400 },
-            { k: 2, c: 'P', d: 400 },
-            { k: 2, c: 'P', d: 800 },
-            { k: 1, c: 'P', d: 400 },
-            { k: 0, c: 'P', d: 400 },
-            { k: 0, c: 'P', d: 800 }
+            { k: 1, c: colorForKey(1), d: 400 },
+            { k: 2, c: colorForKey(2), d: 400 },
+            { k: 2, c: colorForKey(2), d: 400 },
+            { k: 2, c: colorForKey(2), d: 400 },
+            { k: 1, c: colorForKey(1), d: 400 },
+            { k: 1, c: colorForKey(1), d: 400 },
+            { k: 1, c: colorForKey(1), d: 800 },
+            { k: 2, c: colorForKey(2), d: 400 },
+            { k: 2, c: colorForKey(2), d: 400 },
+            { k: 2, c: colorForKey(2), d: 800 },
+            { k: 1, c: colorForKey(1), d: 400 },
+            { k: 0, c: colorForKey(0), d: 400 },
+            { k: 0, c: colorForKey(0), d: 800 }
           ]
         },
         uploadLines: []

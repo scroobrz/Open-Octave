@@ -3,3 +3,6 @@
 .Rhistory
 .env
 node_modules
+*.sqlite
+*.sqlite3
+controller/database/*.sqlite3
