@@ -33,10 +33,10 @@
 #define LEDS_PER_KEY 1
 #define LED_BRIGHTNESS 50
 
-// FireBeetle ESP32 V4.0 GPIO Pin Assignments
-// Using D-labeled pins for easy identification on the board
-// AVOID: IO6-IO11 (SPI flash), IO1/IO3 (UART), IO34-IO39 (input-only)
-// RESERVED: IO21 (SDA) and IO22 (SCL) for I2C to PCA9685 and PCA9555
+// Pin assignments
+// STRICTLY AVOID On ESP32: IO6-IO11 (SPI flash), IO1/IO3 (UART), IO34-IO39 (input-only)
+// RESERVED On ESP32: IO21 (SDA) and IO22 (SCL) for I2C to PCA9685 and PCA9555
+
 #define KEY0_BUTTON_PIN 0
 #define KEY0_LED_PIN 2
 #define KEY0_SERVO_CHANNEL 1
