@@ -41,13 +41,13 @@ public:
     uint8_t digitalRead(uint8_t pin);                    // digitalRead
     void digitalWrite(uint8_t pin, uint8_t value );      // digitalWrite
     uint8_t stateOfPin(uint8_t pin);                     // Actual ISR
+    void pinStates();           // Read all 16 inputs into cache (2 I2C transactions)
     void setClock(uint32_t clockFrequency);              // Clock speed
     bool begin();                                        // Checks if PCA is responsive
 
 private:
     static PCA9555* instancePointer;
     static void alertISR(void); // Function pointing to actual ISR
-    void pinStates();           // Function tied to interrupt
 
     //
     // low level methods
