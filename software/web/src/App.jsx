@@ -66,6 +66,14 @@ function Badge({ connected }) {
 
 export default function App() {
   const [tab, setTab] = useState('connect');
+  const [uiMode, setUiMode] = useState('user'); // 'user' | 'developer'
+
+  // If user switches back to User mode, force them onto safe tabs.
+  useEffect(() => {
+    if (uiMode === 'user' && (tab === 'sequences' || tab === 'logs')) {
+      setTab('connect');
+    }
+  }, [uiMode, tab]);
 
   const [health, setHealth] = useState(null);
   const [healthError, setHealthError] = useState('');
@@ -98,6 +106,12 @@ export default function App() {
   const [selectedDbSeq, setSelectedDbSeq] = useState(null);
   const [dbActionBusy, setDbActionBusy] = useState(false);
   const [selectionStatus, setSelectionStatus] = useState(null);
+
+  // ============ USER: SEQUENCE DETAILS MODAL ============
+  const [seqModalOpen, setSeqModalOpen] = useState(false);
+  const [seqModalLoading, setSeqModalLoading] = useState(false);
+  const [seqModalError, setSeqModalError] = useState('');
+  const [seqModalSeq, setSeqModalSeq] = useState(null); // full sequence object (includes steps)
 
   // ============ DB CREATE SEQUENCE (paste JSON) ============
   const [dbCreateJson, setDbCreateJson] = useState(
@@ -196,6 +210,102 @@ export default function App() {
     } finally {
       setDbActionBusy(false);
     }
+  }
+
+  // Normalizer for sequence objects for modal display
+  function normalizeSequenceForModal(item) {
+    if (!item || typeof item !== 'object') return null;
+
+    // Clone so we don’t mutate shared objects.
+    const out = { ...item };
+
+    // Steps might be an array already, or a JSON string, or stored under a different key.
+    let steps = out.steps;
+
+    if (!steps && out.stepsJson) steps = out.stepsJson;
+    if (!steps && out.steps_json) steps = out.steps_json;
+    if (!steps && out.sequenceSteps) steps = out.sequenceSteps;
+
+    // If steps is a JSON string, parse it.
+    if (typeof steps === 'string') {
+      try {
+        const parsed = JSON.parse(steps);
+        steps = parsed;
+      } catch {
+        // Leave as-is; we will handle non-array below.
+      }
+    }
+
+    // Some APIs return { steps: { items: [...] } }.
+    if (steps && typeof steps === 'object' && !Array.isArray(steps) && Array.isArray(steps.items)) {
+      steps = steps.items;
+    }
+
+    // Current DB/API shape: { data: { steps: [...] } }
+    if (!steps && out.data && typeof out.data === 'object' && Array.isArray(out.data.steps)) {
+      steps = out.data.steps;
+    }
+
+    // If `data` is a JSON string, try parsing it and extracting steps.
+    if (!steps && typeof out.data === 'string') {
+      try {
+        const parsedData = JSON.parse(out.data);
+        if (parsedData && typeof parsedData === 'object' && Array.isArray(parsedData.steps)) {
+          steps = parsedData.steps;
+        }
+      }  catch (e) {
+        // ignore
+      }
+    }
+
+    // Only accept arrays for display.
+    out.steps = Array.isArray(steps) ? steps : [];
+
+    return out;
+  }
+
+  async function openSequenceModal(id) {
+    if (!id) return;
+
+    setSeqModalOpen(true);
+    setSeqModalLoading(true);
+    setSeqModalError('');
+    setSeqModalSeq(null);
+
+    try {
+      const data = await apiGet(`/api/db/sequences/${encodeURIComponent(id)}`);
+      const item = data?.item || null;
+
+      if (!item) {
+        setSeqModalError('Sequence not found.');
+        return;
+      }
+
+      setSeqModalSeq(normalizeSequenceForModal(item));
+    } catch (e) {
+      setSeqModalError(`Failed to load sequence: ${e.message}`);
+    } finally {
+      setSeqModalLoading(false);
+    }
+  }
+
+  function closeSequenceModal() {
+    setSeqModalOpen(false);
+    setSeqModalLoading(false);
+    setSeqModalError('');
+    setSeqModalSeq(null);
+  }
+
+  function renderColorSwatch(hex) {
+    const clean = String(hex || '').trim();
+    const css = clean ? `#${clean.replace('#', '')}` : '#000000';
+    return (
+      <span
+        className="swatch"
+        title={clean || 'n/a'}
+        style={{ backgroundColor: css }}
+      />
+    );
   }
 
   async function saveDbSequenceFromJson() {
@@ -567,7 +677,26 @@ export default function App() {
           <img src="/open-octave-logo.png" alt="Open Octave" className="brand-logo" />
           <div className="brand-text">
             <div className="brand-title">Open Octave</div>
-            <div className="brand-subtitle">Controller UI</div>
+            <div className="brand-subtitle">
+              {uiMode === 'user' ? 'User Interface' : 'Developer Interface'}
+            </div>
+          </div>
+
+          <div className="btn-row" style={{ justifyContent: 'center', marginTop: 10 }}>
+            <button
+              className={uiMode === 'user' ? 'btn' : 'btn btn-secondary'}
+              type="button"
+              onClick={() => setUiMode('user')}
+            >
+              User
+            </button>
+            <button
+              className={uiMode === 'developer' ? 'btn' : 'btn btn-secondary'}
+              type="button"
+              onClick={() => setUiMode('developer')}
+            >
+              Developer
+            </button>
           </div>
         </div>
 
@@ -582,20 +711,24 @@ export default function App() {
             className={tab === 'play' ? 'nav-btn is-active' : 'nav-btn'}
             onClick={() => setTab('play')}
           >
-            Play
+            {uiMode === 'user' ? 'Controls' : 'Play'}
           </button>
-          <button
-            className={tab === 'sequences' ? 'nav-btn is-active' : 'nav-btn'}
-            onClick={() => setTab('sequences')}
-          >
-            Sequences
-          </button>
-          <button
-            className={tab === 'logs' ? 'nav-btn is-active' : 'nav-btn'}
-            onClick={() => setTab('logs')}
-          >
-            Logs
-          </button>
+          {uiMode === 'developer' && (
+            <>
+              <button
+                className={tab === 'sequences' ? 'nav-btn is-active' : 'nav-btn'}
+                onClick={() => setTab('sequences')}
+              >
+                Sequences
+              </button>
+              <button
+                className={tab === 'logs' ? 'nav-btn is-active' : 'nav-btn'}
+                onClick={() => setTab('logs')}
+              >
+                Logs
+              </button>
+            </>
+          )}
         </nav>
 
         <div className="sidebar-footer">
@@ -604,7 +737,7 @@ export default function App() {
       </aside>
 
       <main className="main">
-        {tab === 'sequences' && (
+        {uiMode === 'developer' && tab === 'sequences' && (
           <section className="panel">
             <h1>Sequences</h1>
 
@@ -754,7 +887,7 @@ export default function App() {
         )}
         {tab === 'connect' && (
           <section className="panel">
-            <h1>Connect</h1>
+            <h1>{uiMode === 'user' ? 'Connect to Keyboard' : 'Connect'}</h1>
 
             <div className="card">
               <h2>Transport</h2>
@@ -767,14 +900,14 @@ export default function App() {
                     onClick={() => setTransportChoice('WIFI')}
                     type="button"
                   >
-                    WiFi (WebSocket)
+                    {uiMode === 'user' ? 'Wi‑Fi Device' : 'WiFi (WebSocket)'}
                   </button>
                   <button
                     className={transportChoice === 'SERIAL' ? 'btn' : 'btn btn-secondary'}
                     onClick={() => setTransportChoice('SERIAL')}
                     type="button"
                   >
-                    USB Serial
+                    {uiMode === 'user' ? 'USB Cable' : 'USB Serial'}
                   </button>
                 </div>
               </div>
@@ -808,9 +941,17 @@ export default function App() {
 
               <div className="row mt">
                 <div className="pill-row">
-                  <span className="pill pill-teal">Active: {health?.mode || 'UNKNOWN'}</span>
-                  <span className="pill pill-gold">WS: {health?.wifi?.target || 'n/a'}</span>
-                  <span className="pill pill-muted">Serial: {health?.serial?.port || 'n/a'}</span>
+                  <span className={isConnected ? 'pill pill-green' : 'pill pill-coral'}>
+                    {isConnected ? 'Connected' : 'Not connected'}
+                  </span>
+
+                  {uiMode === 'developer' && (
+                    <>
+                      <span className="pill pill-teal">Active: {health?.mode || 'UNKNOWN'}</span>
+                      <span className="pill pill-gold">WS: {health?.wifi?.target || 'n/a'}</span>
+                      <span className="pill pill-muted">Serial: {health?.serial?.port || 'n/a'}</span>
+                    </>
+                  )}
                 </div>
 
                 <div className="btn-row">
@@ -829,156 +970,160 @@ export default function App() {
               {healthError ? <pre className="pre">{healthError}</pre> : null}
             </div>
 
-            <div className="card">
-              <h2>Sync</h2>
-
-              <div className="row">
-                <div className="pill-row">
-                  <span className={syncState.statusOk === null ? 'pill pill-muted' : syncState.statusOk ? 'pill pill-green' : 'pill pill-coral'}>
-                    Status: {syncState.statusOk === null ? '—' : syncState.statusOk ? 'OK' : 'FAILED'}
-                  </span>
-                  <span className={syncState.seqListOk === null ? 'pill pill-muted' : syncState.seqListOk ? 'pill pill-green' : 'pill pill-coral'}>
-                    Seq (l): {syncState.seqListOk === null ? '—' : syncState.seqListOk ? 'OK' : 'FAILED'}
-                  </span>
-                  <span className="pill pill-gold">Phase: {syncState.phase}</span>
-                </div>
-
-                <div className="btn-row">
-                  <button className="btn" onClick={runSync} disabled={!isConnected || syncState.running} type="button">
-                    {syncState.running ? 'Syncing…' : 'Run Sync'}
-                  </button>
-                </div>
-              </div>
-
-              {syncState.error ? <pre className="pre">{syncState.error}</pre> : null}
-            </div>
-
-            <details className="diagnostics">
-              <summary>Diagnostics</summary>
-
+            {uiMode === 'developer' && (
               <div className="card">
-                <h2>Quick Diagnostics</h2>
-                <div className="btn-row">
-                  <button className="btn btn-secondary" disabled={!isConnected} onClick={() => runCommand('status', {})}>
-                    Status
-                  </button>
-                  <button className="btn btn-secondary" disabled={!isConnected} onClick={() => runCommand('currentSeq', {})}>
-                    Current seq (l)
-                  </button>
-                  <button className="btn btn-secondary" disabled={!isConnected} onClick={() => refreshHealth()}>
-                    Refresh Health
-                  </button>
-                  <button className="btn btn-secondary" disabled={!isConnected} onClick={() => refreshLogs()}>
-                    Refresh Logs
-                  </button>
-                  <button className="btn btn-secondary" disabled={!isConnected} onClick={() => refreshControllerState()}>
-                    Refresh State
-                  </button>
-                </div>
-
-                <div className="btn-row mt">
-                  <button className="btn btn-coral" onClick={disconnectAll} type="button">
-                    Disconnect
-                  </button>
-                  <button
-                    className="btn btn-secondary"
-                    onClick={async () => {
-                      try {
-                        const data = await fetch('/api/state/reset', { method: 'POST' }).then((r) => r.json());
-                        setLastResult(data);
-                        await refreshControllerState();
-                      } catch (e) {
-                        setLastResult({ error: e.message });
-                      }
-                    }}
-                    type="button"
-                  >
-                    Reset State Mirror
-                  </button>
-                </div>
-
-                <div className="hint">
-                  Reset clears the in-memory controller mirror (lastCommand/lastAck counters) without restarting Node.
-                </div>
-              </div>
-
-              <div className="card">
-                <h2>Controller State</h2>
+                <h2>Sync</h2>
 
                 <div className="row">
-                  <div className="label">
-                    Connected: <b>{String(ctrlState?.connected ?? false)}</b>
-                    {'  '}|{'  '}
-                    Transport: <b>{ctrlState?.transport || 'n/a'}</b>
-                    {'  '}|{'  '}
-                    Last cmd: <b>{ctrlState?.lastCommand?.cmd || 'n/a'}</b>
+                  <div className="pill-row">
+                    <span className={syncState.statusOk === null ? 'pill pill-muted' : syncState.statusOk ? 'pill pill-green' : 'pill pill-coral'}>
+                      Status: {syncState.statusOk === null ? '—' : syncState.statusOk ? 'OK' : 'FAILED'}
+                    </span>
+                    <span className={syncState.seqListOk === null ? 'pill pill-muted' : syncState.seqListOk ? 'pill pill-green' : 'pill pill-coral'}>
+                      Seq (l): {syncState.seqListOk === null ? '—' : syncState.seqListOk ? 'OK' : 'FAILED'}
+                    </span>
+                    <span className="pill pill-gold">Phase: {syncState.phase}</span>
                   </div>
 
                   <div className="btn-row">
-                    <button
-                      className="btn btn-secondary"
-                      onClick={refreshControllerState}
-                      type="button"
-                    >
-                      Refresh
+                    <button className="btn" onClick={runSync} disabled={!isConnected || syncState.running} type="button">
+                      {syncState.running ? 'Syncing…' : 'Run Sync'}
                     </button>
                   </div>
                 </div>
 
-                {ctrlStateError ? (
-                  <pre className="pre">{ctrlStateError}</pre>
-                ) : (
-                  <pre className="pre">{ctrlState ? pretty(ctrlState) : '(not loaded)'}</pre>
-                )}
+                {syncState.error ? <pre className="pre">{syncState.error}</pre> : null}
               </div>
+            )}
 
-              <div className="card">
-                <h2>Raw Health</h2>
-                {healthError ? (
-                  <pre className="pre">{healthError}</pre>
-                ) : (
-                  <pre className="pre">{health ? pretty(health) : '(not loaded)'}</pre>
-                )}
-              </div>
+            {uiMode === 'developer' && (
+              <details className="diagnostics">
+                <summary>Diagnostics</summary>
 
-              <div className="card">
-                <h2>Sync Responses</h2>
+                <div className="card">
+                  <h2>Quick Diagnostics</h2>
+                  <div className="btn-row">
+                    <button className="btn btn-secondary" disabled={!isConnected} onClick={() => runCommand('status', {})}>
+                      Status
+                    </button>
+                    <button className="btn btn-secondary" disabled={!isConnected} onClick={() => runCommand('currentSeq', {})}>
+                      Current seq (l)
+                    </button>
+                    <button className="btn btn-secondary" disabled={!isConnected} onClick={() => refreshHealth()}>
+                      Refresh Health
+                    </button>
+                    <button className="btn btn-secondary" disabled={!isConnected} onClick={() => refreshLogs()}>
+                      Refresh Logs
+                    </button>
+                    <button className="btn btn-secondary" disabled={!isConnected} onClick={() => refreshControllerState()}>
+                      Refresh State
+                    </button>
+                  </div>
 
-                <div className="row">
-                  <div className="label">/api/status response</div>
+                  <div className="btn-row mt">
+                    <button className="btn btn-coral" onClick={disconnectAll} type="button">
+                      Disconnect
+                    </button>
+                    <button
+                      className="btn btn-secondary"
+                      onClick={async () => {
+                        try {
+                          const data = await fetch('/api/state/reset', { method: 'POST' }).then((r) => r.json());
+                          setLastResult(data);
+                          await refreshControllerState();
+                        } catch (e) {
+                          setLastResult({ error: e.message });
+                        }
+                      }}
+                      type="button"
+                    >
+                      Reset State Mirror
+                    </button>
+                  </div>
+
+                  <div className="hint">
+                    Reset clears the in-memory controller mirror (lastCommand/lastAck counters) without restarting Node.
+                  </div>
                 </div>
-                <pre className="pre">{syncState.statusResp ? pretty(syncState.statusResp) : '(not run)'}</pre>
 
-                <div className="row mt">
-                  <div className="label">/api/seq/list response</div>
+                <div className="card">
+                  <h2>Controller State</h2>
+
+                  <div className="row">
+                    <div className="label">
+                      Connected: <b>{String(ctrlState?.connected ?? false)}</b>
+                      {'  '}|{'  '}
+                      Transport: <b>{ctrlState?.transport || 'n/a'}</b>
+                      {'  '}|{'  '}
+                      Last cmd: <b>{ctrlState?.lastCommand?.cmd || 'n/a'}</b>
+                    </div>
+
+                    <div className="btn-row">
+                      <button
+                        className="btn btn-secondary"
+                        onClick={refreshControllerState}
+                        type="button"
+                      >
+                        Refresh
+                      </button>
+                    </div>
+                  </div>
+
+                  {ctrlStateError ? (
+                    <pre className="pre">{ctrlStateError}</pre>
+                  ) : (
+                    <pre className="pre">{ctrlState ? pretty(ctrlState) : '(not loaded)'}</pre>
+                  )}
                 </div>
-                <pre className="pre">{syncState.seqListResp ? pretty(syncState.seqListResp) : '(not run)'}</pre>
-              </div>
 
-              <div className="card">
-                <h2>Last API Result</h2>
-                <pre className="pre">{lastResult ? pretty(lastResult) : '(none yet)'}</pre>
-              </div>
-            </details>
+                <div className="card">
+                  <h2>Raw Health</h2>
+                  {healthError ? (
+                    <pre className="pre">{healthError}</pre>
+                  ) : (
+                    <pre className="pre">{health ? pretty(health) : '(not loaded)'}</pre>
+                  )}
+                </div>
+
+                <div className="card">
+                  <h2>Sync Responses</h2>
+
+                  <div className="row">
+                    <div className="label">/api/status response</div>
+                  </div>
+                  <pre className="pre">{syncState.statusResp ? pretty(syncState.statusResp) : '(not run)'}</pre>
+
+                  <div className="row mt">
+                    <div className="label">/api/seq/list response</div>
+                  </div>
+                  <pre className="pre">{syncState.seqListResp ? pretty(syncState.seqListResp) : '(not run)'}</pre>
+                </div>
+
+                <div className="card">
+                  <h2>Last API Result</h2>
+                  <pre className="pre">{lastResult ? pretty(lastResult) : '(none yet)'}</pre>
+                </div>
+              </details>
+            )}
           </section>
         )}
 
         {tab === 'play' && (
           <section className="panel">
-            <h1>Play</h1>
+            <h1>{uiMode === 'user' ? 'Controls' : 'Play'}</h1>
 
             <div className="grid">
               <div className="card card-accent-teal">
                 <h2>Mode</h2>
                 <div className="btn-row">
                   <button className="btn" disabled={controlsDisabled} onClick={() => runCommand('mode', { mode: 'manual' })}>
-                    Manual (m)
+                    Manual
                   </button>
                   <button className="btn" disabled={controlsDisabled} onClick={() => runCommand('mode', { mode: 'guided' })}>
-                    Guided (a)
+                    Guided
                   </button>
                   <button className="btn" disabled={controlsDisabled} onClick={() => runCommand('mode', { mode: 'teaching' })}>
-                    Teaching (f)
+                    Teaching
                   </button>
                 </div>
               </div>
@@ -992,7 +1137,7 @@ export default function App() {
                   </div>
                 ) : (
                   <div className="label" style={{ marginBottom: 10 }}>
-                    No sequence selected — pick one from the <b>Sequences</b> tab
+                    No song prepared yet — select one above
                   </div>
                 )}
 
@@ -1016,19 +1161,139 @@ export default function App() {
                 <h2>Tests</h2>
                 <div className="btn-row">
                   <button className="btn" disabled={controlsDisabled} onClick={() => runCommand('test', { target: 'leds' })}>
-                    Test LEDs (t)
+                    Test LEDs
                   </button>
                   <button className="btn" disabled={controlsDisabled} onClick={() => runCommand('test', { target: 'servos' })}>
-                    Test Servos (u)
+                    Test Servos
                   </button>
                 </div>
               </div>
             </div>
 
+            <div className="card">
+              <h2>Select Song</h2>
+
+              <div className="row">
+                <div className="label">
+                  {uiMode === 'user'
+                    ? 'Choose a song to prepare on the device.'
+                    : 'Select a sequence from the SQLite library and upload it to the device.'}
+                </div>
+
+                {uiMode === 'developer' && (
+                  <div className="btn-row">
+                    <button className="btn btn-secondary" onClick={refreshDbSequences} type="button" disabled={dbActionBusy}>
+                      Refresh DB
+                    </button>
+                    <button className="btn btn-coral" onClick={seedDemoSequences} type="button" disabled={dbActionBusy}>
+                      Seed demos
+                    </button>
+                  </div>
+                )}
+              </div>
+
+              {dbSeqError ? <pre className="pre">{dbSeqError}</pre> : null}
+
+              <div className="row mt">
+                <select
+                  className="input"
+                  value={selectedDbSeqId}
+                  disabled={dbActionBusy}
+                  onChange={(e) => selectSequence(e.target.value)}
+                >
+                  <option value="">(none)</option>
+                  {dbSeqItems.map((it) => (
+                    <option key={it.id} value={it.id}>
+                      {it.name}{uiMode === 'developer' ? ` (${it.id})` : ''}{typeof it.stepCount === 'number' ? ` • ${it.stepCount} steps` : ''}
+                    </option>
+                  ))}
+                </select>
+
+                {uiMode === 'developer' && (
+                  <button
+                    className="btn btn-secondary"
+                    type="button"
+                    disabled={!selectedDbSeqId || dbActionBusy}
+                    onClick={() => setLastResult(selectedDbSeq || { note: 'No sequence loaded yet' })}
+                  >
+                    Preview JSON
+                  </button>
+                )}
+              </div>
+
+              {selectionStatus ? (
+                <div className="hint mt" style={{ borderLeftColor: selectionStatus.ok ? 'var(--green)' : 'var(--secondary)' }}>
+                  {selectionStatus.ok
+                    ? `Prepared '${selectionStatus.name}' (${selectionStatus.steps ?? '?'} steps) — ready to play`
+                    : `${selectionStatus.name}: ${selectionStatus.error || 'FAILED'}`}
+                </div>
+              ) : (
+                <div className="hint mt">
+                  {uiMode === 'user'
+                    ? 'After selecting a song, wait for “Ready to play”.'
+                    : 'Tip: This uses POST /api/db/sequences/:id/upload under the hood.'}
+                </div>
+              )}
+            </div>
+
+            {uiMode === 'user' && (
+              <div className="card card-accent-green">
+                <h2>Available Songs</h2>
+
+                <div className="row">
+                  <div className="label">
+                    {dbSeqItems.length} song{dbSeqItems.length !== 1 ? 's' : ''} available
+                  </div>
+                </div>
+
+                {dbSeqItems.length > 0 ? (
+                  <table className="seq-table">
+                    <thead>
+                      <tr>
+                        <th>Name</th>
+                        <th>ID</th>
+                        <th>Steps</th>
+                      </tr>
+                    </thead>
+                    <tbody>
+                      {dbSeqItems.map((it) => (
+                        <tr
+                          key={it.id}
+                          className={
+                            it.id === selectedDbSeqId
+                              ? 'seq-row-active seq-row-clickable'
+                              : 'seq-row-clickable'
+                          }
+                          onClick={() => openSequenceModal(it.id)}
+                          role="button"
+                          tabIndex={0}
+                          onKeyDown={(e) => {
+                            if (e.key === 'Enter' || e.key === ' ') openSequenceModal(it.id);
+                          }}
+                        >
+                          <td>{it.name}</td>
+                          <td>{it.id}</td>
+                          <td>{typeof it.stepCount === 'number' ? it.stepCount : '—'}</td>
+                        </tr>
+                      ))}
+                    </tbody>
+                  </table>
+                ) : (
+                  <div className="hint mt">
+                    No songs in the library yet.
+                  </div>
+                )}
+
+                <div className="hint">
+                  This list reflects the internal song library stored in the system.
+                </div>
+              </div>
+            )}
+
           </section>
         )}
 
-        {tab === 'logs' && (
+        {uiMode === 'developer' && tab === 'logs' && (
           <section className="panel">
             <h1>Logs</h1>
 
@@ -1103,6 +1368,86 @@ export default function App() {
         )}
 
       </main>
+
+      {/* Sequence Details Modal overlay (User, Available Songs) */}
+      {tab === 'play' && (
+        <>
+          {seqModalOpen && (
+            <div className="modal-overlay" onClick={closeSequenceModal}>
+              <div className="modal" onClick={(e) => e.stopPropagation()}>
+                <div className="modal-header">
+                  <div>
+                    <div className="modal-title">
+                      {seqModalSeq?.name || (seqModalLoading ? 'Loading…' : 'Sequence details')}
+                    </div>
+                    <div className="modal-subtitle">
+                      ID: <b>{seqModalSeq?.id || '—'}</b>
+                      {seqModalSeq?.description ? (
+                        <>
+                          {'  '}|{'  '}
+                          <span>{seqModalSeq.description}</span>
+                        </>
+                      ) : null}
+                    </div>
+                  </div>
+
+                  <button className="btn btn-secondary" type="button" onClick={closeSequenceModal}>
+                    Close
+                  </button>
+                </div>
+
+                {seqModalError ? <pre className="pre">{seqModalError}</pre> : null}
+
+                {seqModalLoading ? (
+                  <div className="hint mt">Loading sequence steps…</div>
+                ) : seqModalSeq && Array.isArray(seqModalSeq.steps) ? (
+                  <div className="card" style={{ marginBottom: 0 }}>
+                    <h2>Steps</h2>
+
+                    {seqModalSeq.steps.length === 0 ? (
+                      <div className="hint mt">This sequence has no steps.</div>
+                    ) : (
+                      <table className="steps-table">
+                        <thead>
+                          <tr>
+                            <th>#</th>
+                            <th>Key</th>
+                            <th>Color</th>
+                            <th>Duration (ms)</th>
+                          </tr>
+                        </thead>
+                        <tbody>
+                          {seqModalSeq.steps.map((s, idx) => {
+                            const keyIndex = s?.k ?? s?.key ?? s?.note ?? s?.index ?? '—';
+                            const colorHex = s?.c ?? s?.color ?? s?.colour ?? s?.hex ?? '—';
+                            const durationMs = s?.d ?? s?.duration ?? s?.ms ?? s?.time ?? '—';
+
+                            return (
+                              <tr key={idx}>
+                                <td>{idx + 1}</td>
+                                <td>{keyIndex}</td>
+                                <td>
+                                  <div className="step-color">
+                                    {renderColorSwatch(colorHex)}
+                                    <span className="mono">{String(colorHex)}</span>
+                                  </div>
+                                </td>
+                                <td>{durationMs}</td>
+                              </tr>
+                            );
+                          })}
+                        </tbody>
+                      </table>
+                    )}
+                  </div>
+                ) : (
+                  <div className="hint mt">No steps found for this sequence.</div>
+                )}
+              </div>
+            </div>
+          )}
+        </>
+      )}
 
       <style>{styles}</style>
     </div>
@@ -1597,5 +1942,100 @@ details.diagnostics summary:hover {
 
 details.diagnostics[open] summary {
   color: var(--primary);
+}
+
+/* ===== MODAL (Sequence Details) ===== */
+.modal-overlay {
+  position: fixed;
+  inset: 0;
+  background: rgba(2, 6, 23, 0.65);
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  padding: 18px;
+  z-index: 9999;
+}
+
+.modal {
+  width: min(920px, 100%);
+  max-height: 85vh;
+  overflow: auto;
+  background: var(--card);
+  border: 1px solid var(--border);
+  border-radius: 14px;
+  box-shadow: 0 16px 48px rgba(0, 0, 0, 0.35);
+  padding: 18px;
+}
+
+.modal-header {
+  display: flex;
+  align-items: flex-start;
+  justify-content: space-between;
+  gap: 12px;
+  margin-bottom: 12px;
+}
+
+.modal-title {
+  font-family: var(--font-heading);
+  font-weight: 800;
+  font-size: 20px;
+  color: var(--foreground);
+}
+
+.modal-subtitle {
+  margin-top: 4px;
+  color: var(--muted-foreground);
+  font-size: 13px;
+}
+
+.seq-row-clickable {
+  cursor: pointer;
+}
+
+.seq-row-clickable:hover {
+  background: rgba(0, 180, 216, 0.04);
+}
+
+/* ===== STEPS TABLE ===== */
+.steps-table {
+  width: 100%;
+  border-collapse: collapse;
+  margin-top: 10px;
+  font-size: 13px;
+}
+
+.steps-table th {
+  text-align: left;
+  padding: 8px 12px;
+  border-bottom: 2px solid var(--border);
+  color: var(--muted-foreground);
+  font-weight: 600;
+  font-size: 12px;
+  text-transform: uppercase;
+  letter-spacing: 0.5px;
+}
+
+.steps-table td {
+  padding: 8px 12px;
+  border-bottom: 1px solid var(--border);
+  vertical-align: middle;
+}
+
+.step-color {
+  display: inline-flex;
+  align-items: center;
+  gap: 10px;
+}
+
+.swatch {
+  width: 18px;
+  height: 18px;
+  border-radius: 6px;
+  border: 1px solid var(--border);
+  display: inline-block;
+}
+
+.mono {
+  font-family: var(--font-mono);
 }
 `;
