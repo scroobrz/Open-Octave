@@ -1141,13 +1141,28 @@ void resetKey(int keyIndex) {
 
 void safeServoSetAngle(uint8_t channel, uint16_t angle) {
   uint16_t clampedAngle = constrain(angle, SERVO_MIN_SAFE_ANGLE, SERVO_MAX_SAFE_ANGLE);
-  
+  int step_size = 15;
+  int step_delay = 3;
+
   if (clampedAngle != angle) {
     LOGF("[WARN] Servo angle clamped: %d -> %d (valid: %d-%d)\n", 
          angle, clampedAngle, SERVO_MIN_SAFE_ANGLE, SERVO_MAX_SAFE_ANGLE);
   }
   
-  servoDriver.setAngle(channel, clampedAngle);
+  if (clampedAngle == 180){
+    // servo at rest
+    for (int i = step_size; i <= clampedAngle; i += step_size){
+      servoDriver.setAngle(channel, i);
+      delay(step_delay);
+    }
+  }
+  if(clampedAngle == 0){
+    // servo not at rest
+    for (int i = (180 - step_size); i >= clampedAngle; i -= step_size){
+      servoDriver.setAngle(channel, i);
+      delay(step_delay);
+    }
+  }
 }
 
 // ============ VALIDATION & TESTING FUNCTIONS ============
