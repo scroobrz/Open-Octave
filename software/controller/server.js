@@ -838,15 +838,58 @@ app.post('/api/db/sequences', (req, res) => {
 // NOTE: uploadLines are sent verbatim to the firmware, so ensure they match the firmware_v4 upload protocol.
 app.post('/api/db/sequences/seed', (req, res) => {
   try {
-    // Firmware sequences include LED colors, but the software DB only stores key + command + duration.
+    // ============ FINGER COLOUR MAP (Demo 2) ============
+    // One colour scheme that works for both:
+    // - 3-key demos (Thumb/Index/Middle)
+    // - 12-key demos (Thumb/Index/Middle/Ring/Pinky)
+    const FINGER_COLOR = {
+      thumb:  'FF0000', // Red
+      index:  'FFFF00', // Yellow
+      middle: '00FF00', // Green
+      ring:   'FF8000', // Orange
+      pinky:  '0000FF', // Blue
+      none:   'FFFFFF'  // Fallback
+    };
 
-    // Firmware_v4 expects step.c to be a 6-digit HEX RGB string (no 0x).
-        // Map each key index to a deterministic color for Demo 2.
-    function colorForKey(k) {
-        if (k === 0) return "FF0000"; // red
-        if (k === 1) return "00FF00"; // green
-        if (k === 2) return "0000FF"; // blue
-        return "FFFFFF";              // fallback (white)
+    function colorForFinger(f) {
+      const key = String(f || '').toLowerCase();
+      return FINGER_COLOR[key] || FINGER_COLOR.none;
+    }
+
+    // Legacy 3-key mapping used by older demo presets (keys 0..2).
+    // We interpret:
+    //   0 -> C (thumb), 1 -> D (index), 2 -> E (middle)
+    // so the same finger map screen remains valid.
+    function colorFor3KeyIndex(k) {
+      switch (Number(k)) {
+        case 0: return colorForFinger('thumb');
+        case 1: return colorForFinger('index');
+        case 2: return colorForFinger('middle');
+        default: return colorForFinger('none');
+      }
+    }
+
+    // 12-key chromatic mapping (C4..B4 => keyIndex 0..11).
+    // Natural notes follow a beginner right-hand position:
+    //   C->thumb, D->index, E->middle, F->ring, G->pinky
+    // Sharps inherit the nearest natural note's finger.
+    // Notes outside C..G (A, A#, B) reuse thumb/index for simplicity.
+    function colorFor12KeyIndex(k) {
+      switch (Number(k)) {
+        case 0:  return colorForFinger('thumb');  // C
+        case 1:  return colorForFinger('thumb');  // C#
+        case 2:  return colorForFinger('index');  // D
+        case 3:  return colorForFinger('index');  // D#
+        case 4:  return colorForFinger('middle'); // E
+        case 5:  return colorForFinger('ring');   // F
+        case 6:  return colorForFinger('ring');   // F#
+        case 7:  return colorForFinger('pinky');  // G
+        case 8:  return colorForFinger('pinky');  // G#
+        case 9:  return colorForFinger('thumb');  // A
+        case 10: return colorForFinger('thumb');  // A#
+        case 11: return colorForFinger('index');  // B
+        default: return colorForFinger('none');
+      }
     }
 
     const presets = [
@@ -856,11 +899,11 @@ app.post('/api/db/sequences/seed', (req, res) => {
         description: 'Sequence 0: alternating pattern across keys 0-2.',
         data: {
           steps: [
-            { k: 0, c: colorForKey(0), d: 500 },
-            { k: 1, c: colorForKey(1), d: 500 },
-            { k: 2, c: colorForKey(2), d: 500 },
-            { k: 1, c: colorForKey(1), d: 500 },
-            { k: 0, c: colorForKey(0), d: 500 }
+            { k: 0, c: colorFor3KeyIndex(0), d: 500 },
+            { k: 1, c: colorFor3KeyIndex(1), d: 500 },
+            { k: 2, c: colorFor3KeyIndex(2), d: 500 },
+            { k: 1, c: colorFor3KeyIndex(1), d: 500 },
+            { k: 0, c: colorFor3KeyIndex(0), d: 500 }
           ]
         },
         uploadLines: []
@@ -871,12 +914,12 @@ app.post('/api/db/sequences/seed', (req, res) => {
         description: 'Sequence 1: three-key ascending/descending (adapted).',
         data: {
           steps: [
-            { k: 0, c: colorForKey(0), d: 400 },
-            { k: 1, c: colorForKey(1), d: 400 },
-            { k: 1, c: colorForKey(1), d: 400 },
-            { k: 0, c: colorForKey(0), d: 400 },
-            { k: 2, c: colorForKey(2), d: 400 },
-            { k: 0, c: colorForKey(0), d: 400 }
+            { k: 0, c: colorFor3KeyIndex(0), d: 400 },
+            { k: 1, c: colorFor3KeyIndex(1), d: 400 },
+            { k: 1, c: colorFor3KeyIndex(1), d: 400 },
+            { k: 0, c: colorFor3KeyIndex(0), d: 400 },
+            { k: 2, c: colorFor3KeyIndex(2), d: 400 },
+            { k: 0, c: colorFor3KeyIndex(0), d: 400 }
           ]
         },
         uploadLines: []
@@ -887,12 +930,12 @@ app.post('/api/db/sequences/seed', (req, res) => {
         description: 'Sequence 2: repeating pattern across keys 0-2.',
         data: {
           steps: [
-            { k: 1, c: colorForKey(1), d: 500 },
-            { k: 1, c: colorForKey(1), d: 500 },
-            { k: 0, c: colorForKey(0), d: 500 },
-            { k: 2, c: colorForKey(2), d: 500 },
-            { k: 2, c: colorForKey(2), d: 500 },
-            { k: 1, c: colorForKey(1), d: 500 }
+            { k: 1, c: colorFor3KeyIndex(1), d: 500 },
+            { k: 1, c: colorFor3KeyIndex(1), d: 500 },
+            { k: 0, c: colorFor3KeyIndex(0), d: 500 },
+            { k: 2, c: colorFor3KeyIndex(2), d: 500 },
+            { k: 2, c: colorFor3KeyIndex(2), d: 500 },
+            { k: 1, c: colorFor3KeyIndex(1), d: 500 }
           ]
         },
         uploadLines: []
@@ -903,20 +946,20 @@ app.post('/api/db/sequences/seed', (req, res) => {
         description: 'Sequence 3: slow-fast-slow arc across RGB keys (0,1,2).',
         data: {
           steps: [
-            { k: 0, c: colorForKey(0), d: 600 },
-            { k: 1, c: colorForKey(1), d: 500 },
-            { k: 2, c: colorForKey(2), d: 400 },
-            { k: 0, c: colorForKey(0), d: 300 },
-            { k: 1, c: colorForKey(1), d: 300 },
-            { k: 2, c: colorForKey(2), d: 300 },
-            { k: 0, c: colorForKey(0), d: 300 },
-            { k: 1, c: colorForKey(1), d: 300 },
-            { k: 2, c: colorForKey(2), d: 300 },
-            { k: 0, c: colorForKey(0), d: 300 },
-            { k: 1, c: colorForKey(1), d: 400 },
-            { k: 2, c: colorForKey(2), d: 500 },
-            { k: 0, c: colorForKey(0), d: 600 },
-            { k: 1, c: colorForKey(1), d: 700 }
+            { k: 0, c: colorFor3KeyIndex(0), d: 600 },
+            { k: 1, c: colorFor3KeyIndex(1), d: 500 },
+            { k: 2, c: colorFor3KeyIndex(2), d: 400 },
+            { k: 0, c: colorFor3KeyIndex(0), d: 300 },
+            { k: 1, c: colorFor3KeyIndex(1), d: 300 },
+            { k: 2, c: colorFor3KeyIndex(2), d: 300 },
+            { k: 0, c: colorFor3KeyIndex(0), d: 300 },
+            { k: 1, c: colorFor3KeyIndex(1), d: 300 },
+            { k: 2, c: colorFor3KeyIndex(2), d: 300 },
+            { k: 0, c: colorFor3KeyIndex(0), d: 300 },
+            { k: 1, c: colorFor3KeyIndex(1), d: 400 },
+            { k: 2, c: colorFor3KeyIndex(2), d: 500 },
+            { k: 0, c: colorFor3KeyIndex(0), d: 600 },
+            { k: 1, c: colorFor3KeyIndex(1), d: 700 }
           ]
         },
         uploadLines: []
@@ -927,22 +970,22 @@ app.post('/api/db/sequences/seed', (req, res) => {
         description: 'Sequence 4: irregular rhythm across all keys.',
         data: {
           steps: [
-            { k: 0, c: colorForKey(0), d: 300 },
-            { k: 2, c: colorForKey(2), d: 300 },
-            { k: 1, c: colorForKey(1), d: 600 },
-            { k: 0, c: colorForKey(0), d: 300 },
-            { k: 2, c: colorForKey(2), d: 300 },
-            { k: 1, c: colorForKey(1), d: 300 },
-            { k: 0, c: colorForKey(0), d: 300 },
-            { k: 1, c: colorForKey(1), d: 300 },
-            { k: 2, c: colorForKey(2), d: 300 },
-            { k: 0, c: colorForKey(0), d: 500 },
-            { k: 1, c: colorForKey(1), d: 300 },
-            { k: 2, c: colorForKey(2), d: 300 },
-            { k: 0, c: colorForKey(0), d: 400 },
-            { k: 1, c: colorForKey(1), d: 300 },
-            { k: 2, c: colorForKey(2), d: 300 },
-            { k: 0, c: colorForKey(0), d: 700 }
+            { k: 0, c: colorFor3KeyIndex(0), d: 300 },
+            { k: 2, c: colorFor3KeyIndex(2), d: 300 },
+            { k: 1, c: colorFor3KeyIndex(1), d: 600 },
+            { k: 0, c: colorFor3KeyIndex(0), d: 300 },
+            { k: 2, c: colorFor3KeyIndex(2), d: 300 },
+            { k: 1, c: colorFor3KeyIndex(1), d: 300 },
+            { k: 0, c: colorFor3KeyIndex(0), d: 300 },
+            { k: 1, c: colorFor3KeyIndex(1), d: 300 },
+            { k: 2, c: colorFor3KeyIndex(2), d: 300 },
+            { k: 0, c: colorFor3KeyIndex(0), d: 500 },
+            { k: 1, c: colorFor3KeyIndex(1), d: 300 },
+            { k: 2, c: colorFor3KeyIndex(2), d: 300 },
+            { k: 0, c: colorFor3KeyIndex(0), d: 400 },
+            { k: 1, c: colorFor3KeyIndex(1), d: 300 },
+            { k: 2, c: colorFor3KeyIndex(2), d: 300 },
+            { k: 0, c: colorFor3KeyIndex(0), d: 700 }
           ]
         },
         uploadLines: []
@@ -953,21 +996,21 @@ app.post('/api/db/sequences/seed', (req, res) => {
         description: 'Sequence 5: Ode to Joy (adapted for 3 keys).',
         data: {
           steps: [
-            { k: 1, c: colorForKey(1), d: 400 },
-            { k: 1, c: colorForKey(1), d: 400 },
-            { k: 0, c: colorForKey(0), d: 400 },
-            { k: 0, c: colorForKey(0), d: 400 },
-            { k: 0, c: colorForKey(0), d: 400 },
-            { k: 0, c: colorForKey(0), d: 400 },
-            { k: 1, c: colorForKey(1), d: 400 },
-            { k: 1, c: colorForKey(1), d: 400 },
-            { k: 2, c: colorForKey(2), d: 400 },
-            { k: 2, c: colorForKey(2), d: 400 },
-            { k: 1, c: colorForKey(1), d: 400 },
-            { k: 1, c: colorForKey(1), d: 400 },
-            { k: 1, c: colorForKey(1), d: 600 },
-            { k: 2, c: colorForKey(2), d: 400 },
-            { k: 2, c: colorForKey(2), d: 800 }
+            { k: 1, c: colorFor3KeyIndex(1), d: 400 },
+            { k: 1, c: colorFor3KeyIndex(1), d: 400 },
+            { k: 0, c: colorFor3KeyIndex(0), d: 400 },
+            { k: 0, c: colorFor3KeyIndex(0), d: 400 },
+            { k: 0, c: colorFor3KeyIndex(0), d: 400 },
+            { k: 0, c: colorFor3KeyIndex(0), d: 400 },
+            { k: 1, c: colorFor3KeyIndex(1), d: 400 },
+            { k: 1, c: colorFor3KeyIndex(1), d: 400 },
+            { k: 2, c: colorFor3KeyIndex(2), d: 400 },
+            { k: 2, c: colorFor3KeyIndex(2), d: 400 },
+            { k: 1, c: colorFor3KeyIndex(1), d: 400 },
+            { k: 1, c: colorFor3KeyIndex(1), d: 400 },
+            { k: 1, c: colorFor3KeyIndex(1), d: 600 },
+            { k: 2, c: colorFor3KeyIndex(2), d: 400 },
+            { k: 2, c: colorFor3KeyIndex(2), d: 800 }
           ]
         },
         uploadLines: []
@@ -978,20 +1021,20 @@ app.post('/api/db/sequences/seed', (req, res) => {
         description: 'Sequence 6: gentle arpeggio (adapted for 3 keys).',
         data: {
           steps: [
-            { k: 2, c: colorForKey(2), d: 500 },
-            { k: 1, c: colorForKey(1), d: 500 },
-            { k: 0, c: colorForKey(0), d: 500 },
-            { k: 1, c: colorForKey(1), d: 500 },
-            { k: 2, c: colorForKey(2), d: 500 },
-            { k: 1, c: colorForKey(1), d: 500 },
-            { k: 0, c: colorForKey(0), d: 700 },
-            { k: 0, c: colorForKey(0), d: 300 },
-            { k: 1, c: colorForKey(1), d: 500 },
-            { k: 2, c: colorForKey(2), d: 500 },
-            { k: 1, c: colorForKey(1), d: 400 },
-            { k: 0, c: colorForKey(0), d: 600 },
-            { k: 1, c: colorForKey(1), d: 500 },
-            { k: 2, c: colorForKey(2), d: 900 }
+            { k: 2, c: colorFor3KeyIndex(2), d: 500 },
+            { k: 1, c: colorFor3KeyIndex(1), d: 500 },
+            { k: 0, c: colorFor3KeyIndex(0), d: 500 },
+            { k: 1, c: colorFor3KeyIndex(1), d: 500 },
+            { k: 2, c: colorFor3KeyIndex(2), d: 500 },
+            { k: 1, c: colorFor3KeyIndex(1), d: 500 },
+            { k: 0, c: colorFor3KeyIndex(0), d: 700 },
+            { k: 0, c: colorFor3KeyIndex(0), d: 300 },
+            { k: 1, c: colorFor3KeyIndex(1), d: 500 },
+            { k: 2, c: colorFor3KeyIndex(2), d: 500 },
+            { k: 1, c: colorFor3KeyIndex(1), d: 400 },
+            { k: 0, c: colorFor3KeyIndex(0), d: 600 },
+            { k: 1, c: colorFor3KeyIndex(1), d: 500 },
+            { k: 2, c: colorFor3KeyIndex(2), d: 900 }
           ]
         },
         uploadLines: []
@@ -1002,19 +1045,59 @@ app.post('/api/db/sequences/seed', (req, res) => {
         description: 'Sequence 7: Mary Had a Little Lamb (adapted for 3 keys).',
         data: {
           steps: [
-            { k: 1, c: colorForKey(1), d: 400 },
-            { k: 2, c: colorForKey(2), d: 400 },
-            { k: 2, c: colorForKey(2), d: 400 },
-            { k: 2, c: colorForKey(2), d: 400 },
-            { k: 1, c: colorForKey(1), d: 400 },
-            { k: 1, c: colorForKey(1), d: 400 },
-            { k: 1, c: colorForKey(1), d: 800 },
-            { k: 2, c: colorForKey(2), d: 400 },
-            { k: 2, c: colorForKey(2), d: 400 },
-            { k: 2, c: colorForKey(2), d: 800 },
-            { k: 1, c: colorForKey(1), d: 400 },
-            { k: 0, c: colorForKey(0), d: 400 },
-            { k: 0, c: colorForKey(0), d: 800 }
+            { k: 1, c: colorFor3KeyIndex(1), d: 400 },
+            { k: 2, c: colorFor3KeyIndex(2), d: 400 },
+            { k: 2, c: colorFor3KeyIndex(2), d: 400 },
+            { k: 2, c: colorFor3KeyIndex(2), d: 400 },
+            { k: 1, c: colorFor3KeyIndex(1), d: 400 },
+            { k: 1, c: colorFor3KeyIndex(1), d: 400 },
+            { k: 1, c: colorFor3KeyIndex(1), d: 800 },
+            { k: 2, c: colorFor3KeyIndex(2), d: 400 },
+            { k: 2, c: colorFor3KeyIndex(2), d: 400 },
+            { k: 2, c: colorFor3KeyIndex(2), d: 800 },
+            { k: 1, c: colorFor3KeyIndex(1), d: 400 },
+            { k: 0, c: colorFor3KeyIndex(0), d: 400 },
+            { k: 0, c: colorFor3KeyIndex(0), d: 800 }
+          ]
+        },
+        uploadLines: []
+      },
+      {
+        id: '8',
+        name: 'Mary Had a Little Lamb (12-key)',
+        description: 'Right-hand only. Thumb=Red (C), Index=Yellow (D), Middle=Green (E), Ring=Orange (F), Pinky=Blue (G). Slow pace for guided/teaching tests.',
+        data: {
+          steps: [
+            { k: 4, c: colorFor12KeyIndex(4), d: 700 },
+            { k: 2, c: colorFor12KeyIndex(2), d: 700 },
+            { k: 0, c: colorFor12KeyIndex(0), d: 700 },
+            { k: 2, c: colorFor12KeyIndex(2), d: 700 },
+            { k: 4, c: colorFor12KeyIndex(4), d: 700 },
+            { k: 4, c: colorFor12KeyIndex(4), d: 700 },
+            { k: 4, c: colorFor12KeyIndex(4), d: 1000 },
+
+            { k: 2, c: colorFor12KeyIndex(2), d: 700 },
+            { k: 2, c: colorFor12KeyIndex(2), d: 700 },
+            { k: 2, c: colorFor12KeyIndex(2), d: 1000 },
+
+            { k: 4, c: colorFor12KeyIndex(4), d: 700 },
+            { k: 7, c: colorFor12KeyIndex(7), d: 700 },
+            { k: 7, c: colorFor12KeyIndex(7), d: 1000 },
+
+            { k: 4, c: colorFor12KeyIndex(4), d: 700 },
+            { k: 2, c: colorFor12KeyIndex(2), d: 700 },
+            { k: 0, c: colorFor12KeyIndex(0), d: 700 },
+            { k: 2, c: colorFor12KeyIndex(2), d: 700 },
+            { k: 4, c: colorFor12KeyIndex(4), d: 700 },
+            { k: 4, c: colorFor12KeyIndex(4), d: 700 },
+            { k: 4, c: colorFor12KeyIndex(4), d: 1000 },
+
+            { k: 4, c: colorFor12KeyIndex(4), d: 700 },
+            { k: 2, c: colorFor12KeyIndex(2), d: 700 },
+            { k: 2, c: colorFor12KeyIndex(2), d: 700 },
+            { k: 4, c: colorFor12KeyIndex(4), d: 700 },
+            { k: 2, c: colorFor12KeyIndex(2), d: 700 },
+            { k: 0, c: colorFor12KeyIndex(0), d: 1200 }
           ]
         },
         uploadLines: []

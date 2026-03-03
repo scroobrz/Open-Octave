@@ -68,6 +68,17 @@ export default function App() {
   const [tab, setTab] = useState('connect');
   const [uiMode, setUiMode] = useState('user'); // 'user' | 'developer'
 
+  // User help modal: finger colour map (right hand)
+  const [fingerHelpOpen, setFingerHelpOpen] = useState(false);
+
+  function openFingerHelp() {
+    setFingerHelpOpen(true);
+  }
+
+  function closeFingerHelp() {
+    setFingerHelpOpen(false);
+  }
+
   // If user switches back to User mode, force them onto safe tabs.
   useEffect(() => {
     if (uiMode === 'user' && (tab === 'sequences' || tab === 'logs')) {
@@ -1110,7 +1121,19 @@ export default function App() {
 
         {tab === 'play' && (
           <section className="panel">
-            <h1>{uiMode === 'user' ? 'Controls' : 'Play'}</h1>
+            <div className="panel-top-row">
+              <h1>{uiMode === 'user' ? 'Controls' : 'Play'}</h1>
+
+              {uiMode === 'user' && (
+                <button
+                  className="btn btn-secondary finger-help-btn"
+                  type="button"
+                  onClick={openFingerHelp}
+                >
+                  Finger colours
+                </button>
+              )}
+            </div>
 
             <div className="grid">
               <div className="card card-accent-teal">
@@ -1289,6 +1312,95 @@ export default function App() {
                 </div>
               </div>
             )}
+
+            {fingerHelpOpen && (
+            <div className="modal-overlay" onClick={closeFingerHelp}>
+              <div className="modal" onClick={(e) => e.stopPropagation()}>
+                <div className="modal-header">
+                  <div>
+                    <div className="modal-title">Finger colour guide (right hand)</div>
+                    <div className="modal-subtitle">Match the LED colour to the finger to press.</div>
+                  </div>
+
+                  <button className="btn btn-secondary" type="button" onClick={closeFingerHelp}>
+                    Close
+                  </button>
+                </div>
+
+                <div className="card" style={{ marginBottom: 0 }}>
+                  <h2>Right hand</h2>
+
+                  <div className="finger-map-wrap">
+                    <svg
+                      className="finger-map"
+                      viewBox="0 0 520 260"
+                      xmlns="http://www.w3.org/2000/svg"
+                      role="img"
+                      aria-label="Right hand finger colour map"
+                    >
+                      {/* Palm */}
+                      <rect
+                        x="70"
+                        y="70"
+                        width="260"
+                        height="150"
+                        rx="45"
+                        ry="45"
+                        fill="rgba(255,255,255,0.06)"
+                        stroke="rgba(255,255,255,0.18)"
+                      />
+
+                      {/* Thumb */}
+                      <circle cx="130" cy="185" r="18" fill="#FF0000" />
+                      <text x="160" y="191" fontSize="14" fill="rgba(255,255,255,0.85)">
+                        Thumb
+                      </text>
+
+                      {/* Index */}
+                      <circle cx="175" cy="60" r="18" fill="#FFFF00" />
+                      <text x="200" y="66" fontSize="14" fill="rgba(255,255,255,0.85)">
+                        Index
+                      </text>
+
+                      {/* Middle */}
+                      <circle cx="235" cy="48" r="18" fill="#00FF00" />
+                      <text x="260" y="54" fontSize="14" fill="rgba(255,255,255,0.85)">
+                        Middle
+                      </text>
+
+                      {/* Ring */}
+                      <circle cx="295" cy="60" r="18" fill="#FF8000" />
+                      <text x="320" y="66" fontSize="14" fill="rgba(255,255,255,0.85)">
+                        Ring
+                      </text>
+
+                      {/* Pinky */}
+                      <circle cx="345" cy="78" r="18" fill="#0000FF" />
+                      <text x="370" y="84" fontSize="14" fill="rgba(255,255,255,0.85)">
+                        Pinky
+                      </text>
+
+                      {/* Wrist */}
+                      <rect
+                        x="140"
+                        y="220"
+                        width="120"
+                        height="26"
+                        rx="12"
+                        ry="12"
+                        fill="rgba(255,255,255,0.05)"
+                        stroke="rgba(255,255,255,0.12)"
+                      />
+                    </svg>
+                  </div>
+
+                  <div className="hint">
+                    Tip: In Guided mode, wait for the LED colour, then press the matching finger.
+                  </div>
+                </div>
+              </div>
+            </div>
+          )}
 
           </section>
         )}
@@ -2033,6 +2145,31 @@ details.diagnostics[open] summary {
   border-radius: 6px;
   border: 1px solid var(--border);
   display: inline-block;
+}
+
+/* ===== Controls header row + help button ===== */
+.panel-top-row {
+  display: flex;
+  align-items: flex-start;
+  justify-content: space-between;
+  gap: 12px;
+}
+
+.finger-help-btn {
+  white-space: nowrap;
+}
+
+/* ===== Finger map ===== */
+.finger-map-wrap {
+  display: flex;
+  justify-content: center;
+  padding: 10px 0 4px;
+}
+
+.finger-map {
+  width: 100%;
+  max-width: 560px;
+  height: auto;
 }
 
 .mono {

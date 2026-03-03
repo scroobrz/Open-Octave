@@ -5,22 +5,20 @@
 #include <Wire.h>
 #include <stdint.h>
 
-// ============ HARDWARE CONFIG ============
-
-#define DEBOUNCE_DELAY 50
-#define SERVO_RELEASE_DELAY 50   // ms to wait for servo to physically release
-
-#define MAX_SEQUENCE_LENGTH 16
-
-#define MIN_NOTE_DURATION 100
-#define MAX_NOTE_DURATION 10000
-
 #define SERIAL_BUF_SIZE 64
 
 #define WIFI_SSID "Open Octave"
 #define WIFI_PASSWORD "oop321321"
 
-#define SPEAKER_PIN 25          // D2 (IO25) — DAC-capable, good for audio
+// ============ HARDWARE CONFIG ============
+
+#define DEBOUNCE_DELAY 50
+#define SERVO_RELEASE_DELAY 50   // ms to wait for servo to physically release
+
+#define MAX_SEQUENCE_LENGTH 64
+
+#define MIN_NOTE_DURATION 100
+#define MAX_NOTE_DURATION 10000
 
 #define SERVO_FREQ 50
 #define SERVO_REST_ANGLE 0
@@ -28,7 +26,7 @@
 #define SERVO_MIN_SAFE_ANGLE 0
 #define SERVO_MAX_SAFE_ANGLE 180
 
-#define NUM_KEYS 3
+#define NUM_KEYS 12
 
 #define LEDS_PER_KEY 1
 #define LED_BRIGHTNESS 50
@@ -37,20 +35,67 @@
 // STRICTLY AVOID On ESP32: IO6-IO11 (SPI flash), IO1/IO3 (UART), IO34-IO39 (input-only)
 // RESERVED On ESP32: IO21 (SDA) and IO22 (SCL) for I2C to PCA9685 and PCA9555
 
+#define SPEAKER_PIN 25          // D2 (IO25) — DAC-capable, good for audio
+
 #define KEY0_BUTTON_PIN 0
-#define KEY0_LED_PIN 2
+#define KEY0_LED_PIN 4
 #define KEY0_SERVO_CHANNEL 1
-#define KEY0_NOTE 392
+#define KEY0_NOTE 262  // C4
 
 #define KEY1_BUTTON_PIN 1
-#define KEY1_LED_PIN 5
+#define KEY1_LED_PIN 13
 #define KEY1_SERVO_CHANNEL 2
-#define KEY1_NOTE 330
+#define KEY1_NOTE 277  // C#4
 
 #define KEY2_BUTTON_PIN 2
-#define KEY2_LED_PIN 13
+#define KEY2_LED_PIN 14
 #define KEY2_SERVO_CHANNEL 3
-#define KEY2_NOTE 262
+#define KEY2_NOTE 294  // D4
+
+#define KEY3_BUTTON_PIN 3
+#define KEY3_LED_PIN 16
+#define KEY3_SERVO_CHANNEL 4
+#define KEY3_NOTE 311  // D#4
+
+#define KEY4_BUTTON_PIN 4
+#define KEY4_LED_PIN 17
+#define KEY4_SERVO_CHANNEL 5
+#define KEY4_NOTE 330  // E4
+
+#define KEY5_BUTTON_PIN 5
+#define KEY5_LED_PIN 18
+#define KEY5_SERVO_CHANNEL 6
+#define KEY5_NOTE 349  // F4
+
+#define KEY6_BUTTON_PIN 6
+#define KEY6_LED_PIN 19
+#define KEY6_SERVO_CHANNEL 7
+#define KEY6_NOTE 370  // F#4
+
+#define KEY7_BUTTON_PIN 7
+#define KEY7_LED_PIN 23
+#define KEY7_SERVO_CHANNEL 8
+#define KEY7_NOTE 392  // G4
+
+#define KEY8_BUTTON_PIN 8
+#define KEY8_LED_PIN 26
+#define KEY8_SERVO_CHANNEL 9
+#define KEY8_NOTE 415  // G#4
+
+#define KEY9_BUTTON_PIN 9
+#define KEY9_LED_PIN 27
+#define KEY9_SERVO_CHANNEL 10
+#define KEY9_NOTE 440  // A4
+
+#define KEY10_BUTTON_PIN 10
+#define KEY10_LED_PIN 32
+#define KEY10_SERVO_CHANNEL 11
+#define KEY10_NOTE 466 // A#4
+
+#define KEY11_BUTTON_PIN 11
+#define KEY11_LED_PIN 33
+#define KEY11_SERVO_CHANNEL 12
+#define KEY11_NOTE 494 // B4
 
 // ROYGBIV colour palette
 #define COLOR_RED     0xFF0000
