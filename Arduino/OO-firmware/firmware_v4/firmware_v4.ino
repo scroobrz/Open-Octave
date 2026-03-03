@@ -21,6 +21,7 @@
 
 #include "Arduino.h"
 #include "PCA9685.h"
+#include "clsPCA9555.h"
 #include "firmware_V4_config.h"
 #include "firmware_V4_debug.h"
 #include <Adafruit_NeoPixel.h>
@@ -87,6 +88,8 @@ Key keys[NUM_KEYS] = {
 };
 
 ServoDriver servoDriver;
+PCA9555 ioport(0x20);
+
 WebSocketsServer webSocket(81);
 
 // ============ GLOBAL STATE ============
@@ -165,7 +168,15 @@ void setup() {
   LOGF("OK (speaker_pin: %d)\n", SPEAKER_PIN);
 
   LOG("[SETUP] Initializing I2C... ");
-  Wire.begin();
+  Wire.begin(21, 22);
+  LOGLN("OK");
+
+  LOG("[SETUP] Initializing expansion board... ");
+  if (!ioport.begin()) {
+    LOGLN("[ERROR] PCA9555 I/O expander not responding at address 0x20!");
+    LOGLN("Check I2C wiring (SDA=21, SCL=22) and verify the chip is powered.");
+    while (true) { delay(1000); }  // Halt - buttons won't work without it
+  }
   LOGLN("OK");
 
   LOG("[SETUP] Initializing servo driver... ");
@@ -176,7 +187,7 @@ void setup() {
   // initialize each key
   LOGLN("[SETUP] Initializing keys:");
   for (int i = 0; i < NUM_KEYS; i++) {
-    pinMode(keys[i].buttonPin, INPUT);
+    ioport.pinMode(keys[i].buttonPin, INPUT);
     servoRest(keys[i].servoChannel);
 
     // Create NeoPixel object dynamically (can't be done at global scope)
@@ -1008,8 +1019,11 @@ These handle button detection, sound playback, and LED control for the keys.
 
 // checks all buttons and plays/stops tones based on their state
 void handleKeyPresses() {
+  // Read all 16 input pins in a single burst (2 I2C transactions total).
+  // stateOfPin() then reads from the cached value — no further I2C traffic per key.
+  ioport.pinStates();
   for (int i = 0; i < NUM_KEYS; i++) {
-    bool buttonPressed = digitalRead(keys[i].buttonPin) == HIGH;
+    bool buttonPressed = ioport.stateOfPin(keys[i].buttonPin) == HIGH;
 
     if (buttonPressed && !keys[i].isPressed) {
 
@@ -1165,7 +1179,7 @@ bool validateHardwareInit() {
   }
 
   for (int i = 0; i < NUM_KEYS; i++) {
-    if (keys[i].buttonPin < 0 || keys[i].buttonPin > 39) {
+    if (keys[i].buttonPin < 0 || keys[i].buttonPin > 15) {
       LOGF("[ERROR] Invalid buttonPin: %d for key %d", keys[i].buttonPin, i);
       return false;
     }
