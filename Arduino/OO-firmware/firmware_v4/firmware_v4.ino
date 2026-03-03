@@ -214,7 +214,6 @@ void setup() {
 
 // runs repeatedly forever
 void loop() {
-  keyJustPressed = -1;     // Reset key press tracking for this loop
   webSocket.loop();        // handle WebSocket events
   handleSerialCommands();  // handle serial commands
   handleKeyPresses();      // detect any key presses and play sounds
@@ -848,7 +847,6 @@ void handleTeachingMode() {
 
     // Manually handle successive sequence steps by adding a delay to ensure proper movement up and down
     if (getCurrentSequenceStep().keyIndex == previousKeyIndex) {
-      LOGF("[SEQ] Same key %d in consecutive steps - waiting for servo release\n", previousKeyIndex);
       waitingForServoRelease = true;
       servoReleaseStartTime = millis();
       // Don't execute step yet - will be done on next loop iteration after delay
@@ -859,19 +857,27 @@ void handleTeachingMode() {
 }
 
 void handleGuidedMode() {
-  if (keyJustPressed == getCurrentSequenceStep().keyIndex) {
+  uint8_t previousKeyIndex = getCurrentSequenceStep().keyIndex;
+
+  if (millis() - lastKeyPressTime[previousKeyIndex] >= getCurrentSequenceStep().duration &&
+      keyJustPressed == previousKeyIndex) {
+
     LOGF("[SEQ] Correct key %d pressed, advancing sequence.\n", keyJustPressed);
-
-    resetKey(getCurrentSequenceStep().keyIndex);
-
+    keyJustPressed = -1;
+    resetKey(previousKeyIndex);
     currentSequenceStepIndex++;
+
     if (currentSequenceStepIndex >= getCurrentSequence().length) {
       LOGLN("[SEQ] Sequence complete");
       stopSequence();
       return;
     }
 
-    // Note: does not currently wait for sequence step duration before executing next step
+    // Manually handle successive sequence steps by adding a delay to ensure proper LED relighting
+    if (getCurrentSequenceStep().keyIndex == previousKeyIndex) {
+      delay(50);
+    }
+
     executeSequenceStep(getCurrentSequenceStep());
   }
 }
