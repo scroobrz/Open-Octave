@@ -33,7 +33,7 @@ db.pragma('journal_mode = WAL'); // use write-ahead logging mode
 // create single table called sequences
 db.exec(`
   CREATE TABLE IF NOT EXISTS sequences (
-    id TEXT PRIMARY KEY,
+    id INTEGER PRIMARY KEY AUTOINCREMENT,
     name TEXT NOT NULL,
     description TEXT,
     data_json TEXT NOT NULL,
@@ -64,7 +64,7 @@ function listSequences() {
     .prepare(`
       SELECT id, name, description, data_json, updated_at
       FROM sequences
-      ORDER BY updated_at DESC
+      ORDER BY id ASC
     `)
     .all();
 
@@ -77,7 +77,7 @@ function listSequences() {
 
       // computes stepCount from data.steps.length if possible
     return {
-      id: r.id,
+      id: Number(r.id),
       name: r.name,
       description: r.description || '',
       stepCount,
@@ -93,12 +93,12 @@ function getSequence(id) {
       FROM sequences
       WHERE id = ?
     `)
-    .get(id);
+    .get(Number(id));
 
   if (!row) return null;
 
   return {
-    id: row.id,
+    id: Number(row.id),
     name: row.name,
     description: row.description || '',
     data: safeJsonParse(row.data_json, {}),
@@ -111,31 +111,56 @@ function getSequence(id) {
 function upsertSequence(seq) {
   const ts = nowIso();
 
-  const existing = db
-    .prepare(`SELECT created_at FROM sequences WHERE id = ?`)
-    .get(seq.id);
+  // If seq.id is provided and numeric, attempt update.
+  // Otherwise insert new row and let AUTOINCREMENT assign id.
+  const hasNumericId =
+    seq.id !== undefined &&
+    seq.id !== null &&
+    FIRMWARE_V4_SEQUENCE_ID_REGEX.test(String(seq.id));
 
-  const createdAt = existing ? existing.created_at : ts;
+  if (hasNumericId) {
+    const existing = db
+      .prepare(`SELECT created_at FROM sequences WHERE id = ?`)
+      .get(seq.id);
 
-  db.prepare(`
+    if (existing) {
+      db.prepare(`
+        UPDATE sequences
+        SET
+          name = @name,
+          description = @description,
+          data_json = @data_json,
+          upload_lines_json = @upload_lines_json,
+          updated_at = @updated_at
+        WHERE id = @id
+      `).run({
+        id: Number(seq.id),
+        name: seq.name,
+        description: seq.description || '',
+        data_json: JSON.stringify(seq.data || {}),
+        upload_lines_json: JSON.stringify(seq.uploadLines || []),
+        updated_at: ts
+      });
+
+      return Number(seq.id);
+    }
+  }
+
+  // Insert new
+  const result = db.prepare(`
     INSERT INTO sequences
-    (id, name, description, data_json, upload_lines_json, created_at, updated_at)
-    VALUES (@id, @name, @description, @data_json, @upload_lines_json, @created_at, @updated_at)
-    ON CONFLICT(id) DO UPDATE SET
-      name = excluded.name,
-      description = excluded.description,
-      data_json = excluded.data_json,
-      upload_lines_json = excluded.upload_lines_json,
-      updated_at = excluded.updated_at
+    (name, description, data_json, upload_lines_json, created_at, updated_at)
+    VALUES (@name, @description, @data_json, @upload_lines_json, @created_at, @updated_at)
   `).run({
-    id: seq.id,
     name: seq.name,
     description: seq.description || '',
     data_json: JSON.stringify(seq.data || {}),
     upload_lines_json: JSON.stringify(seq.uploadLines || []),
-    created_at: createdAt,
+    created_at: ts,
     updated_at: ts
   });
+
+  return result.lastInsertRowid;
 }
 
 // ------------------------------
