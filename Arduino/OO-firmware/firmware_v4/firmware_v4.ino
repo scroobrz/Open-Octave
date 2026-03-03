@@ -884,7 +884,7 @@ void handleGuidedMode() {
 
     // Manually handle successive sequence steps by adding a delay to ensure proper LED relighting
     if (getCurrentSequenceStep().keyIndex == previousKeyIndex) {
-      delay(50);
+      delay(80);
     }
 
     executeSequenceStep(getCurrentSequenceStep());
@@ -977,10 +977,11 @@ void stopSequence() {
 
 // plays a single step of a sequence
 void executeSequenceStep(const SequenceStep &step) {
+  currentStepStartTime = millis();
+
   if (!isValidKeyIndex(step.keyIndex)) {
     LOGF("[ERROR] Invalid keyIndex: %d encountered while executing sequence step\n", step.keyIndex);
     testLogLogError(TESTLOG_INVALID_KEY_INDEX, F("ERROR_INVALID_KEY"));
-    currentStepStartTime = millis(); // Still update time to prevent infinite loop
     return;
   }
 
@@ -1021,8 +1022,6 @@ void executeSequenceStep(const SequenceStep &step) {
     }
     testLogLogAutoStep(step.keyIndex, autoplayTimingErrorMs, ledCmdLatencyMs, servoCmdLatencyMs, (uint16_t)step.duration, nextIsSameKey);
   }
-
-  currentStepStartTime = millis();
 }
 
 /*
