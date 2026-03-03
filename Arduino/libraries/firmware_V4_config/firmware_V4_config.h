@@ -5,6 +5,11 @@
 #include <Wire.h>
 #include <stdint.h>
 
+#define SERIAL_BUF_SIZE 64
+
+#define WIFI_SSID "Open Octave"
+#define WIFI_PASSWORD "oop321321"
+
 // ============ HARDWARE CONFIG ============
 
 #define DEBOUNCE_DELAY 50
@@ -14,13 +19,6 @@
 
 #define MIN_NOTE_DURATION 100
 #define MAX_NOTE_DURATION 10000
-
-#define SERIAL_BUF_SIZE 64
-
-#define WIFI_SSID "Open Octave"
-#define WIFI_PASSWORD "oop321321"
-
-#define SPEAKER_PIN 25          // D2 (IO25) — DAC-capable, good for audio
 
 #define SERVO_FREQ 50
 #define SERVO_REST_ANGLE 0
@@ -36,6 +34,8 @@
 // Pin assignments
 // STRICTLY AVOID On ESP32: IO6-IO11 (SPI flash), IO1/IO3 (UART), IO34-IO39 (input-only)
 // RESERVED On ESP32: IO21 (SDA) and IO22 (SCL) for I2C to PCA9685 and PCA9555
+
+#define SPEAKER_PIN 25          // D2 (IO25) — DAC-capable, good for audio
 
 #define KEY0_BUTTON_PIN 0
 #define KEY0_LED_PIN 4
