@@ -1141,8 +1141,8 @@ void resetKey(int keyIndex) {
 
 void safeServoSetAngle(uint8_t channel, uint16_t angle) {
   uint16_t clampedAngle = constrain(angle, SERVO_MIN_SAFE_ANGLE, SERVO_MAX_SAFE_ANGLE);
-  int step_size = 15;
-  int step_delay = 3;
+  int step_size = 15; // angle change per step
+  int step_delay = 3; // time delay (in ms) between steps
 
   if (clampedAngle != angle) {
     LOGF("[WARN] Servo angle clamped: %d -> %d (valid: %d-%d)\n", 
