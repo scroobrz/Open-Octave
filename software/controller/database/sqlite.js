@@ -13,7 +13,7 @@ const Database = require('better-sqlite3');
 
 // Firmware v4 hard-limits uploads to MAX_SEQUENCE_LENGTH (see firmware_V4_config.h).
 // Keep this mirrored here so we fail fast before sending an upload that firmware will reject.
-const FIRMWARE_V4_MAX_SEQUENCE_LENGTH = 16;
+const FIRMWARE_V4_MAX_SEQUENCE_LENGTH = 64;
 
 // Firmware v4 parses `i=` (sequence id) using atoi(), so it must be numeric.
 // If we later change firmware to accept string IDs, we can relax this constraint.
