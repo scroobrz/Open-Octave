@@ -21,6 +21,7 @@
 
 #include "Arduino.h"
 #include "PCA9685.h"
+#include "clsPCA9555.h"
 #include "firmware_V4_config.h"
 #include "firmware_V4_debug.h"
 #include <Adafruit_NeoPixel.h>
@@ -35,10 +36,11 @@ void setupWiFi();
 void handleWiFiStatus();
 void webSocketEvent(uint8_t num, WStype_t type, uint8_t *payload, size_t length);
 void handleSequenceCommand(char *str);
-void processSequenceUploadCommand(char *str);
-void processSequenceEndCommand(char *str);
+bool processSequenceUploadCommand(char *str);
 bool processSequenceStepCommand(uint8_t stepIndex, char *str);
+bool processSequenceEndCommand(char *str);
 void handleSerialCommands();
+void emitStatus();
 void processSerialCommand(char cmd);
 void setMode(Mode mode);
 void handleAutomaticModes();
@@ -56,6 +58,7 @@ void resetKey(int keyIndex);
 void safeServoSetAngle(uint8_t servoChannel, uint16_t angle);
 bool validateSequenceData();
 bool validateHardwareInit();
+void loadDefaultSequence();
 void testLEDs();
 void testServos();
 const Sequence& getCurrentSequence();
@@ -85,6 +88,8 @@ Key keys[NUM_KEYS] = {
 };
 
 ServoDriver servoDriver;
+PCA9555 ioport(0x20);
+
 WebSocketsServer webSocket(81);
 
 // ============ GLOBAL STATE ============
@@ -94,7 +99,6 @@ Sequence currentSequence;
 
 bool uploadingSequence = false;
 uint8_t uploadStepCount = 0;
-int uploadingSequenceId = -1;
 Sequence uploadSequenceBuffer;
 
 bool sequenceRunning = false;
@@ -153,9 +157,9 @@ void setup() {
   }
   LOGLN("OK");
 
-  LOGLN("[SETUP] Initializing sequence memory... ");
-  currentSequence.length = 0;
-  strcpy(currentSequence.name, "Empty Sequence");
+  LOGLN("[SETUP] Loading default sequence... ");
+  loadDefaultSequence();
+  LOGF("OK (\"%s\", %d steps)\n", currentSequence.name, currentSequence.length);
 
   // ===== INITIALIZATION =====
   LOG("[SETUP] Configuring speaker... ");
@@ -164,7 +168,15 @@ void setup() {
   LOGF("OK (speaker_pin: %d)\n", SPEAKER_PIN);
 
   LOG("[SETUP] Initializing I2C... ");
-  Wire.begin();
+  Wire.begin(21, 22);
+  LOGLN("OK");
+
+  LOG("[SETUP] Initializing expansion board... ");
+  if (!ioport.begin()) {
+    LOGLN("[ERROR] PCA9555 I/O expander not responding at address 0x20!");
+    LOGLN("Check I2C wiring (SDA=21, SCL=22) and verify the chip is powered.");
+    while (true) { delay(1000); }  // Halt - buttons won't work without it
+  }
   LOGLN("OK");
 
   LOG("[SETUP] Initializing servo driver... ");
@@ -175,7 +187,7 @@ void setup() {
   // initialize each key
   LOGLN("[SETUP] Initializing keys:");
   for (int i = 0; i < NUM_KEYS; i++) {
-    pinMode(keys[i].buttonPin, INPUT);
+    ioport.pinMode(keys[i].buttonPin, INPUT);
     servoRest(keys[i].servoChannel);
 
     // Create NeoPixel object dynamically (can't be done at global scope)
@@ -202,7 +214,6 @@ void setup() {
 
 // runs repeatedly forever
 void loop() {
-  keyJustPressed = -1;     // Reset key press tracking for this loop
   webSocket.loop();        // handle WebSocket events
   handleSerialCommands();  // handle serial commands
   handleKeyPresses();      // detect any key presses and play sounds
@@ -316,11 +327,14 @@ void handleSequenceCommand(char *cmd){
       // Reset old upload buffer
       uploadingSequence = true;
       uploadStepCount = 0;
-      uploadingSequenceId = -1;
       memset(&uploadSequenceBuffer, 0, sizeof(uploadSequenceBuffer));
+      uploadSequenceBuffer.id = -1;
 
       cmd++;
-      processSequenceUploadCommand(cmd);
+      if (processSequenceUploadCommand(cmd)){
+        LOGF("[SEQ] Starting sequence upload (id=%d)...\n", uploadSequenceBuffer.id);
+        LOGF("ACK upload=begin i=%d s=%d\n", uploadSequenceBuffer.id, uploadSequenceBuffer.length);
+      }
       break;
 
     case 'S':
@@ -342,7 +356,11 @@ void handleSequenceCommand(char *cmd){
         break;
       } else {
         cmd++;
-        processSequenceEndCommand(cmd);
+        if (processSequenceEndCommand(cmd)){
+          LOGF("[SEQ] Sequence upload complete (id=%d): %s (%d steps)\n", currentSequence.id, currentSequence.name, currentSequence.length);
+          LOGF("ACK upload=end i=%d ok=1\n", currentSequence.id);
+          emitStatus();
+        }
       }
       break;
 
@@ -352,7 +370,8 @@ void handleSequenceCommand(char *cmd){
   }
 }
 
-void processSequenceUploadCommand(char *cmd){
+bool processSequenceUploadCommand(char *cmd){
+  bool valid = true;
   int i = 0;
   while (cmd[i] != '\n' && cmd[i] != '\0') {
     // Make sure we have enough characters remaining to verify '=' and capture at least a 1-character value
@@ -372,11 +391,13 @@ void processSequenceUploadCommand(char *cmd){
 
             // if endPtr is not the same as the start pointer, then the value was parsed
             if (endPtr != &cmd[i+2] && parsedId >= 0) {
-              uploadingSequenceId = parsedId;
-              LOGF("[SEQ] Starting sequence upload (id=%d)...\n", uploadingSequenceId);
+              uploadSequenceBuffer.id = parsedId;
             } else {
               LOGLN("[SEQ] Sequence upload failed: invalid sequence ID");
+              LOGLN("ERR upload=invalid_id");
+              emitStatus();
               uploadingSequence = false;
+              valid = false;
             }
 
             break;
@@ -407,7 +428,10 @@ void processSequenceUploadCommand(char *cmd){
               uploadSequenceBuffer.length = parsedSteps;
             } else {
               LOGF("[SEQ] Sequence upload failed: invalid step count (max %d)\n", MAX_SEQUENCE_LENGTH);
+              LOGLN("ERR upload=invalid_step_count");
+              emitStatus();
               uploadingSequence = false;
+              valid = false;
             }
 
             break;
@@ -420,6 +444,8 @@ void processSequenceUploadCommand(char *cmd){
     }
     i++;
   }
+
+  return valid;
 }
 
 bool processSequenceStepCommand(uint8_t stepIndex, char *cmd){
@@ -505,7 +531,7 @@ bool processSequenceStepCommand(uint8_t stepIndex, char *cmd){
   return true;
 }
 
-void processSequenceEndCommand(char *cmd){
+bool processSequenceEndCommand(char *cmd){
   int endSeqId = -1;
 
   // Parse the i= (sequence ID) field if present
@@ -522,27 +548,33 @@ void processSequenceEndCommand(char *cmd){
 
   uploadingSequence = false;
 
-  if (endSeqId != uploadingSequenceId){
-    LOGF("[SEQ] Sequence upload failed: ID mismatch; expected %d, got %d\n", uploadingSequenceId, endSeqId);
-    return;
+  if (endSeqId != uploadSequenceBuffer.id){
+    LOGF("[SEQ] Sequence upload failed: ID mismatch; expected %d, got %d\n", uploadSequenceBuffer.id, endSeqId);
+    LOGLN("ERR upload=id_mismatch");
+    emitStatus();
+    return false;
   }
 
   if (uploadStepCount == 0){
     LOGF("[SEQ] Sequence upload failed: No steps provided\n");
-    return;
+    LOGLN("ERR upload=no_steps");
+    emitStatus();
+    return false;
   } else if (uploadStepCount != uploadSequenceBuffer.length) {
     LOGF("[SEQ] Upload failed: expected %d steps, received %d\n", uploadSequenceBuffer.length, uploadStepCount);
-    return;
+    LOGLN("ERR upload=step_count_mismatch");
+    emitStatus();
+    return false;
   }
       
   // If a name wasn't properly provided, set a default name
   if (strlen(uploadSequenceBuffer.name) == 0) {
-    strcpy(uploadSequenceBuffer.name, "Unnamed Sequence");
+    strcpy(uploadSequenceBuffer.name, "Unnamed");
   }
     
   currentSequence = uploadSequenceBuffer;
   uploadStepCount = 0;
-  LOGF("[SEQ] Sequence upload complete (id=%d): %s (%d steps)\n", endSeqId, currentSequence.name, currentSequence.length);
+  return true;
 }
 
 void handleSerialCommands() {
@@ -609,51 +641,77 @@ void processSerialCommand(char cmd) {
 
     case 'm': // Manual mode
       LOGLN("\n[CMD] Received: Switch to MANUAL mode");
+
       if (currentMode == MANUAL) {
         LOGLN("\n[CMD] Already in MANUAL mode");
       } else {
         setMode(MANUAL);
       }
+
+      LOGLN("ACK cmd=m ok=1");
+      emitStatus();
       break;
 
     case 'a': // Guided mode
       LOGLN("\n[CMD] Received: Switch to GUIDED mode");
+
       if (currentMode == GUIDED) {
         LOGLN("\n[CMD] Already in GUIDED mode");
       } else {
         setMode(GUIDED);
       }
+
+      LOGLN("ACK cmd=a ok=1");
+      emitStatus();
       break;
 
     case 'f': // Teaching mode
       LOGLN("\n[CMD] Received: Switch to TEACHING mode");
+
       if (currentMode == TEACHING) {
         LOGLN("\n[CMD] Already in TEACHING mode");
       } else {
         setMode(TEACHING);
       }
+
+      LOGLN("ACK cmd=f ok=1");
+      emitStatus();
       break;
 
     // ---- SEQUENCE CONTROL ----
 
     case 's': // Start sequence
       LOGLN("\n[CMD] Received: Start sequence");
+
       if (currentMode == MANUAL) {
         LOGLN("\n[CMD] Cannot start sequence in MANUAL mode");
+        LOGLN("ERR cmd=s reason=manual_mode");
+      } else if (sequenceRunning) {
+        LOGLN("\n[CMD] Sequence already running, ignoring start request");
+        LOGLN("ERR cmd=s reason=already_running");
       } else {
         startSequence();
+        LOGLN("ACK cmd=s ok=1");
       }
+
+      emitStatus();
       break;
 
     case 'x': // Stop sequence
       LOGLN("\n[CMD] Received: Stop sequence");
+
       if (currentMode == MANUAL) {
         LOGLN("\n[CMD] Cannot stop sequence in MANUAL mode");
+        LOGLN("ERR cmd=x reason=manual_mode");
       } else if (!sequenceRunning) {
         LOGLN("\n[CMD] Sequence is not running");
+        LOGLN("ERR cmd=x reason=not_running");
       } else {
         stopSequence();
+        LOGLN("ACK cmd=x ok=1");
       }
+
+      emitStatus();
       break;
 
     case 'l': // List current sequence
@@ -789,7 +847,6 @@ void handleTeachingMode() {
 
     // Manually handle successive sequence steps by adding a delay to ensure proper movement up and down
     if (getCurrentSequenceStep().keyIndex == previousKeyIndex) {
-      LOGF("[SEQ] Same key %d in consecutive steps - waiting for servo release\n", previousKeyIndex);
       waitingForServoRelease = true;
       servoReleaseStartTime = millis();
       // Don't execute step yet - will be done on next loop iteration after delay
@@ -800,21 +857,27 @@ void handleTeachingMode() {
 }
 
 void handleGuidedMode() {
-  if (millis() - currentStepStartTime < getCurrentSequenceStep().duration) {
-    return; // Do nothing until the current step's duration has elapsed
-  }
-  if (keyJustPressed == getCurrentSequenceStep().keyIndex) {
+  uint8_t previousKeyIndex = getCurrentSequenceStep().keyIndex;
+
+  if (millis() - lastKeyPressTime[previousKeyIndex] >= getCurrentSequenceStep().duration &&
+      keyJustPressed == previousKeyIndex) {
+
     LOGF("[SEQ] Correct key %d pressed, advancing sequence.\n", keyJustPressed);
-
-    resetKey(getCurrentSequenceStep().keyIndex);
-
+    keyJustPressed = -1;
+    resetKey(previousKeyIndex);
     currentSequenceStepIndex++;
+
     if (currentSequenceStepIndex >= getCurrentSequence().length) {
       LOGLN("[SEQ] Sequence complete");
       stopSequence();
       return;
     }
-    // Note: does not currently wait for sequence step duration before executing next step
+
+    // Manually handle successive sequence steps by adding a delay to ensure proper LED relighting
+    if (getCurrentSequenceStep().keyIndex == previousKeyIndex) {
+      delay(50);
+    }
+
     executeSequenceStep(getCurrentSequenceStep());
   }
 }
@@ -824,6 +887,30 @@ void handleGuidedMode() {
        SEQUENCE HANDLING
 ===============================
 */
+
+// Loads a hardcoded default sequence into currentSequence.
+// This gives the firmware a ready-to-play demo so Guided and Teaching modes
+// work out of the box without needing a sequence upload from the controller.
+// The melody is a simple ascending/descending scale across all 3 keys:
+//   C4 → E4 → G4 → E4  (repeated twice, 500ms per note)
+void loadDefaultSequence() {
+  currentSequence.id = 0;
+  strcpy(currentSequence.name, "Default Scale");
+
+  const SequenceStep defaultSteps[] = {
+    {2, COLOR_RED,    500},   // C4 (key 2)
+    {1, COLOR_GREEN,  500},   // E4 (key 1)
+    {0, COLOR_BLUE,   500},   // G4 (key 0)
+    {1, COLOR_GREEN,  500},   // E4 (key 1)
+    {2, COLOR_RED,    500},   // C4 (key 2)
+    {1, COLOR_GREEN,  500},   // E4 (key 1)
+    {0, COLOR_BLUE,   500},   // G4 (key 0)
+    {1, COLOR_GREEN,  500},   // E4 (key 1)
+  };
+
+  currentSequence.length = sizeof(defaultSteps) / sizeof(defaultSteps[0]);
+  memcpy(currentSequence.steps, defaultSteps, sizeof(defaultSteps));
+}
 
 // starts playing the sequence from the beginning
 void startSequence() {
@@ -839,6 +926,8 @@ void startSequence() {
 
   LOGLN("\n[SEQ] ======== STARTING SEQUENCE ========");
   LOGF("[SEQ] Sequence: %s (%d steps)\n", getCurrentSequence().name, getCurrentSequence().length);
+  LOGLN("EVT sequence_started");
+  emitStatus();
 
   sequenceRunning = true;
   currentSequenceStepIndex = 0;
@@ -860,6 +949,8 @@ void stopSequence() {
   
   LOGLN("\n[SEQ] ======== STOPPING SEQUENCE ========");
   LOGF("[SEQ] Total steps completed: %d/%d\n", currentSequenceStepIndex, getCurrentSequence().length);
+  LOGLN("EVT sequence_complete");
+  emitStatus();
 
   for (int i = 0; i < NUM_KEYS; i++) {
     resetKey(i);
@@ -934,8 +1025,11 @@ These handle button detection, sound playback, and LED control for the keys.
 
 // checks all buttons and plays/stops tones based on their state
 void handleKeyPresses() {
+  // Read all 16 input pins in a single burst (2 I2C transactions total).
+  // stateOfPin() then reads from the cached value — no further I2C traffic per key.
+  ioport.pinStates();
   for (int i = 0; i < NUM_KEYS; i++) {
-    bool buttonPressed = digitalRead(keys[i].buttonPin) == HIGH;
+    bool buttonPressed = ioport.stateOfPin(keys[i].buttonPin) == HIGH;
 
     if (buttonPressed && !keys[i].isPressed) {
 
@@ -1091,7 +1185,7 @@ bool validateHardwareInit() {
   }
 
   for (int i = 0; i < NUM_KEYS; i++) {
-    if (keys[i].buttonPin < 0 || keys[i].buttonPin > 39) {
+    if (keys[i].buttonPin < 0 || keys[i].buttonPin > 15) {
       LOGF("[ERROR] Invalid buttonPin: %d for key %d", keys[i].buttonPin, i);
       return false;
     }
@@ -1218,6 +1312,12 @@ void toLowercase(char &c) {
   if (c >= 'A' && c <= 'Z') {
     c = c + ('a' - 'A');
   }
+}
+
+void emitStatus() {
+  LOGF("STATUS mode=%s running=%d seq=%d step=%d\n", 
+       getCurrentModeString(), sequenceRunning, 
+       currentSequence.id, (sequenceRunning ? currentSequenceStepIndex : -1));
 }
 
 // Broadcasts a log message to ALL connected WebSocket clients.
