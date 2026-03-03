@@ -1203,7 +1203,6 @@ bool validateHardwareInit() {
 void testLEDs() {
   LOGLN("[TEST] Testing LEDs...");
   
-  // Flash all key LEDs white once, then off.
   for (int i = 0; i < NUM_KEYS; i++) {
     for (int j = 0; j < LEDS_PER_KEY; j++) {
       keys[i].led->setPixelColor(j, COLOR_WHITE);
