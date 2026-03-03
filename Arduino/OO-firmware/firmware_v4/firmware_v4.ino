@@ -57,6 +57,7 @@ void resetKey(int keyIndex);
 void safeServoSetAngle(uint8_t servoChannel, uint16_t angle);
 bool validateSequenceData();
 bool validateHardwareInit();
+void loadDefaultSequence();
 void testLEDs();
 void testServos();
 const Sequence& getCurrentSequence();
@@ -153,9 +154,9 @@ void setup() {
   }
   LOGLN("OK");
 
-  LOGLN("[SETUP] Initializing sequence memory... ");
-  currentSequence.length = 0;
-  strcpy(currentSequence.name, "Empty Sequence");
+  LOGLN("[SETUP] Loading default sequence... ");
+  loadDefaultSequence();
+  LOGF("OK (\"%s\", %d steps)\n", currentSequence.name, currentSequence.length);
 
   // ===== INITIALIZATION =====
   LOG("[SETUP] Configuring speaker... ");
@@ -869,6 +870,30 @@ void handleGuidedMode() {
        SEQUENCE HANDLING
 ===============================
 */
+
+// Loads a hardcoded default sequence into currentSequence.
+// This gives the firmware a ready-to-play demo so Guided and Teaching modes
+// work out of the box without needing a sequence upload from the controller.
+// The melody is a simple ascending/descending scale across all 3 keys:
+//   C4 → E4 → G4 → E4  (repeated twice, 500ms per note)
+void loadDefaultSequence() {
+  currentSequence.id = 0;
+  strcpy(currentSequence.name, "Default Scale");
+
+  const SequenceStep defaultSteps[] = {
+    {2, COLOR_RED,    500},   // C4 (key 2)
+    {1, COLOR_GREEN,  500},   // E4 (key 1)
+    {0, COLOR_BLUE,   500},   // G4 (key 0)
+    {1, COLOR_GREEN,  500},   // E4 (key 1)
+    {2, COLOR_RED,    500},   // C4 (key 2)
+    {1, COLOR_GREEN,  500},   // E4 (key 1)
+    {0, COLOR_BLUE,   500},   // G4 (key 0)
+    {1, COLOR_GREEN,  500},   // E4 (key 1)
+  };
+
+  currentSequence.length = sizeof(defaultSteps) / sizeof(defaultSteps[0]);
+  memcpy(currentSequence.steps, defaultSteps, sizeof(defaultSteps));
+}
 
 // starts playing the sequence from the beginning
 void startSequence() {
