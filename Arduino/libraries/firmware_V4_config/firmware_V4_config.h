@@ -15,7 +15,7 @@
 #define DEBOUNCE_DELAY 50
 #define SERVO_RELEASE_DELAY 50   // ms to wait for servo to physically release
 
-#define MAX_SEQUENCE_LENGTH 64
+#define MAX_SEQUENCE_LENGTH 16
 
 #define MIN_NOTE_DURATION 100
 #define MAX_NOTE_DURATION 10000

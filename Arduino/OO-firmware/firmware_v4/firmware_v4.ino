@@ -83,8 +83,17 @@ void testLogLogError(uint8_t errorCode, const __FlashStringHelper* eventType);
 
 Key keys[NUM_KEYS] = {
     {KEY0_BUTTON_PIN, KEY0_LED_PIN, nullptr, KEY0_SERVO_CHANNEL, KEY0_NOTE, false}, // C4
-    {KEY1_BUTTON_PIN, KEY1_LED_PIN, nullptr, KEY1_SERVO_CHANNEL, KEY1_NOTE, false}, // D4
-    {KEY2_BUTTON_PIN, KEY2_LED_PIN, nullptr, KEY2_SERVO_CHANNEL, KEY2_NOTE, false}  // E4
+    {KEY1_BUTTON_PIN, KEY1_LED_PIN, nullptr, KEY1_SERVO_CHANNEL, KEY1_NOTE, false}, // C#4
+    {KEY2_BUTTON_PIN, KEY2_LED_PIN, nullptr, KEY2_SERVO_CHANNEL, KEY2_NOTE, false}, // D4
+    {KEY3_BUTTON_PIN, KEY3_LED_PIN, nullptr, KEY3_SERVO_CHANNEL, KEY3_NOTE, false}, // D#4
+    {KEY4_BUTTON_PIN, KEY4_LED_PIN, nullptr, KEY4_SERVO_CHANNEL, KEY4_NOTE, false}, // E4
+    {KEY5_BUTTON_PIN, KEY5_LED_PIN, nullptr, KEY5_SERVO_CHANNEL, KEY5_NOTE, false}, // F4
+    {KEY6_BUTTON_PIN, KEY6_LED_PIN, nullptr, KEY6_SERVO_CHANNEL, KEY6_NOTE, false}, // F#4
+    {KEY7_BUTTON_PIN, KEY7_LED_PIN, nullptr, KEY7_SERVO_CHANNEL, KEY7_NOTE, false}, // G4
+    {KEY8_BUTTON_PIN, KEY8_LED_PIN, nullptr, KEY8_SERVO_CHANNEL, KEY8_NOTE, false}, // G#4
+    {KEY9_BUTTON_PIN, KEY9_LED_PIN, nullptr, KEY9_SERVO_CHANNEL, KEY9_NOTE, false}, // A4
+    {KEY10_BUTTON_PIN, KEY10_LED_PIN, nullptr, KEY10_SERVO_CHANNEL, KEY10_NOTE, false}, // A#4
+    {KEY11_BUTTON_PIN, KEY11_LED_PIN, nullptr, KEY11_SERVO_CHANNEL, KEY11_NOTE, false}  // B4
 };
 
 ServoDriver servoDriver;
@@ -892,14 +901,14 @@ void loadDefaultSequence() {
   strcpy(currentSequence.name, "Default Scale");
 
   const SequenceStep defaultSteps[] = {
-    {2, COLOR_RED,    500},   // C4 (key 2)
-    {1, COLOR_GREEN,  500},   // E4 (key 1)
-    {0, COLOR_BLUE,   500},   // G4 (key 0)
-    {1, COLOR_GREEN,  500},   // E4 (key 1)
-    {2, COLOR_RED,    500},   // C4 (key 2)
-    {1, COLOR_GREEN,  500},   // E4 (key 1)
-    {0, COLOR_BLUE,   500},   // G4 (key 0)
-    {1, COLOR_GREEN,  500},   // E4 (key 1)
+    {0, COLOR_RED,    500},   // C4 (key 0)
+    {4, COLOR_GREEN,  500},   // E4 (key 4)
+    {7, COLOR_BLUE,   500},   // G4 (key 7)
+    {4, COLOR_GREEN,  500},   // E4 (key 4)
+    {1, COLOR_RED,    500},   // C#4 (key 1)
+    {9, COLOR_GREEN,  500},   // A4 (key 9)
+    {8, COLOR_BLUE,   500},   // G#4 (key 8)
+    {5, COLOR_GREEN,  500}    // F4 (key 5)
   };
 
   currentSequence.length = sizeof(defaultSteps) / sizeof(defaultSteps[0]);
@@ -1203,7 +1212,6 @@ bool validateHardwareInit() {
 void testLEDs() {
   LOGLN("[TEST] Testing LEDs...");
   
-  // Flash all key LEDs white once, then off.
   for (int i = 0; i < NUM_KEYS; i++) {
     for (int j = 0; j < LEDS_PER_KEY; j++) {
       keys[i].led->setPixelColor(j, COLOR_WHITE);
