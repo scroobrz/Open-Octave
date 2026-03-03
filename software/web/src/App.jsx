@@ -94,8 +94,8 @@ export default function App() {
   const [healthError, setHealthError] = useState('');
     // ============ CONNECT TAB STATE (Transport Selector) ============
   const [transportChoice, setTransportChoice] = useState('WIFI'); // 'WIFI' | 'SERIAL'
-  const [wifiIp, setWifiIp] = useState('127.0.0.1'); // use 192.168.4.1 for real ESP32 AP
-  const [wifiPort, setWifiPort] = useState(8081);    // use 81 for real ESP32 firmware_v4
+  const [wifiIp, setWifiIp] = useState('192.168.4.1');
+  const [wifiPort, setWifiPort] = useState(81);
   const [serialPortPath, setSerialPortPath] = useState('');
 
   const [logs, setLogs] = useState([]);
@@ -132,8 +132,8 @@ export default function App() {
       name: 'My Sequence Name',
       description: 'Optional description',
       steps: [
-        { k: 0, c: 'P', d: 300 },
-        { k: 1, c: 'P', d: 300 }
+        { k: 0, c: 'FF0000', d: 300 },
+        { k: 1, c: '00FF00', d: 300 }
       ]
     })
   );
