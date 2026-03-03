@@ -5,4 +5,4 @@
 node_modules
 *.sqlite
 *.sqlite3
-controller/database/*.sqlite3
+software/controller/database/*.sqlite3*
