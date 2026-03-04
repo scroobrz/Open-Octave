@@ -22,7 +22,6 @@
  * Written by Phil "Paint Your Dragon" Burgess for Adafruit Industries,
  * with contributions by PJRC, Michael Miller and other members of the
  * open source community.
- * Minor change in timing for CH32 @48MHz by Maxint-RD 20260126.
  *
  * @section license License
  *
@@ -274,12 +273,10 @@ static void ch32Show(GPIO_TypeDef* ch_port, uint32_t ch_pin, uint8_t* pixels, ui
       *set = ch_pin;
       __asm volatile ("nop; nop; nop; nop; nop; nop; nop; nop;"
         "nop; nop; nop; nop; nop; nop; nop; nop;"
-        "nop; nop; nop; nop; nop; nop; nop;"
-#if CH32_F_CPU >= 56000000
-        "nop; nop;"
         "nop; nop; nop; nop; nop; nop; nop; nop;"
         "nop; nop; nop; nop; nop; nop; nop; nop;"
-#endif
+        "nop; nop; nop; nop; nop; nop; nop; nop;"
+        "nop;"
 #if CH32_F_CPU >= 72000000
         "nop; nop; nop; nop; nop; nop; nop;"
         "nop; nop; nop; nop; nop; nop;"
@@ -302,11 +299,9 @@ static void ch32Show(GPIO_TypeDef* ch_port, uint32_t ch_pin, uint8_t* pixels, ui
 
       // Low 450ns
       *clr = ch_pin;
-      __asm volatile ("nop; nop;"
-#if CH32_F_CPU >= 56000000
-        "nop; nop; nop; nop; nop; nop; nop;"
+      __asm volatile ("nop; nop; nop; nop; nop; nop; nop; nop;"
         "nop; nop; nop; nop; nop; nop; nop; nop;"
-#endif
+        "nop;"
 #if CH32_F_CPU >= 72000000
         "nop; nop; nop; nop; nop; nop; nop; nop; nop;"
 #endif
@@ -325,9 +320,8 @@ static void ch32Show(GPIO_TypeDef* ch_port, uint32_t ch_pin, uint8_t* pixels, ui
       // High 400ns
       *set = ch_pin;
       __asm volatile ("nop; nop; nop; nop; nop; nop; nop; nop;"
-#if CH32_F_CPU >= 56000000
-        "nop; nop; nop; nop; nop; nop; nop; nop; nop;"
-#endif
+        "nop; nop; nop; nop; nop; nop; nop; nop;"
+        "nop;"
 #if CH32_F_CPU >= 72000000
         "nop; nop; nop; nop; nop; nop; nop;"
 #endif
@@ -346,13 +340,10 @@ static void ch32Show(GPIO_TypeDef* ch_port, uint32_t ch_pin, uint8_t* pixels, ui
       // Low 850ns
       *clr = ch_pin;
       __asm volatile ("nop; nop; nop; nop; nop; nop; nop; nop;"
-        "nop; nop; nop; nop;"
-#if CH32_F_CPU >= 56000000
-        "nop;"
         "nop; nop; nop; nop; nop; nop; nop; nop;"
         "nop; nop; nop; nop; nop; nop; nop; nop;"
         "nop; nop; nop; nop; nop; nop; nop; nop;"
-#endif
+        "nop; nop; nop; nop; nop;"
 #if CH32_F_CPU >= 72000000
         "nop; nop; nop;"
         "nop; nop; nop; nop; nop; nop; nop; nop;"
@@ -2511,7 +2502,7 @@ void Adafruit_NeoPixel::show(void) {
 #endif
 
 //----
-#elif defined(XMC1100_XMC2GO) || defined(XMC1400_XMC2GO) || defined(XMC1400_Arduino_Kit) || defined(XMC1100_H_BRIDGE2GO) || defined(XMC1100_Boot_Kit)  || defined(XMC1300_Boot_Kit)
+#elif defined(XMC1100_XMC2GO) || defined(XMC1400_Arduino_Kit) || defined(XMC1100_H_BRIDGE2GO) || defined(XMC1100_Boot_Kit)  || defined(XMC1300_Boot_Kit)
 
   // XMC1100/1200/1300 with ARM Cortex M0 are running with 32MHz, XMC1400 runs with 48MHz so may not work
   // Tried this with a timer/counter, couldn't quite get adequate
@@ -3784,4 +3775,3 @@ neoPixelType Adafruit_NeoPixel::str2order(const char *v) {
   if (w < 0) w = r; // If 'w' not specified, duplicate r bits
   return (w << 6) | (r << 4) | ((g & 3) << 2) | (b & 3);
 }
-
