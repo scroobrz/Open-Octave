@@ -42,6 +42,20 @@
   --gradient: linear-gradient(90deg, #00B4D8, #4ECB71, #FFD700, #FF6B35, #E8368F);
 }
 
+[data-theme="developer"] {
+  --background: #0A1628;
+  --foreground: #E2E8F0;
+  --card: #111D2E;
+  --card-foreground: #E2E8F0;
+  --border: #1E3048;
+  --input: #162336;
+  --muted: #1A2B3C;
+  --muted-foreground: #8899AA;
+  --shadow-sm: 0 1px 3px rgba(0,0,0,0.2);
+  --shadow-md: 0 2px 12px rgba(0,0,0,0.3);
+  --shadow-lg: 0 8px 24px rgba(0,0,0,0.4);
+}
+
 * {
   box-sizing: border-box;
 }

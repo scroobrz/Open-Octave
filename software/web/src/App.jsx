@@ -66,7 +66,7 @@ function Badge({ connected }) {
 
 export default function App() {
   const [tab, setTab] = useState('connect');
-  const [uiMode, setUiMode] = useState('user'); // 'user' | 'developer'
+  const [uiMode, setUiMode] = useState(() => localStorage.getItem('oo-ui-mode') || 'user'); // 'user' | 'developer'
 
   // User help modal: finger colour map (right hand)
   const [fingerHelpOpen, setFingerHelpOpen] = useState(false);
@@ -79,9 +79,15 @@ export default function App() {
     setFingerHelpOpen(false);
   }
 
+  // Persist developer mode toggle across page reloads.
+  useEffect(() => {
+    localStorage.setItem('oo-ui-mode', uiMode);
+    document.documentElement.dataset.theme = uiMode;
+  }, [uiMode]);
+
   // If user switches back to User mode, force them onto safe tabs.
   useEffect(() => {
-    if (uiMode === 'user' && (tab === 'sequences' || tab === 'logs')) {
+    if (uiMode === 'user' && tab === 'logs') {
       setTab('connect');
     }
   }, [uiMode, tab]);
@@ -117,6 +123,8 @@ export default function App() {
   const [selectedDbSeq, setSelectedDbSeq] = useState(null);
   const [dbActionBusy, setDbActionBusy] = useState(false);
   const [selectionStatus, setSelectionStatus] = useState(null);
+  const [uploadLog, setUploadLog] = useState([]);
+  const [uploadLogVisible, setUploadLogVisible] = useState(false);
 
   // ============ USER: SEQUENCE DETAILS MODAL ============
   const [seqModalOpen, setSeqModalOpen] = useState(false);
@@ -204,6 +212,15 @@ export default function App() {
           error: data?.error || null
         });
 
+        // Capture protocol log for developer mode display
+        if (Array.isArray(data?.sent)) {
+          setUploadLog(data.sent.map(entry => ({
+            line: entry.line || '',
+            ok: entry.result === 'ok'
+          })));
+          setUploadLogVisible(false);
+        }
+
         await refreshHealth();
         await refreshLogs();
         await refreshControllerState();
@@ -227,7 +244,7 @@ export default function App() {
   function normalizeSequenceForModal(item) {
     if (!item || typeof item !== 'object') return null;
 
-    // Clone so we don’t mutate shared objects.
+    // Clone so we don't mutate shared objects.
     const out = { ...item };
 
     // Steps might be an array already, or a JSON string, or stored under a different key.
@@ -288,13 +305,13 @@ export default function App() {
       const item = data?.item || null;
 
       if (!item) {
-        setSeqModalError('Sequence not found.');
+        setSeqModalError('Not found.');
         return;
       }
 
       setSeqModalSeq(normalizeSequenceForModal(item));
     } catch (e) {
-      setSeqModalError(`Failed to load sequence: ${e.message}`);
+      setSeqModalError(`Failed to load: ${e.message}`);
     } finally {
       setSeqModalLoading(false);
     }
@@ -722,23 +739,15 @@ export default function App() {
             className={tab === 'play' ? 'nav-btn is-active' : 'nav-btn'}
             onClick={() => setTab('play')}
           >
-            {uiMode === 'user' ? 'Controls' : 'Play'}
+            Controls
           </button>
           {uiMode === 'developer' && (
-            <>
-              <button
-                className={tab === 'sequences' ? 'nav-btn is-active' : 'nav-btn'}
-                onClick={() => setTab('sequences')}
-              >
-                Sequences
-              </button>
-              <button
-                className={tab === 'logs' ? 'nav-btn is-active' : 'nav-btn'}
-                onClick={() => setTab('logs')}
-              >
-                Logs
-              </button>
-            </>
+            <button
+              className={tab === 'logs' ? 'nav-btn is-active' : 'nav-btn'}
+              onClick={() => setTab('logs')}
+            >
+              Logs
+            </button>
           )}
         </nav>
 
@@ -748,157 +757,9 @@ export default function App() {
       </aside>
 
       <main className="main">
-        {uiMode === 'developer' && tab === 'sequences' && (
-          <section className="panel">
-            <h1>Sequences</h1>
-
-            <div className="card">
-              <h2>Select Sequence</h2>
-
-              <div className="row">
-                <div className="label">Choose a sequence to load onto the device</div>
-                <div className="btn-row">
-                  <button className="btn btn-secondary" onClick={refreshDbSequences} type="button" disabled={dbActionBusy}>
-                    Refresh DB
-                  </button>
-                  <button className="btn btn-coral" onClick={seedDemoSequences} type="button" disabled={dbActionBusy}>
-                    Seed demos
-                  </button>
-                </div>
-              </div>
-
-              {dbSeqError ? <pre className="pre">{dbSeqError}</pre> : null}
-
-              <div className="row mt">
-                <select
-                  className="input"
-                  value={selectedDbSeqId}
-                  disabled={dbActionBusy}
-                  onChange={(e) => selectSequence(e.target.value)}
-                >
-                  <option value="">(none)</option>
-                  {dbSeqItems.map((it) => (
-                    <option key={it.id} value={it.id}>
-                      {it.name} ({it.id}){typeof it.stepCount === 'number' ? ` • ${it.stepCount} steps` : ''}
-                    </option>
-                  ))}
-                </select>
-                <button
-                  className="btn btn-secondary"
-                  type="button"
-                  disabled={!selectedDbSeqId || dbActionBusy}
-                  onClick={() => setLastResult(selectedDbSeq || { note: 'No sequence loaded yet' })}
-                >
-                  Preview JSON
-                </button>
-              </div>
-
-              {selectionStatus ? (
-                <div className="hint mt" style={{ borderLeftColor: selectionStatus.ok ? 'var(--green)' : 'var(--secondary)' }}>
-                  {selectionStatus.ok
-                    ? `Selected '${selectionStatus.name}' (${selectionStatus.steps ?? '?'} steps) — ready to play`
-                    : `${selectionStatus.name}: ${selectionStatus.error || 'FAILED'}`
-                  }
-                </div>
-              ) : null}
-            </div>
-
-            <div className="card">
-              <h2>Available Sequences</h2>
-
-              <div className="row">
-                <div className="label">{dbSeqItems.length} sequence{dbSeqItems.length !== 1 ? 's' : ''} in library</div>
-                <div className="btn-row">
-                  <button className="btn btn-secondary" onClick={refreshDbSequences} type="button" disabled={dbActionBusy}>
-                    Refresh
-                  </button>
-                </div>
-              </div>
-
-              {dbSeqItems.length > 0 ? (
-                <table className="seq-table">
-                  <thead>
-                    <tr>
-                      <th>Name</th>
-                      <th>ID</th>
-                      <th>Steps</th>
-                    </tr>
-                  </thead>
-                  <tbody>
-                    {dbSeqItems.map((it) => (
-                      <tr
-                        key={it.id}
-                        className={it.id === selectedDbSeqId ? 'seq-row-active' : ''}
-                      >
-                        <td>{it.name}</td>
-                        <td>{it.id}</td>
-                        <td>{typeof it.stepCount === 'number' ? it.stepCount : '—'}</td>
-                      </tr>
-                    ))}
-                  </tbody>
-                </table>
-              ) : (
-                <div className="hint mt">No sequences yet. Use <b>Seed demos</b> above or create one with the JSON editor below.</div>
-              )}
-            </div>
-
-            <div className="card">
-              <h2>JSON Sequence Editor</h2>
-
-              <div className="row">
-                <div className="label">
-                  Paste JSON and save to the sequence library. Selecting it will load it onto the device.
-                </div>
-
-                <div className="btn-row">
-                  <button className="btn" type="button" disabled={dbCreateBusy} onClick={saveDbSequenceFromJson}>
-                    {dbCreateBusy ? 'Saving…' : 'Save to DB'}
-                  </button>
-                  <button
-                    className="btn btn-secondary"
-                    type="button"
-                    disabled={dbCreateBusy}
-                    onClick={() => {
-                      setDbCreateMsg('');
-                      setDbCreateErr('');
-                      setDbCreateJson(
-                        pretty({
-                          id: '10',
-                          name: 'My Sequence',
-                          description: 'Optional description',
-                          steps: [
-                            { k: 0, c: 'FF0000', d: 300 },
-                            { k: 1, c: '00FF00', d: 300 }
-                          ]
-                        })
-                      );
-                    }}
-                  >
-                    Reset template
-                  </button>
-                </div>
-              </div>
-
-              {dbCreateErr ? <pre className="pre">{dbCreateErr}</pre> : null}
-              {dbCreateMsg ? <pre className="pre">{dbCreateMsg}</pre> : null}
-
-              <textarea
-                className="input"
-                style={{ minHeight: 240, fontFamily: 'var(--font-mono)' }}
-                value={dbCreateJson}
-                onChange={(e) => setDbCreateJson(e.target.value)}
-              />
-
-              <div className="hint">
-                Required fields: <code>id</code> (numeric), <code>name</code>, <code>steps</code> (array of step objects).
-                Steps: <code>k</code> (key index 0–11), <code>c</code> (6-digit hex color, e.g. FF0000), <code>d</code> (duration ms).
-              </div>
-            </div>
-          </section>
-        )}
         {tab === 'connect' && (
           <section className="panel">
-            <h1>{uiMode === 'user' ? 'Connect to Keyboard' : 'Connect'}</h1>
+            <h1>Connect</h1>
 
             <div className="card">
               <h2>Transport</h2>
@@ -911,14 +772,14 @@ export default function App() {
                     onClick={() => setTransportChoice('WIFI')}
                     type="button"
                   >
-                    {uiMode === 'user' ? 'Wi‑Fi Device' : 'WiFi (WebSocket)'}
+                    Wi-Fi
                   </button>
                   <button
                     className={transportChoice === 'SERIAL' ? 'btn' : 'btn btn-secondary'}
                     onClick={() => setTransportChoice('SERIAL')}
                     type="button"
                   >
-                    {uiMode === 'user' ? 'USB Cable' : 'USB Serial'}
+                    Serial
                   </button>
                 </div>
               </div>
@@ -1122,17 +983,15 @@ export default function App() {
         {tab === 'play' && (
           <section className="panel">
             <div className="panel-top-row">
-              <h1>{uiMode === 'user' ? 'Controls' : 'Play'}</h1>
+              <h1>Controls</h1>
 
-              {uiMode === 'user' && (
-                <button
+              <button
                   className="btn btn-secondary finger-help-btn"
                   type="button"
                   onClick={openFingerHelp}
                 >
                   Finger colours
                 </button>
-              )}
             </div>
 
             <div className="grid">
@@ -1152,15 +1011,17 @@ export default function App() {
               </div>
 
               <div className="card card-accent-coral">
-                <h2>Sequence</h2>
+                <h2>{uiMode === 'user' ? 'Song' : 'Sequence'}</h2>
 
                 {selectedDbSeq ? (
                   <div className="label" style={{ marginBottom: 10 }}>
-                    Current sequence: <b>{selectedDbSeq.name}</b>
+                    {uiMode === 'user' ? 'Current song' : 'Current sequence'}: <b>{selectedDbSeq.name}</b>
                   </div>
                 ) : (
                   <div className="label" style={{ marginBottom: 10 }}>
-                    No song prepared yet — select one above
+                    {uiMode === 'user'
+                      ? 'No song prepared yet \u2014 select one below'
+                      : 'No sequence loaded yet \u2014 select one below'}
                   </div>
                 )}
 
@@ -1194,13 +1055,13 @@ export default function App() {
             </div>
 
             <div className="card">
-              <h2>Select Song</h2>
+              <h2>{uiMode === 'user' ? 'Select Song' : 'Select Sequence'}</h2>
 
               <div className="row">
                 <div className="label">
                   {uiMode === 'user'
                     ? 'Choose a song to prepare on the device.'
-                    : 'Select a sequence from the SQLite library and upload it to the device.'}
+                    : 'Choose a sequence to load onto the device.'}
                 </div>
 
                 {uiMode === 'developer' && (
@@ -1247,15 +1108,33 @@ export default function App() {
               {selectionStatus ? (
                 <div className="hint mt" style={{ borderLeftColor: selectionStatus.ok ? 'var(--green)' : 'var(--secondary)' }}>
                   {selectionStatus.ok
-                    ? `Prepared '${selectionStatus.name}' (${selectionStatus.steps ?? '?'} steps) — ready to play`
+                    ? `Selected '${selectionStatus.name}' (${selectionStatus.steps ?? '?'} steps) — ready to play`
                     : `${selectionStatus.name}: ${selectionStatus.error || 'FAILED'}`}
                 </div>
               ) : (
                 <div className="hint mt">
                   {uiMode === 'user'
-                    ? 'After selecting a song, wait for “Ready to play”.'
+                    ? 'After selecting a song, wait for "Ready to play".'
                     : 'Tip: This uses POST /api/db/sequences/:id/upload under the hood.'}
                 </div>
+              )}
+
+              {uiMode === 'developer' && uploadLog.length > 0 && (
+                <>
+                  <button className="upload-log-toggle" type="button" onClick={() => setUploadLogVisible(v => !v)}>
+                    {uploadLogVisible ? 'Hide' : 'Show'} Upload Protocol Log ({uploadLog.length} lines)
+                  </button>
+                  {uploadLogVisible && (
+                    <div className="upload-log">
+                      {uploadLog.map((entry, i) => (
+                        <div key={i} className="upload-log-line">
+                          <span>{entry.line}</span>
+                          <span style={{ color: entry.ok ? 'var(--green)' : 'var(--secondary)' }}>{entry.ok ? '✓' : '✗'}</span>
+                        </div>
+                      ))}
+                    </div>
+                  )}
+                </>
               )}
             </div>
 
@@ -1313,6 +1192,116 @@ export default function App() {
               </div>
             )}
 
+            {uiMode === 'developer' && (
+              <div className="card">
+                <h2>Available Sequences</h2>
+
+                <div className="row">
+                  <div className="label">{dbSeqItems.length} sequence{dbSeqItems.length !== 1 ? 's' : ''} in library</div>
+                  <div className="btn-row">
+                    <button className="btn btn-secondary" onClick={refreshDbSequences} type="button" disabled={dbActionBusy}>
+                      Refresh
+                    </button>
+                  </div>
+                </div>
+
+                {dbSeqItems.length > 0 ? (
+                  <table className="seq-table">
+                    <thead>
+                      <tr>
+                        <th>Name</th>
+                        <th>ID</th>
+                        <th>Steps</th>
+                      </tr>
+                    </thead>
+                    <tbody>
+                      {dbSeqItems.map((it) => (
+                        <tr
+                          key={it.id}
+                          className={
+                            it.id === selectedDbSeqId
+                              ? 'seq-row-active seq-row-clickable'
+                              : 'seq-row-clickable'
+                          }
+                          onClick={() => openSequenceModal(it.id)}
+                          role="button"
+                          tabIndex={0}
+                          onKeyDown={(e) => {
+                            if (e.key === 'Enter' || e.key === ' ') openSequenceModal(it.id);
+                          }}
+                        >
+                          <td>{it.name}</td>
+                          <td>{it.id}</td>
+                          <td>{typeof it.stepCount === 'number' ? it.stepCount : '—'}</td>
+                        </tr>
+                      ))}
+                    </tbody>
+                  </table>
+                ) : (
+                  <div className="hint mt">No sequences yet. Use <b>Seed demos</b> above or create one with the JSON editor below.</div>
+                )}
+
+                <div className="hint">
+                  Sequences are stored in the controller's SQLite database and uploaded to the device via the serial protocol.
+                </div>
+              </div>
+            )}
+
+            {uiMode === 'developer' && (
+              <div className="card">
+                <h2>JSON Sequence Editor</h2>
+
+                <div className="row">
+                  <div className="label">
+                    Paste JSON and save to the sequence library. Selecting it will load it onto the device.
+                  </div>
+
+                  <div className="btn-row">
+                    <button className="btn" type="button" disabled={dbCreateBusy} onClick={saveDbSequenceFromJson}>
+                      {dbCreateBusy ? 'Saving…' : 'Save to DB'}
+                    </button>
+                    <button
+                      className="btn btn-secondary"
+                      type="button"
+                      disabled={dbCreateBusy}
+                      onClick={() => {
+                        setDbCreateMsg('');
+                        setDbCreateErr('');
+                        setDbCreateJson(
+                          pretty({
+                            id: '10',
+                            name: 'My Sequence',
+                            description: 'Optional description',
+                            steps: [
+                              { k: 0, c: 'FF0000', d: 300 },
+                              { k: 1, c: '00FF00', d: 300 }
+                            ]
+                          })
+                        );
+                      }}
+                    >
+                      Reset template
+                    </button>
+                  </div>
+                </div>
+
+                {dbCreateErr ? <pre className="pre">{dbCreateErr}</pre> : null}
+                {dbCreateMsg ? <pre className="pre">{dbCreateMsg}</pre> : null}
+
+                <textarea
+                  className="input"
+                  style={{ minHeight: 240, fontFamily: 'var(--font-mono)' }}
+                  value={dbCreateJson}
+                  onChange={(e) => setDbCreateJson(e.target.value)}
+                />
+
+                <div className="hint">
+                  Required fields: <code>id</code> (numeric), <code>name</code>, <code>steps</code> (array of step objects).
+                  Steps: <code>k</code> (key index 0–11), <code>c</code> (6-digit hex color, e.g. FF0000), <code>d</code> (duration ms).
+                </div>
+              </div>
+            )}
+
             {fingerHelpOpen && (
             <div className="modal-overlay" onClick={closeFingerHelp}>
               <div className="modal" onClick={(e) => e.stopPropagation()}>
@@ -1338,59 +1327,20 @@ export default function App() {
                       role="img"
                       aria-label="Right hand finger colour map"
                     >
-                      {/* Palm */}
-                      <rect
-                        x="70"
-                        y="70"
-                        width="260"
-                        height="150"
-                        rx="45"
-                        ry="45"
-                        fill="rgba(255,255,255,0.06)"
-                        stroke="rgba(255,255,255,0.18)"
-                      />
-
                       {/* Thumb */}
                       <circle cx="130" cy="185" r="18" fill="#FF0000" />
-                      <text x="160" y="191" fontSize="14" fill="rgba(255,255,255,0.85)">
-                        Thumb
-                      </text>
 
                       {/* Index */}
                       <circle cx="175" cy="60" r="18" fill="#FFFF00" />
-                      <text x="200" y="66" fontSize="14" fill="rgba(255,255,255,0.85)">
-                        Index
-                      </text>
 
                       {/* Middle */}
                       <circle cx="235" cy="48" r="18" fill="#00FF00" />
-                      <text x="260" y="54" fontSize="14" fill="rgba(255,255,255,0.85)">
-                        Middle
-                      </text>
 
                       {/* Ring */}
                       <circle cx="295" cy="60" r="18" fill="#FF8000" />
-                      <text x="320" y="66" fontSize="14" fill="rgba(255,255,255,0.85)">
-                        Ring
-                      </text>
 
                       {/* Pinky */}
                       <circle cx="345" cy="78" r="18" fill="#0000FF" />
-                      <text x="370" y="84" fontSize="14" fill="rgba(255,255,255,0.85)">
-                        Pinky
-                      </text>
-
-                      {/* Wrist */}
-                      <rect
-                        x="140"
-                        y="220"
-                        width="120"
-                        height="26"
-                        rx="12"
-                        ry="12"
-                        fill="rgba(255,255,255,0.05)"
-                        stroke="rgba(255,255,255,0.12)"
-                      />
                     </svg>
                   </div>
 
@@ -1490,7 +1440,7 @@ export default function App() {
                 <div className="modal-header">
                   <div>
                     <div className="modal-title">
-                      {seqModalSeq?.name || (seqModalLoading ? 'Loading…' : 'Sequence details')}
+                      {seqModalSeq?.name || (seqModalLoading ? 'Loading…' : uiMode === 'user' ? 'Song details' : 'Sequence details')}
                     </div>
                     <div className="modal-subtitle">
                       ID: <b>{seqModalSeq?.id || '—'}</b>
@@ -1511,13 +1461,13 @@ export default function App() {
                 {seqModalError ? <pre className="pre">{seqModalError}</pre> : null}
 
                 {seqModalLoading ? (
-                  <div className="hint mt">Loading sequence steps…</div>
+                  <div className="hint mt">{uiMode === 'user' ? 'Loading song details…' : 'Loading sequence details…'}</div>
                 ) : seqModalSeq && Array.isArray(seqModalSeq.steps) ? (
                   <div className="card" style={{ marginBottom: 0 }}>
                     <h2>Steps</h2>
 
                     {seqModalSeq.steps.length === 0 ? (
-                      <div className="hint mt">This sequence has no steps.</div>
+                      <div className="hint mt">{uiMode === 'user' ? 'This song has no steps.' : 'This sequence has no steps.'}</div>
                     ) : (
                       <table className="steps-table">
                         <thead>
@@ -1553,7 +1503,7 @@ export default function App() {
                     )}
                   </div>
                 ) : (
-                  <div className="hint mt">No steps found for this sequence.</div>
+                  <div className="hint mt">{uiMode === 'user' ? 'No steps found for this song.' : 'No steps found for this sequence.'}</div>
                 )}
               </div>
             </div>
@@ -1711,8 +1661,17 @@ const styles = `
 .main {
   padding: 32px;
   overflow-y: auto;
-  border-top: 3px solid transparent;
-  border-image: var(--gradient) 1;
+  position: relative;
+}
+
+.main::before {
+  content: '';
+  position: absolute;
+  top: 0;
+  left: 0;
+  width: 2px;
+  height: 100%;
+  background: linear-gradient(to bottom, #00B4D8, #4ECB71, #FFD700, #FF6B35, #E8368F);
 }
 
 .panel { max-width: 1200px; }
@@ -1773,6 +1732,7 @@ h2 {
   .sidebar-footer { margin-top: 0; margin-left: auto; }
   .grid { grid-template-columns: 1fr; }
   .main { padding: 20px 16px; }
+  .main::before { display: none; }
 }
 
 /* ===== LAYOUT ===== */
@@ -2174,5 +2134,74 @@ details.diagnostics[open] summary {
 
 .mono {
   font-family: var(--font-mono);
+}
+
+/* ===== DARK MODE (developer theme) OVERRIDES ===== */
+[data-theme="developer"] .pre {
+  background: #0D1B2A;
+}
+
+[data-theme="developer"] code {
+  background: #162336;
+}
+
+[data-theme="developer"] .pill-teal {
+  background: rgba(0, 180, 216, 0.2);
+  color: #4DD4EC;
+}
+
+[data-theme="developer"] .pill-coral {
+  background: rgba(255, 107, 53, 0.2);
+  color: #FF8C66;
+}
+
+[data-theme="developer"] .pill-green {
+  background: rgba(78, 203, 113, 0.2);
+  color: #6EE090;
+}
+
+[data-theme="developer"] .pill-gold {
+  background: rgba(255, 215, 0, 0.2);
+  color: #FFE04D;
+}
+
+[data-theme="developer"] .pill-magenta {
+  background: rgba(232, 54, 143, 0.2);
+  color: #F06AAE;
+}
+
+[data-theme="developer"] .seq-table tbody tr:hover {
+  background: rgba(0, 180, 216, 0.08);
+}
+
+/* ===== UPLOAD LOG ===== */
+.upload-log-toggle {
+  background: none;
+  border: none;
+  color: var(--muted-foreground);
+  font-size: 12px;
+  cursor: pointer;
+  padding: 4px 0;
+  font-family: var(--font-sans);
+}
+
+.upload-log-toggle:hover {
+  color: var(--primary);
+}
+
+.upload-log {
+  margin-top: 6px;
+  padding: 10px;
+  background: var(--muted);
+  border-radius: var(--radius);
+  font-family: var(--font-mono);
+  font-size: 12px;
+  line-height: 1.8;
+}
+
+.upload-log-line {
+  display: flex;
+  justify-content: space-between;
+  gap: 12px;
 }
 `;
