@@ -55,10 +55,3 @@ void webSocketEvent(uint8_t num, WStype_t type, uint8_t *payload, size_t length)
       break;
   }
 }
-
-// Broadcasts a log message to ALL connected WebSocket clients.
-// Uses broadcastTXT which sends to every connected client.
-void wsBroadcastLog(const char* msg) {
-  if (!wsReady) return;  // WebSocket not yet initialized
-  webSocket.broadcastTXT(msg);
-}
