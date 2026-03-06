@@ -177,7 +177,7 @@ void loop() {
   webSocket.loop();        // handle WebSocket events
   handleSerialCommand();   // handle serial commands
   handleKeyPresses();      // detect any key presses and play sounds
-  handleWiFiStatus();      // check wifi connection state
+  checkWiFiStatus();       // check wifi connection state
 
   // if we're in an automatic mode, handle the sequence playback
   if (currentMode != MANUAL) {
