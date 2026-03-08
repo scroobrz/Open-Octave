@@ -1,7 +1,7 @@
 // ==============================
 // Open Octave - SQLite Layer
 // ==============================
-// Firmware v4 stores only:
+// Firmware v5 stores only:
 //   - 1 default sequence
 //   - 1 uploaded sequence
 // Software stores many sequences in SQLite and uploads one at a time.
@@ -11,13 +11,12 @@
 const path = require('path');
 const Database = require('better-sqlite3');
 
-// Firmware v4 hard-limits uploads to MAX_SEQUENCE_LENGTH (see firmware_V4_config.h).
+// Firmware v5 hard-limits uploads to MAX_SEQUENCE_LENGTH (see firmware_V5_config.h).
 // Keep this mirrored here so we fail fast before sending an upload that firmware will reject.
-const FIRMWARE_V4_MAX_SEQUENCE_LENGTH = 64;
+const FIRMWARE_MAX_SEQUENCE_LENGTH = 64;
 
-// Firmware v4 parses `i=` (sequence id) using atoi(), so it must be numeric.
-// If we later change firmware to accept string IDs, we can relax this constraint.
-const FIRMWARE_V4_SEQUENCE_ID_REGEX = /^\d+$/;
+// Firmware v5 parses `i=` (sequence id) using atoi(), so it must be numeric.
+const FIRMWARE_SEQUENCE_ID_REGEX = /^\d+$/;
 
 // Allow override via env
 const DB_PATH =
@@ -116,7 +115,7 @@ function upsertSequence(seq) {
   const hasNumericId =
     seq.id !== undefined &&
     seq.id !== null &&
-    FIRMWARE_V4_SEQUENCE_ID_REGEX.test(String(seq.id));
+    FIRMWARE_SEQUENCE_ID_REGEX.test(String(seq.id));
 
   if (hasNumericId) {
     const existing = db
@@ -192,11 +191,11 @@ function generateUploadLinesFromData(id, name, data) {
   const cleanId = String(id || '').trim();
   const cleanName = sanitizeNameForFirmware(name);
 
-  // Firmware v4 expects a numeric sequence id for `U i=` and `E i=`.
-  if (!FIRMWARE_V4_SEQUENCE_ID_REGEX.test(cleanId)) {
+  // Firmware v5 expects a numeric sequence id for `U i=` and `E i=`.
+  if (!FIRMWARE_SEQUENCE_ID_REGEX.test(cleanId)) {
     return {
       error:
-        'Firmware v4 requires numeric sequence ids for uploads (U/E i=...). ' +
+        'Firmware v5 requires numeric sequence ids for uploads (U/E i=...). ' +
         `Got id="${cleanId}". Use a numeric id (e.g., autoincrement) or add a separate firmwareUploadId field.`
     };
   }
@@ -206,10 +205,10 @@ function generateUploadLinesFromData(id, name, data) {
     return { error: 'Sequence data.steps must be an array' };
   }
 
-  if (steps.length > FIRMWARE_V4_MAX_SEQUENCE_LENGTH) {
+  if (steps.length > FIRMWARE_MAX_SEQUENCE_LENGTH) {
     return {
       error:
-        `Sequence has ${steps.length} steps but firmware v4 only accepts up to ${FIRMWARE_V4_MAX_SEQUENCE_LENGTH} steps per upload.`
+        `Sequence has ${steps.length} steps but firmware v5 only accepts up to ${FIRMWARE_MAX_SEQUENCE_LENGTH} steps per upload.`
     };
   }
 
@@ -217,9 +216,8 @@ function generateUploadLinesFromData(id, name, data) {
   const lines = [];
   lines.push(`U i=${cleanId} n=${cleanName} s=${steps.length}`);
 
-  // NOTE: Firmware upload protocol expects `i=` to be the *step index* (0..N-1),
-  // not the sequence id. Using the sequence id here would make every step share
-  // the same index (overwriting or rejecting steps).
+  // Firmware v5 step format: S k=<keyIndex> c=<color> d=<duration>
+  // (v4 included an `i=<stepIndex>` param which was removed in v5 — firmware tracks step index internally)
   for (let stepIndex = 0; stepIndex < steps.length; stepIndex++) {
     const step = steps[stepIndex];
     const { k, c, d } = step || {};
@@ -228,7 +226,7 @@ function generateUploadLinesFromData(id, name, data) {
     if (!c) return { error: 'Missing step.c' };
     if (d === undefined) return { error: 'Missing step.d' };
 
-    lines.push(`S i=${stepIndex} k=${k} c=${String(c).trim()} d=${d}`);
+    lines.push(`S k=${k} c=${String(c).trim()} d=${d}`);
   }
 
   lines.push(`E i=${cleanId}`);
