@@ -37,8 +37,7 @@ void handleTeachingModePlayback() {
   if (millis() - currentStepStartTime >= CURRENT_STEP.duration) {
     LOGF("[SEQ] Step %d/%d complete\n", currentSequenceStepIndex + 1, currentSequence.length);
 
-    uint8_t previousKeyIndex = CURRENT_STEP.keyIndex;
-    resetKey(previousKeyIndex);
+    resetKey(CURRENT_STEP.keyIndex);
 
     currentSequenceStepIndex++;
     if (currentSequenceStepIndex >= currentSequence.length) {
@@ -48,7 +47,7 @@ void handleTeachingModePlayback() {
     }
 
     // Manually handle successive sequence steps by adding a delay to ensure proper movement up and down
-    if (CURRENT_STEP.keyIndex == previousKeyIndex) {
+    if (CURRENT_STEP.keyIndex == PREVIOUS_STEP.keyIndex) {
       waitingForServoRelease = true;
       servoReleaseStartTime = millis();
       // Don't execute step yet - will be done on next loop iteration after delay
