@@ -1706,7 +1706,7 @@ h2 {
 .grid {
   display: grid;
   gap: 16px;
-  grid-template-columns: repeat(3, minmax(220px, 1fr));
+  grid-template-columns: repeat(2, 1fr);
 }
 
 @media (max-width: 980px) {
@@ -1745,7 +1745,7 @@ h2 {
 
 .btn-row {
   display: flex;
-  flex-wrap: wrap;
+  flex-wrap: nowrap;
   gap: 8px;
 }
 
