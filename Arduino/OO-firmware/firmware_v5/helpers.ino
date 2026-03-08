@@ -40,10 +40,8 @@ inline bool isValidKeyIndex(int keyIndex) {
   return (keyIndex >= 0 && keyIndex < NUM_KEYS);
 }
 
-const char *getCurrentModeString() {
-  switch (currentMode) {
-  case MANUAL:
-    return "MANUAL";
+const char *getCurrentSequenceModeString() {
+  switch (currentSequenceMode) {
   case GUIDED:
     return "GUIDED";
   case TEACHING:
@@ -52,7 +50,6 @@ const char *getCurrentModeString() {
     return "UNKNOWN";
   }
 }
-
 const char *getColorString(uint32_t color) {
   switch (color) {
   case COLOR_RED:
@@ -83,7 +80,8 @@ void toLowercase(char &c) {
 }
 
 void emitStatus() {
-  LOGF("STATUS mode=%s running=%d seq=%d step=%d\n",
-       getCurrentModeString(), sequenceRunning,
-       currentSequence.id, (sequenceRunning ? currentSequenceStepIndex : -1));
+  LOGF("STATUS running=%d seq=%d step=%d mode=%s\n",
+       sequenceRunning, currentSequence.id, 
+       (sequenceRunning ? currentSequenceStepIndex : -1), 
+       (sequenceRunning ? getCurrentSequenceModeString() : "N/A"));
 }

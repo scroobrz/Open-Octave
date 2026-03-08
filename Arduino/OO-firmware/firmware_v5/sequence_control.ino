@@ -4,29 +4,88 @@
 ===============================
 */
 
-// Loads a hardcoded default sequence into currentSequence.
-// The melody is a simple ascending/descending scale across all 3 keys:
-void loadDefaultSequence() {
-  currentSequence.id = 0;
-  strcpy(currentSequence.name, "Default Scale");
+// handles automatic sequence playback
+void handleSequencePlayback() {
+  if (!sequenceRunning)
+    return;
 
-  const SequenceStep defaultSteps[] = {
-    {0, COLOR_RED,    500},   // C4 (key 0)
-    {4, COLOR_GREEN,  500},   // E4 (key 4)
-    {7, COLOR_BLUE,   500},   // G4 (key 7)
-    {4, COLOR_GREEN,  500},   // E4 (key 4)
-    {1, COLOR_RED,    500},   // C#4 (key 1)
-    {9, COLOR_GREEN,  500},   // A4 (key 9)
-    {8, COLOR_BLUE,   500},   // G#4 (key 8)
-    {5, COLOR_GREEN,  500}    // F4 (key 5)
-  };
+  // Defensive check: ensure currentSequenceStep is valid
+  if (currentSequenceStepIndex < 0 || currentSequenceStepIndex >= currentSequence.length) {
+    LOGF("[ERROR] Invalid step index: %d encountered while handling automatic modes\n", currentSequenceStepIndex);
+    testLogLogError(TESTLOG_INVALID_STEP_INDEX, F("ERROR_INVALID_STEP_INDEX"));
+    stopSequence();
+    return;
+  }
 
-  currentSequence.length = sizeof(defaultSteps) / sizeof(defaultSteps[0]);
-  memcpy(currentSequence.steps, defaultSteps, sizeof(defaultSteps));
+  if (currentSequenceMode == TEACHING) {
+    handleTeachingModePlayback();
+  } else if (currentSequenceMode == GUIDED) {
+    handleGuidedModePlayback();
+  }
+}
+
+void handleTeachingModePlayback() {
+  // If we're waiting for the servo to release (between consecutive same-key steps)
+  if (waitingForServoRelease) {
+    if (millis() - servoReleaseStartTime >= SERVO_RELEASE_DELAY) {
+      waitingForServoRelease = false;
+      executeNextSequenceStep();
+    }
+    return;
+  }
+
+  if (millis() - currentStepStartTime >= CURRENT_STEP.duration) {
+    LOGF("[SEQ] Step %d/%d complete\n", currentSequenceStepIndex + 1, currentSequence.length);
+
+    uint8_t previousKeyIndex = CURRENT_STEP.keyIndex;
+    resetKey(previousKeyIndex);
+
+    currentSequenceStepIndex++;
+    if (currentSequenceStepIndex >= currentSequence.length) {
+      LOGLN("[SEQ] Sequence complete");
+      stopSequence();
+      return;
+    }
+
+    // Manually handle successive sequence steps by adding a delay to ensure proper movement up and down
+    if (CURRENT_STEP.keyIndex == previousKeyIndex) {
+      waitingForServoRelease = true;
+      servoReleaseStartTime = millis();
+      // Don't execute step yet - will be done on next loop iteration after delay
+    } else {
+      executeNextSequenceStep();
+    }
+  }
+}
+
+void handleGuidedModePlayback() {
+  uint8_t previousKeyIndex = CURRENT_STEP.keyIndex;
+
+  if (millis() - lastKeyPressTime[previousKeyIndex] >= CURRENT_STEP.duration &&
+      keyJustPressed == previousKeyIndex) {
+
+    LOGF("[SEQ] Correct key %d pressed, advancing sequence.\n", keyJustPressed);
+    keyJustPressed = -1;
+    resetKey(previousKeyIndex);
+    currentSequenceStepIndex++;
+
+    if (currentSequenceStepIndex >= currentSequence.length) {
+      LOGLN("[SEQ] Sequence complete");
+      stopSequence();
+      return;
+    }
+
+    // Manually handle successive sequence steps by adding a delay to ensure proper LED relighting
+    if (CURRENT_STEP.keyIndex == previousKeyIndex) {
+      delay(80);
+    }
+
+    executeNextSequenceStep();
+  }
 }
 
 // starts playing the sequence from the beginning
-void startSequence() {
+void startSequence(SequenceMode mode) {
   if (sequenceRunning) {
     LOGLN("[SEQ] Sequence already running, ignoring start request");
     return;
@@ -37,14 +96,17 @@ void startSequence() {
     return;
   }
 
-  LOGLN("\n[SEQ] ======== STARTING SEQUENCE ========");
-  LOGF("[SEQ] Sequence: %s (%d steps)\n", currentSequence.name, currentSequence.length);
-  LOGLN("EVT sequence_started");
-  emitStatus();
-
   sequenceRunning = true;
   currentSequenceStepIndex = 0;
   currentStepStartTime = millis();
+  currentSequenceMode = mode;
+  keyJustPressed = -1;
+
+  LOGLN("\n[SEQ] ======== STARTING SEQUENCE ========");
+  LOGF("[SEQ] Sequence: %s (%d steps)\n", currentSequence.name, currentSequence.length);
+  LOGF("[SEQ] Mode: %s\n", getCurrentSequenceModeString());
+  LOGLN("EVT sequence_started");
+  emitStatus();
 
   if (testLogEnabled) {
     testLogExpectedNextStepStartTime = currentStepStartTime;
@@ -81,19 +143,18 @@ void stopSequence() {
 
 // plays a single step of a sequence
 void executeNextSequenceStep() {
-  SequenceStep currentStep = currentSequence.steps[currentSequenceStepIndex];
   currentStepStartTime = millis();
 
-  if (!isValidKeyIndex(currentStep.keyIndex)) {
-    LOGF("[ERROR] Invalid keyIndex: %d encountered while executing sequence step\n", currentStep.keyIndex);
+  if (!isValidKeyIndex(CURRENT_STEP.keyIndex)) {
+    LOGF("[ERROR] Invalid keyIndex: %d encountered while executing sequence step\n", CURRENT_STEP.keyIndex);
     testLogLogError(TESTLOG_INVALID_KEY_INDEX, F("ERROR_INVALID_KEY"));
     return;
   }
 
   LOGF("[SEQ] Step %d/%d: key=%d, color=%s, duration=%dms\n",
        currentSequenceStepIndex + 1, currentSequence.length,
-       currentStep.keyIndex, getColorString(currentStep.color), 
-       currentStep.duration);
+       CURRENT_STEP.keyIndex, getColorString(CURRENT_STEP.color), 
+       CURRENT_STEP.duration);
 
   unsigned long stepStartCallTime = millis();
 
@@ -108,16 +169,16 @@ void executeNextSequenceStep() {
 
   unsigned long ledCmdStart = millis();
   // light up the key's LED with the specified color
-  lightUpKey(currentStep.keyIndex, currentStep.color);
+  lightUpKey(CURRENT_STEP.keyIndex, CURRENT_STEP.color);
   unsigned long ledCmdLatencyMs = millis() - ledCmdStart;
 
   unsigned long servoCmdLatencyMs = 0;
   // if we're in teaching mode, also press the key with the servo
-  if (currentMode == TEACHING) {
+  if (currentSequenceMode == TEACHING) {
     LOGF("[SERVO] Auto-pressing key %d (channel %d)\n", 
-         currentStep.keyIndex, keys[currentStep.keyIndex].servoChannel);
+         CURRENT_STEP.keyIndex, keys[CURRENT_STEP.keyIndex].servoChannel);
     unsigned long servoCmdStart = millis();
-    autoPressKey(currentStep.keyIndex);
+    autoPressKey(CURRENT_STEP.keyIndex);
     servoCmdLatencyMs = millis() - servoCmdStart;
   }
 
@@ -126,11 +187,32 @@ void executeNextSequenceStep() {
     bool nextIsSameKey = false;
 
     if (nextIndex >= 0 && nextIndex < currentSequence.length) {
-      nextIsSameKey = (currentSequence.steps[nextIndex].keyIndex == currentStep.keyIndex);
+      nextIsSameKey = (currentSequence.steps[nextIndex].keyIndex == CURRENT_STEP.keyIndex);
     }
 
-    testLogLogAutoStep(currentStep.keyIndex, autoplayTimingErrorMs, 
-      ledCmdLatencyMs, servoCmdLatencyMs, (uint16_t)currentStep.duration, 
+    testLogLogAutoStep(CURRENT_STEP.keyIndex, autoplayTimingErrorMs, 
+      ledCmdLatencyMs, servoCmdLatencyMs, (uint16_t)CURRENT_STEP.duration, 
       nextIsSameKey);
   }
+}
+
+// Loads a hardcoded default sequence into currentSequence.
+// The melody is a simple ascending/descending scale across all 3 keys:
+void loadDefaultSequence() {
+  currentSequence.id = 0;
+  strcpy(currentSequence.name, "Default Scale");
+
+  const SequenceStep defaultSteps[] = {
+    {0, COLOR_RED,    500},   // C4 (key 0)
+    {4, COLOR_GREEN,  500},   // E4 (key 4)
+    {7, COLOR_BLUE,   500},   // G4 (key 7)
+    {4, COLOR_GREEN,  500},   // E4 (key 4)
+    {1, COLOR_RED,    500},   // C#4 (key 1)
+    {9, COLOR_GREEN,  500},   // A4 (key 9)
+    {8, COLOR_BLUE,   500},   // G#4 (key 8)
+    {5, COLOR_GREEN,  500}    // F4 (key 5)
+  };
+
+  currentSequence.length = sizeof(defaultSteps) / sizeof(defaultSteps[0]);
+  memcpy(currentSequence.steps, defaultSteps, sizeof(defaultSteps));
 }
