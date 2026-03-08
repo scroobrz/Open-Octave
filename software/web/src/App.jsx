@@ -650,10 +650,11 @@ export default function App() {
     try {
       let result;
 
-      if (kind === 'mode') {
-        result = await apiPost(`/api/modes?mode=${encodeURIComponent(data.mode)}`);
-      } else if (kind === 'seq') {
-        result = await apiPost(`/api/seq/control?cmd=${encodeURIComponent(data.action)}`);
+      if (kind === 'seq') {
+        // Firmware v5: start commands include mode (guided/teaching)
+        const params = new URLSearchParams({ cmd: data.action });
+        if (data.mode) params.set('mode', data.mode);
+        result = await apiPost(`/api/seq/control?${params}`);
       } else if (kind === 'test') {
         result = await apiPost(`/api/test?target=${encodeURIComponent(data.target)}`);
       } else if (kind === 'currentSeq') {
@@ -852,7 +853,7 @@ export default function App() {
                       Status: {syncState.statusOk === null ? '—' : syncState.statusOk ? 'OK' : 'FAILED'}
                     </span>
                     <span className={syncState.seqListOk === null ? 'pill pill-muted' : syncState.seqListOk ? 'pill pill-green' : 'pill pill-coral'}>
-                      Seq (l): {syncState.seqListOk === null ? '—' : syncState.seqListOk ? 'OK' : 'FAILED'}
+                      Seq (c): {syncState.seqListOk === null ? '—' : syncState.seqListOk ? 'OK' : 'FAILED'}
                     </span>
                     <span className="pill pill-gold">Phase: {syncState.phase}</span>
                   </div>
@@ -879,7 +880,7 @@ export default function App() {
                       Status
                     </button>
                     <button className="btn btn-secondary" disabled={!isConnected} onClick={() => runCommand('currentSeq', {})}>
-                      Current seq (l)
+                      Current seq (c)
                     </button>
                     <button className="btn btn-secondary" disabled={!isConnected} onClick={() => refreshHealth()}>
                       Refresh Health
@@ -996,22 +997,7 @@ export default function App() {
 
             <div className="grid">
               <div className="card card-accent-teal">
-                <h2>Mode</h2>
-                <div className="btn-row">
-                  <button className="btn" disabled={controlsDisabled} onClick={() => runCommand('mode', { mode: 'manual' })}>
-                    Manual
-                  </button>
-                  <button className="btn" disabled={controlsDisabled} onClick={() => runCommand('mode', { mode: 'guided' })}>
-                    Guided
-                  </button>
-                  <button className="btn" disabled={controlsDisabled} onClick={() => runCommand('mode', { mode: 'teaching' })}>
-                    Teaching
-                  </button>
-                </div>
-              </div>
-
-              <div className="card card-accent-coral">
-                <h2>{uiMode === 'user' ? 'Song' : 'Sequence'}</h2>
+                <h2>{uiMode === 'user' ? 'Play' : 'Sequence Control'}</h2>
 
                 {selectedDbSeq ? (
                   <div className="label" style={{ marginBottom: 10 }}>
@@ -1026,19 +1012,22 @@ export default function App() {
                 )}
 
                 <div className="btn-row">
-                  <button className="btn" disabled={controlsDisabled} onClick={() => runCommand('seq', { action: 'start' })}>
-                    Start
+                  <button className="btn btn-green" disabled={controlsDisabled} onClick={() => runCommand('seq', { action: 'start', mode: 'guided' })}>
+                    {uiMode === 'user' ? 'Practice' : 'Start Guided'}
                   </button>
-                  <button className="btn" disabled={controlsDisabled} onClick={() => runCommand('seq', { action: 'stop' })}>
+                  <button className="btn" disabled={controlsDisabled} onClick={() => runCommand('seq', { action: 'start', mode: 'teaching' })}>
+                    {uiMode === 'user' ? 'Watch & Learn' : 'Start Teaching'}
+                  </button>
+                  <button className="btn btn-coral" disabled={controlsDisabled} onClick={() => runCommand('seq', { action: 'stop' })}>
                     Stop
                   </button>
-                  <button className="btn" disabled={controlsDisabled} onClick={() => runCommand('seq', { action: 'next' })}>
-                    Next
-                  </button>
-                  <button className="btn" disabled={controlsDisabled} onClick={() => runCommand('seq', { action: 'prev' })}>
-                    Prev
-                  </button>
                 </div>
+
+                {uiMode === 'user' && (
+                  <div className="hint">
+                    <b>Practice</b>: Follow the LEDs and press the right keys. <b>Watch & Learn</b>: The keyboard plays the song for you.
+                  </div>
+                )}
               </div>
 
               <div className="card card-accent-magenta">
