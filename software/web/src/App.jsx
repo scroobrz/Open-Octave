@@ -1,4 +1,5 @@
 import { useEffect, useMemo, useRef, useState } from 'react';
+import COLORS from '../../shared/colors.json';
 
 function pretty(obj) {
   return JSON.stringify(obj, null, 2);
@@ -139,8 +140,8 @@ export default function App() {
       name: 'My Sequence',
       description: 'Optional description',
       steps: [
-        { k: 0, c: 'FF0000', d: 300 },
-        { k: 1, c: '00FF00', d: 300 }
+        { k: 0, c: '00B4D8', d: 300 },
+        { k: 1, c: '4ECB71', d: 300 }
       ]
     })
   );
@@ -1327,8 +1328,8 @@ export default function App() {
                             name: 'My Sequence',
                             description: 'Optional description',
                             steps: [
-                              { k: 0, c: 'FF0000', d: 300 },
-                              { k: 1, c: '00FF00', d: 300 }
+                              { k: 0, c: '00B4D8', d: 300 },
+                              { k: 1, c: '4ECB71', d: 300 }
                             ]
                           })
                         );
@@ -1351,7 +1352,7 @@ export default function App() {
 
                 <div className="hint">
                   Required fields: <code>id</code> (numeric), <code>name</code>, <code>steps</code> (array of step objects).
-                  Steps: <code>k</code> (key index 0–11), <code>c</code> (6-digit hex color, e.g. FF0000), <code>d</code> (duration ms).
+                  Steps: <code>k</code> (key index 0–11), <code>c</code> (6-digit hex color, e.g. 00B4D8), <code>d</code> (duration ms).
                 </div>
               </div>
             )}
@@ -1382,19 +1383,19 @@ export default function App() {
                       aria-label="Right hand finger colour map"
                     >
                       {/* Thumb */}
-                      <circle cx="130" cy="185" r="18" fill="#FF0000" />
+                      <circle cx="130" cy="185" r="18" fill={`#${COLORS.fingerColors.thumb}`} />
 
                       {/* Index */}
-                      <circle cx="175" cy="60" r="18" fill="#FFFF00" />
+                      <circle cx="175" cy="60" r="18" fill={`#${COLORS.fingerColors.index}`} />
 
                       {/* Middle */}
-                      <circle cx="235" cy="48" r="18" fill="#00FF00" />
+                      <circle cx="235" cy="48" r="18" fill={`#${COLORS.fingerColors.middle}`} />
 
                       {/* Ring */}
-                      <circle cx="295" cy="60" r="18" fill="#FF8000" />
+                      <circle cx="295" cy="60" r="18" fill={`#${COLORS.fingerColors.ring}`} />
 
                       {/* Pinky */}
-                      <circle cx="345" cy="78" r="18" fill="#0000FF" />
+                      <circle cx="345" cy="78" r="18" fill={`#${COLORS.fingerColors.pinky}`} />
                     </svg>
                   </div>
 

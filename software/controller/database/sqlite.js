@@ -11,6 +11,14 @@
 const path = require('path');
 const Database = require('better-sqlite3');
 
+// Shared colour definitions (single source of truth for controller + frontend)
+const COLORS = require('../shared/colors.json');
+
+// Build the set of allowed hex colours (uppercase) from the shared definitions.
+const ALLOWED_COLORS = new Set(
+  Object.values(COLORS.fingerColors).map(c => c.toUpperCase())
+);
+
 // Firmware v5 hard-limits uploads to MAX_SEQUENCE_LENGTH (see firmware_V5_config.h).
 // Keep this mirrored here so we fail fast before sending an upload that firmware will reject.
 const FIRMWARE_MAX_SEQUENCE_LENGTH = 64;
@@ -226,7 +234,16 @@ function generateUploadLinesFromData(id, name, data) {
     if (!c) return { error: 'Missing step.c' };
     if (d === undefined) return { error: 'Missing step.d' };
 
-    lines.push(`S k=${k} c=${String(c).trim()} d=${d}`);
+    const colorHex = String(c).trim().toUpperCase();
+    if (!ALLOWED_COLORS.has(colorHex)) {
+      const allowed = [...ALLOWED_COLORS].join(', ');
+      return {
+        error: `Step ${stepIndex}: colour "${c}" is not allowed. ` +
+               `Allowed colours (brand palette): ${allowed}`
+      };
+    }
+
+    lines.push(`S k=${k} c=${colorHex} d=${d}`);
   }
 
   lines.push(`E i=${cleanId}`);

@@ -14,6 +14,9 @@ const {
     generateUploadLinesFromData
 } = require('./database/sqlite');
 
+// Shared colour definitions (single source of truth for controller + frontend)
+const COLORS = require('../shared/colors.json');
+
 const app = express();
 
 const PORT = process.env.APP_PORT || 3000;
@@ -704,6 +707,11 @@ app.get('/api/health', (req, res) => {
     });
 });
 
+// Returns the shared colour palette (finger colours, key mappings).
+app.get('/api/colors', (req, res) => {
+    res.json({ ok: true, ...COLORS });
+});
+
 // Returns the most recent controller/ESP32 log lines for the UI.
 // Query:
 //   tail=<n> (default 200, max LOG_BUFFER_MAX)
@@ -836,58 +844,20 @@ app.post('/api/db/sequences', (req, res) => {
 // NOTE: uploadLines are sent verbatim to the firmware, so ensure they match the firmware v5 upload protocol.
 app.post('/api/db/sequences/seed', (req, res) => {
   try {
-    // ============ FINGER COLOUR MAP (Demo 2) ============
-    // One colour scheme that works for both:
-    // - 3-key demos (Thumb/Index/Middle)
-    // - 12-key demos (Thumb/Index/Middle/Ring/Pinky)
-    const FINGER_COLOR = {
-      thumb:  'FF0000', // Red
-      index:  'FFFF00', // Yellow
-      middle: '00FF00', // Green
-      ring:   'FF8000', // Orange
-      pinky:  '0000FF', // Blue
-      none:   'FFFFFF'  // Fallback
-    };
-
+    // Colour helpers — driven by shared/colors.json
     function colorForFinger(f) {
       const key = String(f || '').toLowerCase();
-      return FINGER_COLOR[key] || FINGER_COLOR.none;
+      return COLORS.fingerColors[key] || COLORS.fallbackColor;
     }
 
-    // Legacy 3-key mapping used by older demo presets (keys 0..2).
-    // We interpret:
-    //   0 -> C (thumb), 1 -> D (index), 2 -> E (middle)
-    // so the same finger map screen remains valid.
     function colorFor3KeyIndex(k) {
-      switch (Number(k)) {
-        case 0: return colorForFinger('thumb');
-        case 1: return colorForFinger('index');
-        case 2: return colorForFinger('middle');
-        default: return colorForFinger('none');
-      }
+      const finger = COLORS.keyToFinger3Key[String(k)];
+      return colorForFinger(finger);
     }
 
-    // 12-key chromatic mapping (C4..B4 => keyIndex 0..11).
-    // Natural notes follow a beginner right-hand position:
-    //   C->thumb, D->index, E->middle, F->ring, G->pinky
-    // Sharps inherit the nearest natural note's finger.
-    // Notes outside C..G (A, A#, B) reuse thumb/index for simplicity.
     function colorFor12KeyIndex(k) {
-      switch (Number(k)) {
-        case 0:  return colorForFinger('thumb');  // C
-        case 1:  return colorForFinger('thumb');  // C#
-        case 2:  return colorForFinger('index');  // D
-        case 3:  return colorForFinger('index');  // D#
-        case 4:  return colorForFinger('middle'); // E
-        case 5:  return colorForFinger('ring');   // F
-        case 6:  return colorForFinger('ring');   // F#
-        case 7:  return colorForFinger('pinky');  // G
-        case 8:  return colorForFinger('pinky');  // G#
-        case 9:  return colorForFinger('thumb');  // A
-        case 10: return colorForFinger('thumb');  // A#
-        case 11: return colorForFinger('index');  // B
-        default: return colorForFinger('none');
-      }
+      const finger = COLORS.keyToFinger[String(k)];
+      return colorForFinger(finger);
     }
 
     const presets = [
@@ -1063,7 +1033,7 @@ app.post('/api/db/sequences/seed', (req, res) => {
       {
         id: '8',
         name: 'Mary Had a Little Lamb (12-key)',
-        description: 'Right-hand only. Thumb=Red (C), Index=Yellow (D), Middle=Green (E), Ring=Orange (F), Pinky=Blue (G). Slow pace for guided/teaching tests.',
+        description: 'Right-hand only. Thumb=Cyan (C), Index=Green (D), Middle=Gold (E), Ring=Coral (F), Pinky=Magenta (G). Slow pace for guided/teaching tests.',
         data: {
           steps: [
             { k: 4, c: colorFor12KeyIndex(4), d: 700 },

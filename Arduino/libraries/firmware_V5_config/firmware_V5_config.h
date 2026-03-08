@@ -107,6 +107,12 @@
 #define COLOR_VIOLET  0x8000FF
 #define COLOR_WHITE   0xFFFFFF
 
+// Open Octave brand gradient (finger-to-colour mapping)
+#define COLOR_CYAN    0x00B4D8
+#define COLOR_GOLD    0xFFD700
+#define COLOR_CORAL   0xFF6B35
+#define COLOR_MAGENTA 0xE8368F
+
 // ============ TYPE DEFINITIONS ============
 
 enum SequenceMode {
