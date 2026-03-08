@@ -1031,17 +1031,19 @@ export default function App() {
                 )}
               </div>
 
-              <div className="card card-accent-magenta">
-                <h2>Tests</h2>
-                <div className="btn-row">
-                  <button className="btn" disabled={controlsDisabled} onClick={() => runCommand('test', { target: 'leds' })}>
-                    Test LEDs
-                  </button>
-                  <button className="btn" disabled={controlsDisabled} onClick={() => runCommand('test', { target: 'servos' })}>
-                    Test Servos
-                  </button>
+              {uiMode === 'developer' && (
+                <div className="card card-accent-magenta">
+                  <h2>Tests</h2>
+                  <div className="btn-row">
+                    <button className="btn" disabled={controlsDisabled} onClick={() => runCommand('test', { target: 'leds' })}>
+                      Test LEDs
+                    </button>
+                    <button className="btn" disabled={controlsDisabled} onClick={() => runCommand('test', { target: 'servos' })}>
+                      Test Servos
+                    </button>
+                  </div>
                 </div>
-              </div>
+              )}
             </div>
 
             <div className="card">
