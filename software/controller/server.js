@@ -82,7 +82,7 @@ function snapshotControllerState() {
 }
 
 function parseKeyValuePairs(line) {
-    // Example: "STATUS mode=MANUAL running=0 seq=1 step=0"
+    // Example: "STATUS running=0 seq=1 step=-1 mode=N/A"
     const parts = String(line).split(' ').slice(1);
     const out = {};
 
@@ -422,34 +422,42 @@ if (COMM_MODE === 'WIFI') {
     connectWebSocket();
 }
 
-// ============ COMMAND TRANSLATION ============
+// ============ COMMAND TRANSLATION (firmware v5) ============
 
 // Translates API endpoint + query parameters into a single-character serial
-// command. This is the shared command format used by both serial and WebSocket.
+// command for firmware v5.
+//
+// Firmware v5 removed the persistent mode system (no more m/a/f commands).
+// Instead, mode is specified at sequence start time:
+//   g = start sequence in guided mode
+//   t = start sequence in teaching mode
+//   x = stop sequence
+//   c = view current sequence
+//   l = test LEDs
+//   s = test servos
+//   q = toggle test log mode
+//   h/? = help
+//
+// Removed from v4: m (manual), a (guided mode), f (teaching mode),
+//                   s (start), n (next), p (prev)
 function translateToSerialCmd(endpoint, query) {
-    if (endpoint === '/api/modes') {
-        if (query.mode === 'manual')   return 'm';
-        if (query.mode === 'guided')   return 'a';
-        if (query.mode === 'teaching') return 'f';
-    }
-    
     if (endpoint === '/api/seq/control') {
-        if (query.cmd === 'start') return 's';
+        // In v5, 'start' requires a mode parameter (guided or teaching).
+        if (query.cmd === 'start') {
+            if (query.mode === 'guided')  return 'g';
+            if (query.mode === 'teaching') return 't';
+            // Default to guided if no mode specified
+            return 'g';
+        }
         if (query.cmd === 'stop')  return 'x';
-        if (query.cmd === 'next')  return 'n';
-        if (query.cmd === 'prev')  return 'p';
-    }
-
-    if (endpoint === '/api/seq/select') {
-        if (query.id !== undefined) return query.id.toString(); 
     }
 
     if (endpoint === '/api/test') {
-        if (query.target === 'leds')   return 't';
-        if (query.target === 'servos') return 'u';
+        if (query.target === 'leds')   return 'l';
+        if (query.target === 'servos') return 's';
     }
 
-    if (endpoint === '/api/seq/list') return 'l';
+    if (endpoint === '/api/seq/list') return 'c';
     if (endpoint === '/api/status')   return '?';
 
     return null;
@@ -514,8 +522,8 @@ function sendRawLine(line) {
   return { error: 'No active transport selected' };
 }
 
-// ============ TRANSPORT FRAMING (DEMO 2 WORKAROUND) ============
-// For Demo 2, firmware_v4 routes WebSocket commands by message length:
+// ============ TRANSPORT FRAMING ============
+// Firmware v5 routes WebSocket commands by message length:
 //   - length === 1  -> treated as a single-char command
 //   - length  >  1  -> treated as a sequence upload command string
 // Therefore, we MUST NOT append a newline for single-char WS commands.
@@ -640,23 +648,13 @@ app.post('/api/disconnect', (req, res) => {
     }
 });
 
-app.post('/api/modes', async (req, res) => {
-    try {
-        const result = await sendCommand('/api/modes', 'POST', req.query);
-        res.json(result);
-    } catch (e) { res.status(500).json({ error: e.message }); }
-});
+// NOTE: /api/modes endpoint removed for firmware v5. Mode is no longer a
+// persistent state — it is specified at sequence start time via
+// /api/seq/control?cmd=start&mode=guided|teaching
 
 app.post('/api/seq/control', async (req, res) => {
     try {
         const result = await sendCommand('/api/seq/control', 'POST', req.query);
-        res.json(result);
-    } catch (e) { res.status(500).json({ error: e.message }); }
-});
-
-app.post('/api/seq/select', async (req, res) => {
-    try {
-        const result = await sendCommand('/api/seq/select', 'POST', req.query);
         res.json(result);
     } catch (e) { res.status(500).json({ error: e.message }); }
 });
@@ -835,7 +833,7 @@ app.post('/api/db/sequences', (req, res) => {
 });
 
 // Seeds the demo preset sequences into SQLite (mirroring the firmware preset library).
-// NOTE: uploadLines are sent verbatim to the firmware, so ensure they match the firmware_v4 upload protocol.
+// NOTE: uploadLines are sent verbatim to the firmware, so ensure they match the firmware v5 upload protocol.
 app.post('/api/db/sequences/seed', (req, res) => {
   try {
     // ============ FINGER COLOUR MAP (Demo 2) ============
