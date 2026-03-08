@@ -58,7 +58,16 @@ void handleTeachingModePlayback() {
 }
 
 void handleGuidedModePlayback() {
-  if (millis() - lastKeyPressTime[CURRENT_STEP.keyIndex] >= CURRENT_STEP.duration &&
+  // Use the later of (key press time, step start time) so that holds
+  // that began before the current step don't count toward its duration.
+  // This prevents instant-skip when the key is already held from a
+  // previous step or from the user pre-pressing.
+  unsigned long holdStart = lastKeyPressTime[CURRENT_STEP.keyIndex];
+  if (holdStart < currentStepStartTime) {
+    holdStart = currentStepStartTime;
+  }
+
+  if (millis() - holdStart >= CURRENT_STEP.duration &&
       keys[CURRENT_STEP.keyIndex].isPressed) {
 
     LOGF("[SEQ] Correct key %d pressed, advancing sequence.\n", CURRENT_STEP.keyIndex);
