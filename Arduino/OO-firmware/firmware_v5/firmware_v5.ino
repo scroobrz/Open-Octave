@@ -65,8 +65,7 @@ bool sequenceRunning = false;
 int currentSequenceStepIndex = 0;
 unsigned long currentStepStartTime = 0;
 #define CURRENT_STEP currentSequence.steps[currentSequenceStepIndex]
-
-int keyJustPressed = -1; // for guided mode
+#define PREVIOUS_STEP currentSequence.steps[currentSequenceStepIndex - 1]
 
 unsigned long lastKeyPressTime[NUM_KEYS] = {0};
 unsigned long toneStartTime[NUM_KEYS] = {0};

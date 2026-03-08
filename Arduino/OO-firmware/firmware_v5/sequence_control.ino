@@ -59,14 +59,11 @@ void handleTeachingModePlayback() {
 }
 
 void handleGuidedModePlayback() {
-  uint8_t previousKeyIndex = CURRENT_STEP.keyIndex;
+  if (millis() - lastKeyPressTime[CURRENT_STEP.keyIndex] >= CURRENT_STEP.duration &&
+      keys[CURRENT_STEP.keyIndex].isPressed) {
 
-  if (millis() - lastKeyPressTime[previousKeyIndex] >= CURRENT_STEP.duration &&
-      keyJustPressed == previousKeyIndex) {
-
-    LOGF("[SEQ] Correct key %d pressed, advancing sequence.\n", keyJustPressed);
-    keyJustPressed = -1;
-    resetKey(previousKeyIndex);
+    LOGF("[SEQ] Correct key %d pressed, advancing sequence.\n", CURRENT_STEP.keyIndex);
+    resetKey(CURRENT_STEP.keyIndex);
     currentSequenceStepIndex++;
 
     if (currentSequenceStepIndex >= currentSequence.length) {
@@ -76,7 +73,7 @@ void handleGuidedModePlayback() {
     }
 
     // Manually handle successive sequence steps by adding a delay to ensure proper LED relighting
-    if (CURRENT_STEP.keyIndex == previousKeyIndex) {
+    if (CURRENT_STEP.keyIndex == PREVIOUS_STEP.keyIndex) {
       delay(80);
     }
 
@@ -100,7 +97,6 @@ void startSequence(SequenceMode mode) {
   currentSequenceStepIndex = 0;
   currentStepStartTime = millis();
   currentSequenceMode = mode;
-  keyJustPressed = -1;
 
   LOGLN("\n[SEQ] ======== STARTING SEQUENCE ========");
   LOGF("[SEQ] Sequence: %s (%d steps)\n", currentSequence.name, currentSequence.length);
