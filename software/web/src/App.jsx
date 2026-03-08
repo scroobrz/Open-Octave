@@ -1025,7 +1025,8 @@ export default function App() {
 
                 {uiMode === 'user' && (
                   <div className="hint">
-                    <b>Practice</b>: Follow the LEDs and press the right keys. <b>Watch & Learn</b>: The keyboard plays the song for you.
+                    <b>Practice</b>: Follow the LEDs and press the right keys.<br />
+                    <b>Watch & Learn</b>: The keyboard plays the song for you.
                   </div>
                 )}
               </div>
