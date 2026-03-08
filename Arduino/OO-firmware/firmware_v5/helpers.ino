@@ -50,6 +50,7 @@ const char *getCurrentSequenceModeString() {
     return "UNKNOWN";
   }
 }
+
 const char *getColorString(uint32_t color) {
   switch (color) {
   case COLOR_RED:

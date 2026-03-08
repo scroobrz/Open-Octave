@@ -201,7 +201,7 @@ void executeNextSequenceStep() {
 }
 
 // Loads a hardcoded default sequence into currentSequence.
-// The melody is a simple ascending/descending scale across all 3 keys:
+// The melody is a simple ascending/descending scale across 3 keys:
 void loadDefaultSequence() {
   currentSequence.id = 0;
   strcpy(currentSequence.name, "Default Scale");
