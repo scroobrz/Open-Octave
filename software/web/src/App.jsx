@@ -1050,7 +1050,7 @@ export default function App() {
 
                 return (
                   <div className="card card-accent-gold keyboard-vis-card">
-                    <h2>Keyboard</h2>
+                    <h2>Keyboard Visualisation</h2>
 
                     <div className="keyboard-vis">
                       {NOTE_NAMES.map((note, i) => {
