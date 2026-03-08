@@ -109,8 +109,7 @@
 
 // ============ TYPE DEFINITIONS ============
 
-enum Mode {
-  MANUAL,         // no automatic functions, user plays manually
+enum SequenceMode {
   GUIDED,         // LEDs light up in sequence, user must press key to advance
   TEACHING        // LEDs + servos play automatically
 };

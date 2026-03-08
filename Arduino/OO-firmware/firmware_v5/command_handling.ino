@@ -100,61 +100,31 @@ void processSingleCharCommand(char cmd) {
   toLowercase(cmd);
   switch (cmd) {
 
-    // ---- MODE CONTROL ----
-
-    case 'm': // Manual mode
-      LOGLN("\n[CMD] Received: Switch to MANUAL mode");
-
-      if (currentMode == MANUAL) {
-        LOGLN("\n[CMD] Already in MANUAL mode");
-      } else {
-        setMode(MANUAL);
-      }
-
-      LOGLN("ACK cmd=m ok=1");
-      emitStatus();
-      break;
-
-    case 'a': // Guided mode
-      LOGLN("\n[CMD] Received: Switch to GUIDED mode");
-
-      if (currentMode == GUIDED) {
-        LOGLN("\n[CMD] Already in GUIDED mode");
-      } else {
-        setMode(GUIDED);
-      }
-
-      LOGLN("ACK cmd=a ok=1");
-      emitStatus();
-      break;
-
-    case 'f': // Teaching mode
-      LOGLN("\n[CMD] Received: Switch to TEACHING mode");
-
-      if (currentMode == TEACHING) {
-        LOGLN("\n[CMD] Already in TEACHING mode");
-      } else {
-        setMode(TEACHING);
-      }
-
-      LOGLN("ACK cmd=f ok=1");
-      emitStatus();
-      break;
-
     // ---- SEQUENCE CONTROL ----
 
-    case 's': // Start sequence
-      LOGLN("\n[CMD] Received: Start sequence");
+    case 'g': // Start sequence in guided mode
+      LOGLN("\n[CMD] Received: Start sequence in GUIDED mode");
 
-      if (currentMode == MANUAL) {
-        LOGLN("\n[CMD] Cannot start sequence in MANUAL mode");
-        LOGLN("ERR cmd=s reason=manual_mode");
-      } else if (sequenceRunning) {
+      if (sequenceRunning) {
         LOGLN("\n[CMD] Sequence already running, ignoring start request");
-        LOGLN("ERR cmd=s reason=already_running");
+        LOGLN("ERR cmd=g reason=already_running");
       } else {
-        startSequence();
-        LOGLN("ACK cmd=s ok=1");
+        startSequence(GUIDED);
+        LOGLN("ACK cmd=g ok=1");
+      }
+
+      emitStatus();
+      break;
+
+    case 't': // Start sequence in teaching mode
+      LOGLN("\n[CMD] Received: Start sequence in TEACHING mode");
+
+      if (sequenceRunning) {
+        LOGLN("\n[CMD] Sequence already running, ignoring start request");
+        LOGLN("ERR cmd=t reason=already_running");
+      } else {
+        startSequence(TEACHING);
+        LOGLN("ACK cmd=t ok=1");
       }
 
       emitStatus();
@@ -163,10 +133,7 @@ void processSingleCharCommand(char cmd) {
     case 'x': // Stop sequence
       LOGLN("\n[CMD] Received: Stop sequence");
 
-      if (currentMode == MANUAL) {
-        LOGLN("\n[CMD] Cannot stop sequence in MANUAL mode");
-        LOGLN("ERR cmd=x reason=manual_mode");
-      } else if (!sequenceRunning) {
+      if (!sequenceRunning) {
         LOGLN("\n[CMD] Sequence is not running");
         LOGLN("ERR cmd=x reason=not_running");
       } else {
@@ -177,7 +144,7 @@ void processSingleCharCommand(char cmd) {
       emitStatus();
       break;
 
-    case 'l': // List current sequence
+    case 'c': // Print current sequence
       LOGLN("\n========================================");
       LOGLN("         CURRENT SEQUENCE");
       LOGLN("========================================");
@@ -195,17 +162,17 @@ void processSingleCharCommand(char cmd) {
 
     // ---- TESTING ----
 
-    case 't': // Test LEDs
+    case 'l': // Test LEDs
       LOGLN("\n[CMD] Received: Test LEDs");
       testLEDs();
       break;
 
-    case 'u': // Test servos
+    case 's': // Test servos
       LOGLN("\n[CMD] Received: Test servos");
       testServos();
       break;
 
-    case 'g': // Toggle test log mode
+    case 'q': // Toggle test log mode
       if (!testLogEnabled) {
         LOGLN("\n[CMD] Received: Enable test log mode");
         testLogStart();
@@ -223,20 +190,17 @@ void processSingleCharCommand(char cmd) {
       LOGLN("\n========================================");
       LOGLN("         SERIAL COMMANDS");
       LOGLN("========================================");
-      LOGLN("  MODE:");
-      LOGLN("    m - Switch to MANUAL mode");
-      LOGLN("    a - Switch to GUIDED mode");
-      LOGLN("    f - Switch to TEACHING mode");
       LOGLN("  SEQUENCE:");
-      LOGLN("    s - Start sequence");
+      LOGLN("    g - Start sequence in GUIDED mode");
+      LOGLN("    t - Start sequence in TEACHING mode");
       LOGLN("    x - Stop sequence");
-      LOGLN("    l - View current sequence");
+      LOGLN("    c - View current sequence");
       LOGLN("  TESTING:");
-      LOGLN("    t - Test LEDs");
-      LOGLN("    u - Test servos");
-      LOGLN("    g - Enter/Exit test log mode");
+      LOGLN("    l - Test LEDs");
+      LOGLN("    s - Test servos");
+      LOGLN("    q - Enter/Exit test log mode");
       LOGLN("  HELP:");
-      LOGLN("    h - Show this help");
+      LOGLN("    h/? - Show this help");
       LOGLN("========================================\n");
       break;
 
@@ -247,7 +211,7 @@ void processSingleCharCommand(char cmd) {
       break;
 
     default:
-      LOGF("[CMD] Unknown command: '%c' (type 'h' for help)\n", cmd);
+      LOGF("[CMD] Unknown command: '%c' (type 'h' or '?' for help)\n", cmd);
       break;
     }
 }

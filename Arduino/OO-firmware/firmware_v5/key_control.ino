@@ -28,8 +28,6 @@ void handleKeyPresses() {
         startKeyTone(i);
         unsigned long audioStartedMs = millis();
 
-        keyJustPressed = i; // Register this key press event for guided mode
-
         testLogLogManualPress(i, pressDetectedMs, audioStartedMs);
       }
 

@@ -55,16 +55,17 @@ WebSocketsServer webSocket(81);
 
 // ============ GLOBAL STATE ============
 
-Mode currentMode = MANUAL;
-Sequence currentSequence;
-
 bool uploadingSequence = false;
 uint8_t uploadStepCount = 0;
 Sequence uploadSequenceBuffer;
 
+SequenceMode currentSequenceMode;
+Sequence currentSequence;
 bool sequenceRunning = false;
 int currentSequenceStepIndex = 0;
 unsigned long currentStepStartTime = 0;
+#define CURRENT_STEP currentSequence.steps[currentSequenceStepIndex]
+#define PREVIOUS_STEP currentSequence.steps[currentSequenceStepIndex - 1]
 
 unsigned long lastKeyPressTime[NUM_KEYS] = {0};
 unsigned long toneStartTime[NUM_KEYS] = {0};
@@ -89,9 +90,6 @@ bool wsReady = false;  // Prevents wsBroadcastLog() from running before webSocke
 char serialBuf[SERIAL_BUF_SIZE];
 uint8_t serialBufPos = 0;
 bool serialBufOverflow = false;  // true = discard bytes until next newline
-
-// Tracks the most recently pressed key index in the current loop (or -1 if none)
-int keyJustPressed = -1;
 
 /*
 ===============================
@@ -168,19 +166,15 @@ void setup() {
   LOGLN("[SETUP] WiFi & WebSocket Active!");
 
   LOGLN("========================================");
-  LOGF("[SETUP] Complete! Starting in %s mode\n", getCurrentModeString());
+  LOGLN("[SETUP] Complete!");
   LOGLN("========================================\n");
 }
 
 // runs repeatedly forever
 void loop() {
-  webSocket.loop();        // handle WebSocket events
-  handleSerialCommand();   // handle serial commands
-  handleKeyPresses();      // detect any key presses and play sounds
-  checkWiFiStatus();       // check wifi connection state
-
-  // if we're in an automatic mode, handle the sequence playback
-  if (currentMode != MANUAL) {
-    handleAutomaticModes();
-  }
+  webSocket.loop();
+  handleSerialCommand();
+  handleKeyPresses();
+  checkWiFiStatus();
+  handleSequencePlayback();
 }

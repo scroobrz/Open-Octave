@@ -20,14 +20,6 @@ void wsBroadcastLog(const char* msg) {
   webSocket.broadcastTXT(msg);
 }
 
-inline const Sequence& getCurrentSequence() {
-  return currentSequence;
-}
-
-inline const SequenceStep& getCurrentSequenceStep() {
-  return currentSequence.steps[currentSequenceStepIndex];
-}
-
 inline void servoPull(int channel) {
   safeServoSetAngle(channel, SERVO_PRESS_ANGLE);
 }
@@ -48,10 +40,8 @@ inline bool isValidKeyIndex(int keyIndex) {
   return (keyIndex >= 0 && keyIndex < NUM_KEYS);
 }
 
-const char *getCurrentModeString() {
-  switch (currentMode) {
-  case MANUAL:
-    return "MANUAL";
+const char *getCurrentSequenceModeString() {
+  switch (currentSequenceMode) {
   case GUIDED:
     return "GUIDED";
   case TEACHING:
@@ -91,7 +81,8 @@ void toLowercase(char &c) {
 }
 
 void emitStatus() {
-  LOGF("STATUS mode=%s running=%d seq=%d step=%d\n",
-       getCurrentModeString(), sequenceRunning,
-       currentSequence.id, (sequenceRunning ? currentSequenceStepIndex : -1));
+  LOGF("STATUS running=%d seq=%d step=%d mode=%s\n",
+       sequenceRunning, currentSequence.id, 
+       (sequenceRunning ? currentSequenceStepIndex : -1), 
+       (sequenceRunning ? getCurrentSequenceModeString() : "N/A"));
 }
