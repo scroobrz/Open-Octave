@@ -5,10 +5,7 @@
 */
 
 // Loads a hardcoded default sequence into currentSequence.
-// This gives the firmware a ready-to-play demo so Guided and Teaching modes
-// work out of the box without needing a sequence upload from the controller.
 // The melody is a simple ascending/descending scale across all 3 keys:
-//   C4 → E4 → G4 → E4  (repeated twice, 500ms per note)
 void loadDefaultSequence() {
   currentSequence.id = 0;
   strcpy(currentSequence.name, "Default Scale");
@@ -35,13 +32,13 @@ void startSequence() {
     return;
   }
 
-  if (getCurrentSequence().length <= 0) {
-    LOGF("[ERROR] Invalid sequence length: %d encountered while starting sequence\n", getCurrentSequence().length);
+  if (currentSequence.length <= 0) {
+    LOGF("[ERROR] Invalid sequence length: %d encountered while starting sequence\n", currentSequence.length);
     return;
   }
 
   LOGLN("\n[SEQ] ======== STARTING SEQUENCE ========");
-  LOGF("[SEQ] Sequence: %s (%d steps)\n", getCurrentSequence().name, getCurrentSequence().length);
+  LOGF("[SEQ] Sequence: %s (%d steps)\n", currentSequence.name, currentSequence.length);
   LOGLN("EVT sequence_started");
   emitStatus();
 
@@ -56,7 +53,7 @@ void startSequence() {
   }
 
   // immediately play the first step
-  executeSequenceStep(getCurrentSequenceStep());
+  executeNextSequenceStep();
 }
 
 // stops the sequence and turns off all keys
@@ -64,7 +61,7 @@ void stopSequence() {
   if (!sequenceRunning) return;  // Nothing to stop
 
   LOGLN("\n[SEQ] ======== STOPPING SEQUENCE ========");
-  LOGF("[SEQ] Total steps completed: %d/%d\n", currentSequenceStepIndex, getCurrentSequence().length);
+  LOGF("[SEQ] Total steps completed: %d/%d\n", currentSequenceStepIndex, currentSequence.length);
   LOGLN("EVT sequence_complete");
   emitStatus();
 
@@ -83,20 +80,22 @@ void stopSequence() {
 }
 
 // plays a single step of a sequence
-void executeSequenceStep(const SequenceStep &step) {
+void executeNextSequenceStep() {
+  SequenceStep currentStep = currentSequence.steps[currentSequenceStepIndex];
   currentStepStartTime = millis();
 
-  if (!isValidKeyIndex(step.keyIndex)) {
-    LOGF("[ERROR] Invalid keyIndex: %d encountered while executing sequence step\n", step.keyIndex);
+  if (!isValidKeyIndex(currentStep.keyIndex)) {
+    LOGF("[ERROR] Invalid keyIndex: %d encountered while executing sequence step\n", currentStep.keyIndex);
     testLogLogError(TESTLOG_INVALID_KEY_INDEX, F("ERROR_INVALID_KEY"));
     return;
   }
 
   LOGF("[SEQ] Step %d/%d: key=%d, color=%s, duration=%dms\n",
-       currentSequenceStepIndex + 1, getCurrentSequence().length,
-       step.keyIndex, getColorString(step.color), step.duration);
+       currentSequenceStepIndex + 1, currentSequence.length,
+       currentStep.keyIndex, getColorString(currentStep.color), 
+       currentStep.duration);
 
-    unsigned long stepStartCallTime = millis();
+  unsigned long stepStartCallTime = millis();
 
   // Compute autoplay timing error against expected time
   long autoplayTimingErrorMs = 0;
@@ -109,24 +108,29 @@ void executeSequenceStep(const SequenceStep &step) {
 
   unsigned long ledCmdStart = millis();
   // light up the key's LED with the specified color
-  lightUpKey(step.keyIndex, step.color);
+  lightUpKey(currentStep.keyIndex, currentStep.color);
   unsigned long ledCmdLatencyMs = millis() - ledCmdStart;
 
   unsigned long servoCmdLatencyMs = 0;
   // if we're in teaching mode, also press the key with the servo
   if (currentMode == TEACHING) {
-    LOGF("[SERVO] Auto-pressing key %d (channel %d)\n", step.keyIndex, keys[step.keyIndex].servoChannel);
+    LOGF("[SERVO] Auto-pressing key %d (channel %d)\n", 
+         currentStep.keyIndex, keys[currentStep.keyIndex].servoChannel);
     unsigned long servoCmdStart = millis();
-    autoPressKey(step.keyIndex);
+    autoPressKey(currentStep.keyIndex);
     servoCmdLatencyMs = millis() - servoCmdStart;
   }
 
   if (testLogEnabled) {
     int nextIndex = currentSequenceStepIndex + 1;
     bool nextIsSameKey = false;
-    if (nextIndex >= 0 && nextIndex < getCurrentSequence().length) {
-      nextIsSameKey = (getCurrentSequence().steps[nextIndex].keyIndex == step.keyIndex);
+
+    if (nextIndex >= 0 && nextIndex < currentSequence.length) {
+      nextIsSameKey = (currentSequence.steps[nextIndex].keyIndex == currentStep.keyIndex);
     }
-    testLogLogAutoStep(step.keyIndex, autoplayTimingErrorMs, ledCmdLatencyMs, servoCmdLatencyMs, (uint16_t)step.duration, nextIsSameKey);
+
+    testLogLogAutoStep(currentStep.keyIndex, autoplayTimingErrorMs, 
+      ledCmdLatencyMs, servoCmdLatencyMs, (uint16_t)currentStep.duration, 
+      nextIsSameKey);
   }
 }

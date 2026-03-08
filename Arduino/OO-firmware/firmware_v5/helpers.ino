@@ -20,14 +20,6 @@ void wsBroadcastLog(const char* msg) {
   webSocket.broadcastTXT(msg);
 }
 
-inline const Sequence& getCurrentSequence() {
-  return currentSequence;
-}
-
-inline const SequenceStep& getCurrentSequenceStep() {
-  return currentSequence.steps[currentSequenceStepIndex];
-}
-
 inline void servoPull(int channel) {
   safeServoSetAngle(channel, SERVO_PRESS_ANGLE);
 }

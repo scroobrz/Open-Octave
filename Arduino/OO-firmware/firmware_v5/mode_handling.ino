@@ -36,7 +36,7 @@ void handleTeachingMode() {
   if (waitingForServoRelease) {
     if (millis() - servoReleaseStartTime >= SERVO_RELEASE_DELAY) {
       waitingForServoRelease = false;
-      executeSequenceStep(getCurrentSequenceStep());
+      executeNextSequenceStep();
     }
     return;
   }
@@ -60,7 +60,7 @@ void handleTeachingMode() {
       servoReleaseStartTime = millis();
       // Don't execute step yet - will be done on next loop iteration after delay
     } else {
-      executeSequenceStep(getCurrentSequenceStep());
+      executeNextSequenceStep();
     }
   }
 }
@@ -87,6 +87,6 @@ void handleGuidedMode() {
       delay(80);
     }
 
-    executeSequenceStep(getCurrentSequenceStep());
+    executeNextSequenceStep();
   }
 }

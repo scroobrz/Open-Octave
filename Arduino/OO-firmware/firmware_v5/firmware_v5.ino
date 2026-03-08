@@ -55,13 +55,12 @@ WebSocketsServer webSocket(81);
 
 // ============ GLOBAL STATE ============
 
-Mode currentMode = MANUAL;
-Sequence currentSequence;
-
 bool uploadingSequence = false;
 uint8_t uploadStepCount = 0;
 Sequence uploadSequenceBuffer;
 
+SequenceMode currentSequenceMode;
+Sequence currentSequence;
 bool sequenceRunning = false;
 int currentSequenceStepIndex = 0;
 unsigned long currentStepStartTime = 0;
@@ -168,7 +167,7 @@ void setup() {
   LOGLN("[SETUP] WiFi & WebSocket Active!");
 
   LOGLN("========================================");
-  LOGF("[SETUP] Complete! Starting in %s mode\n", getCurrentModeString());
+  LOGLN("[SETUP] Complete!");
   LOGLN("========================================\n");
 }
 
@@ -180,7 +179,7 @@ void loop() {
   checkWiFiStatus();       // check wifi connection state
 
   // if we're in an automatic mode, handle the sequence playback
-  if (currentMode != MANUAL) {
+  if (currentSequenceMode != MANUAL) {
     handleAutomaticModes();
   }
 }
