@@ -1031,6 +1031,68 @@ export default function App() {
                 )}
               </div>
 
+              {uiMode === 'user' && (() => {
+                const NOTE_NAMES = ['C', 'C#', 'D', 'D#', 'E', 'F', 'F#', 'G', 'G#', 'A', 'A#', 'B'];
+                const IS_BLACK = [false, true, false, true, false, false, true, false, true, false, true, false];
+
+                // Build per-key data from the selected sequence
+                const steps = selectedDbSeq?.data?.steps || [];
+                const keyHits = new Array(12).fill(0);
+                const keyColors = new Array(12).fill(null);
+                for (const s of steps) {
+                  const k = s?.k;
+                  if (k >= 0 && k < 12) {
+                    keyHits[k]++;
+                    if (!keyColors[k]) keyColors[k] = s.c;
+                  }
+                }
+                const maxHits = Math.max(...keyHits, 1);
+
+                return (
+                  <div className="card card-accent-gold keyboard-vis-card">
+                    <h2>Keyboard</h2>
+
+                    <div className="keyboard-vis">
+                      {NOTE_NAMES.map((note, i) => {
+                        const active = keyHits[i] > 0;
+                        const color = keyColors[i] ? `#${keyColors[i]}` : null;
+                        const intensity = keyHits[i] / maxHits;
+
+                        return (
+                          <div
+                            key={i}
+                            className={`kb-key ${IS_BLACK[i] ? 'kb-black' : 'kb-white'}${active ? ' kb-active' : ''}`}
+                            style={active ? {
+                              '--kb-glow': color,
+                              '--kb-intensity': intensity,
+                            } : undefined}
+                          >
+                            {active && (
+                              <span
+                                className="kb-led"
+                                style={{ backgroundColor: color }}
+                              />
+                            )}
+                            <span className="kb-note">{note}</span>
+                            {active && (
+                              <span className="kb-hits">{keyHits[i]}x</span>
+                            )}
+                          </div>
+                        );
+                      })}
+                    </div>
+
+                    {steps.length > 0 ? (
+                      <div className="hint">
+                        <b>{steps.length}</b> steps across <b>{keyHits.filter(h => h > 0).length}</b> keys
+                      </div>
+                    ) : (
+                      <div className="hint">Select a song to see which keys are used.</div>
+                    )}
+                  </div>
+                );
+              })()}
+
               {uiMode === 'developer' && (
                 <div className="card card-accent-magenta">
                   <h2>Tests</h2>
@@ -1889,6 +1951,87 @@ h2 {
 
 .card-accent-gold {
   border-top: 3px solid var(--gold);
+}
+
+/* ===== KEYBOARD VISUALISATION ===== */
+.keyboard-vis-card {
+  display: flex;
+  flex-direction: column;
+}
+
+.keyboard-vis {
+  display: flex;
+  gap: 3px;
+  align-items: flex-end;
+  padding: 12px 4px 8px;
+}
+
+.kb-key {
+  flex: 1;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 4px;
+  padding: 10px 2px 8px;
+  border-radius: 0 0 6px 6px;
+  text-align: center;
+  position: relative;
+  transition: box-shadow 0.3s, transform 0.15s;
+  min-width: 0;
+}
+
+.kb-white {
+  background: var(--card);
+  border: 1.5px solid var(--border);
+  height: 90px;
+}
+
+.kb-black {
+  background: var(--navy, #0D1B2A);
+  border: 1.5px solid var(--navy, #0D1B2A);
+  color: #8899AA;
+  height: 64px;
+}
+
+[data-theme="developer"] .kb-white {
+  background: #1A2B3C;
+}
+
+.kb-active {
+  transform: translateY(-2px);
+  box-shadow:
+    0 2px 12px color-mix(in srgb, var(--kb-glow, #fff) calc(var(--kb-intensity, 0.5) * 80%), transparent),
+    inset 0 -3px 0 color-mix(in srgb, var(--kb-glow, #fff) 40%, transparent);
+}
+
+.kb-active.kb-white {
+  border-color: color-mix(in srgb, var(--kb-glow, #fff) 60%, transparent);
+}
+
+.kb-active.kb-black {
+  border-color: color-mix(in srgb, var(--kb-glow, #fff) 50%, transparent);
+}
+
+.kb-led {
+  width: 8px;
+  height: 8px;
+  border-radius: 50%;
+  box-shadow: 0 0 6px 2px currentColor;
+  flex-shrink: 0;
+}
+
+.kb-note {
+  font-size: 11px;
+  font-weight: 700;
+  font-family: var(--font-mono);
+  margin-top: auto;
+}
+
+.kb-hits {
+  font-size: 9px;
+  font-weight: 600;
+  color: var(--muted-foreground);
+  font-family: var(--font-mono);
 }
 
 /* ===== PILLS ===== */
