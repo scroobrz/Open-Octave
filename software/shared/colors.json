@@ -6,6 +6,18 @@
     "ring":   "FF6B35",
     "pinky":  "E8368F"
   },
+  "alternativePalettes": {
+    "colorblind": {
+      "label": "Colourblind-friendly",
+      "fingerColors": {
+        "thumb":  "0072B2",
+        "index":  "009E73",
+        "middle": "F0E442",
+        "ring":   "D55E00",
+        "pinky":  "CC79A7"
+      }
+    }
+  },
   "fingerOrder": ["thumb", "index", "middle", "ring", "pinky"],
   "errorColor": "FF0000",
   "fallbackColor": "FFFFFF",

@@ -68,6 +68,7 @@ function Badge({ connected }) {
 export default function App() {
   const [tab, setTab] = useState('connect');
   const [uiMode, setUiMode] = useState(() => localStorage.getItem('oo-ui-mode') || 'user'); // 'user' | 'developer'
+  const [colorMode, setColorMode] = useState(() => localStorage.getItem('oo-color-mode') || 'default'); // 'default' | 'colorblind'
 
   // User help modal: finger colour map (right hand)
   const [fingerHelpOpen, setFingerHelpOpen] = useState(false);
@@ -85,6 +86,35 @@ export default function App() {
     localStorage.setItem('oo-ui-mode', uiMode);
     document.documentElement.dataset.theme = uiMode;
   }, [uiMode]);
+
+  // Persist colourblind mode toggle.
+  useEffect(() => {
+    localStorage.setItem('oo-color-mode', colorMode);
+  }, [colorMode]);
+
+  // Resolve active finger colours based on colour mode.
+  const activeFingerColors = useMemo(() => {
+    if (colorMode === 'colorblind' && COLORS.alternativePalettes?.colorblind) {
+      return COLORS.alternativePalettes.colorblind.fingerColors;
+    }
+    return COLORS.fingerColors;
+  }, [colorMode]);
+
+  // Map canonical hex → display hex for rendering swatches/LEDs.
+  const colorDisplayMap = useMemo(() => {
+    const map = {};
+    for (const finger of COLORS.fingerOrder) {
+      const original = COLORS.fingerColors[finger].toUpperCase();
+      const display = activeFingerColors[finger].toUpperCase();
+      map[original] = display;
+    }
+    return map;
+  }, [activeFingerColors]);
+
+  function displayColor(hex) {
+    const clean = String(hex || '').trim().toUpperCase().replace('#', '');
+    return colorDisplayMap[clean] || clean;
+  }
 
   // If user switches back to User mode, force them onto safe tabs.
   useEffect(() => {
@@ -325,11 +355,18 @@ export default function App() {
   }
 
   const HEX_TO_NAME = {
+    // Default palette
     '00B4D8': 'Blue',
     '4ECB71': 'Green',
     'FFD700': 'Yellow',
     'FF6B35': 'Orange',
     'E8368F': 'Pink',
+    // CB-friendly palette (same names)
+    '0072B2': 'Blue',
+    '009E73': 'Green',
+    'F0E442': 'Yellow',
+    'D55E00': 'Orange',
+    'CC79A7': 'Pink',
   };
 
   function hexColorName(hex) {
@@ -337,17 +374,25 @@ export default function App() {
     return HEX_TO_NAME[clean] || hex;
   }
 
-  const HEX_TO_FINGER = Object.fromEntries(
-    Object.entries(COLORS.fingerColors).map(([finger, hex]) => [hex.toUpperCase(), finger.charAt(0).toUpperCase() + finger.slice(1)])
-  );
+  const HEX_TO_FINGER = useMemo(() => {
+    const map = {};
+    for (const finger of COLORS.fingerOrder) {
+      const name = finger.charAt(0).toUpperCase() + finger.slice(1);
+      // Map both default and active-palette hex values to the finger name.
+      map[COLORS.fingerColors[finger].toUpperCase()] = name;
+      map[activeFingerColors[finger].toUpperCase()] = name;
+    }
+    return map;
+  }, [activeFingerColors]);
 
   function renderColorSwatch(hex) {
     const clean = String(hex || '').trim();
-    const css = clean ? `#${clean.replace('#', '')}` : '#000000';
+    const mapped = displayColor(clean);
+    const css = mapped ? `#${mapped.replace('#', '')}` : '#000000';
     return (
       <span
         className="swatch"
-        title={clean || 'n/a'}
+        title={mapped || 'n/a'}
         style={{ backgroundColor: css }}
       />
     );
@@ -744,6 +789,7 @@ export default function App() {
               Developer
             </button>
           </div>
+
         </div>
 
         <nav className="nav">
@@ -1074,7 +1120,7 @@ export default function App() {
                       {NOTE_NAMES.map((note, i) => {
                         if (IS_BLACK[i]) return null;
                         const active = keyHits[i] > 0;
-                        const color = keyColors[i] ? `#${keyColors[i]}` : null;
+                        const color = keyColors[i] ? `#${displayColor(keyColors[i])}` : null;
                         const intensity = keyHits[i] / maxHits;
 
                         return (
@@ -1099,7 +1145,7 @@ export default function App() {
                       {NOTE_NAMES.map((note, i) => {
                         if (!IS_BLACK[i]) return null;
                         const active = keyHits[i] > 0;
-                        const color = keyColors[i] ? `#${keyColors[i]}` : null;
+                        const color = keyColors[i] ? `#${displayColor(keyColors[i])}` : null;
                         const intensity = keyHits[i] / maxHits;
 
                         // Position black keys between their neighbouring white keys.
@@ -1420,24 +1466,41 @@ export default function App() {
                       aria-label="Right hand finger colour map"
                     >
                       {/* Thumb */}
-                      <circle cx="130" cy="185" r="18" fill={`#${COLORS.fingerColors.thumb}`} />
+                      <circle cx="130" cy="185" r="18" fill={`#${activeFingerColors.thumb}`} />
 
                       {/* Index */}
-                      <circle cx="175" cy="60" r="18" fill={`#${COLORS.fingerColors.index}`} />
+                      <circle cx="175" cy="60" r="18" fill={`#${activeFingerColors.index}`} />
 
                       {/* Middle */}
-                      <circle cx="235" cy="48" r="18" fill={`#${COLORS.fingerColors.middle}`} />
+                      <circle cx="235" cy="48" r="18" fill={`#${activeFingerColors.middle}`} />
 
                       {/* Ring */}
-                      <circle cx="295" cy="60" r="18" fill={`#${COLORS.fingerColors.ring}`} />
+                      <circle cx="295" cy="60" r="18" fill={`#${activeFingerColors.ring}`} />
 
                       {/* Pinky */}
-                      <circle cx="345" cy="78" r="18" fill={`#${COLORS.fingerColors.pinky}`} />
+                      <circle cx="345" cy="78" r="18" fill={`#${activeFingerColors.pinky}`} />
                     </svg>
                   </div>
 
                   <div className="hint">
                     Tip: In Guided mode, wait for the LED colour, then press the matching finger.
+                  </div>
+
+                  <div className="btn-row" style={{ justifyContent: 'center', marginTop: 12 }}>
+                    <button
+                      className={colorMode === 'default' ? 'btn btn-sm' : 'btn btn-sm btn-secondary'}
+                      type="button"
+                      onClick={() => setColorMode('default')}
+                    >
+                      Standard colours
+                    </button>
+                    <button
+                      className={colorMode === 'colorblind' ? 'btn btn-sm' : 'btn btn-sm btn-secondary'}
+                      type="button"
+                      onClick={() => setColorMode('colorblind')}
+                    >
+                      Colourblind-friendly
+                    </button>
                   </div>
                 </div>
               </div>
@@ -1880,6 +1943,11 @@ h2 {
   cursor: not-allowed;
   filter: none;
   transform: none;
+}
+
+.btn-sm {
+  padding: 6px 14px;
+  font-size: 12px;
 }
 
 .btn-secondary {
