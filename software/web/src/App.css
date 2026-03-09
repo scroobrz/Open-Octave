@@ -239,8 +239,12 @@ h2 {
 
 .btn-row {
   display: flex;
-  flex-wrap: nowrap;
+  flex-wrap: wrap;
   gap: 8px;
+}
+
+.btn-row-nowrap {
+  flex-wrap: nowrap;
 }
 
 /* ===== BUTTONS ===== */

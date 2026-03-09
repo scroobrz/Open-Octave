@@ -1074,7 +1074,7 @@ export default function App() {
                   </div>
                 )}
 
-                <div className="btn-row">
+                <div className="btn-row btn-row-nowrap">
                   <button className="btn btn-green" disabled={controlsDisabled} onClick={() => runCommand('seq', { action: 'start', mode: 'guided' })}>
                     {uiMode === 'user' ? 'Practice' : 'Start Guided'}
                   </button>
