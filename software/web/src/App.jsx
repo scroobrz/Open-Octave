@@ -1049,7 +1049,7 @@ export default function App() {
                 const maxHits = Math.max(...keyHits, 1);
 
                 return (
-                  <div className="card card-accent-gold keyboard-vis-card">
+                  <div className="card card-accent-green keyboard-vis-card">
                     <h2>Keyboard Visualisation</h2>
 
                     <div className="keyboard-vis">
@@ -1094,7 +1094,7 @@ export default function App() {
               })()}
 
               {uiMode === 'developer' && (
-                <div className="card card-accent-magenta">
+                <div className="card card-accent-green">
                   <h2>Tests</h2>
                   <div className="btn-row">
                     <button className="btn" disabled={controlsDisabled} onClick={() => runCommand('test', { target: 'leds' })}>
@@ -1108,7 +1108,7 @@ export default function App() {
               )}
             </div>
 
-            <div className="card">
+            <div className="card card-accent-gold">
               <h2>{uiMode === 'user' ? 'Select Song' : 'Select Sequence'}</h2>
 
               <div className="row">
@@ -1193,7 +1193,7 @@ export default function App() {
             </div>
 
             {uiMode === 'user' && (
-              <div className="card card-accent-green">
+              <div className="card card-accent-coral">
                 <h2>Available Songs</h2>
 
                 <div className="row">
@@ -1247,7 +1247,7 @@ export default function App() {
             )}
 
             {uiMode === 'developer' && (
-              <div className="card">
+              <div className="card card-accent-coral">
                 <h2>Available Sequences</h2>
 
                 <div className="row">
@@ -1302,7 +1302,7 @@ export default function App() {
             )}
 
             {uiMode === 'developer' && (
-              <div className="card">
+              <div className="card card-accent-magenta">
                 <h2>JSON Sequence Editor</h2>
 
                 <div className="row">
@@ -1341,7 +1341,7 @@ export default function App() {
 
                 <div className="hint">
                   Required fields: <code>id</code> (numeric), <code>name</code>, <code>steps</code> (array of step objects).
-                  Steps: <code>k</code> (key index 0–11), <code>c</code> (brand hex color — see palette), <code>d</code> (duration ms).
+                  Steps: <code>k</code> (key index 0–11), <code>c</code> (brand hex color — see palette), <code>d</code> (duration ms).<br />
                   Allowed colours: {COLORS.fingerOrder.map(f => COLORS.fingerColors[f]).join(', ')}
                 </div>
               </div>
