@@ -53,7 +53,7 @@ void testLogLogManualPress(int keyIndex, unsigned long pressDetectedMs, unsigned
 
   Serial.print(testLogRunId); Serial.print(",");
   Serial.print(testLogEventId); Serial.print(",");
-  Serial.print(getCurrentModeString()); Serial.print(",");
+  Serial.print(getCurrentSequenceModeString()); Serial.print(",");
   Serial.print(F("MANUAL_PRESS")); Serial.print(",");
   Serial.print(keyIndex); Serial.print(",");
   Serial.print(testLogManualRepeatStreak); Serial.print(",");
@@ -76,7 +76,7 @@ void testLogLogAutoStep(int keyIndex, long timingErrorMs, unsigned long ledCmdMs
 
   Serial.print(testLogRunId); Serial.print(",");
   Serial.print(testLogEventId); Serial.print(",");
-  Serial.print(getCurrentModeString()); Serial.print(",");
+  Serial.print(getCurrentSequenceModeString()); Serial.print(",");
   Serial.print(F("AUTO_STEP")); Serial.print(",");
   Serial.print(keyIndex); Serial.print(",");
   Serial.print(testLogAutoRepeatStreak); Serial.print(",");
@@ -101,7 +101,7 @@ void testLogLogError(uint8_t errorCode, const __FlashStringHelper* eventType) {
 
   Serial.print(testLogRunId); Serial.print(",");
   Serial.print(testLogEventId); Serial.print(",");
-  Serial.print(getCurrentModeString()); Serial.print(",");
+  Serial.print(getCurrentSequenceModeString()); Serial.print(",");
   Serial.print(eventType); Serial.print(",");
   Serial.print(-1); Serial.print(",");
   Serial.print(0); Serial.print(",");
