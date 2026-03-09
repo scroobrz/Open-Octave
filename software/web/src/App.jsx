@@ -1070,7 +1070,9 @@ export default function App() {
                     <h2>Keyboard Visualisation</h2>
 
                     <div className="keyboard-vis">
+                      {/* White keys layer */}
                       {NOTE_NAMES.map((note, i) => {
+                        if (IS_BLACK[i]) return null;
                         const active = keyHits[i] > 0;
                         const color = keyColors[i] ? `#${keyColors[i]}` : null;
                         const intensity = keyHits[i] / maxHits;
@@ -1078,22 +1080,50 @@ export default function App() {
                         return (
                           <div
                             key={i}
-                            className={`kb-key ${IS_BLACK[i] ? 'kb-black' : 'kb-white'}${active ? ' kb-active' : ''}`}
+                            className={`kb-key kb-white${active ? ' kb-active' : ''}`}
                             style={active ? {
                               '--kb-glow': color,
                               '--kb-intensity': intensity,
                             } : undefined}
                           >
                             {active && (
-                              <span
-                                className="kb-led"
-                                style={{ backgroundColor: color }}
-                              />
+                              <span className="kb-led" style={{ backgroundColor: color }} />
                             )}
                             <span className="kb-note">{note}</span>
+                            {active && <span className="kb-hits">{keyHits[i]}x</span>}
+                          </div>
+                        );
+                      })}
+
+                      {/* Black keys layer (absolutely positioned) */}
+                      {NOTE_NAMES.map((note, i) => {
+                        if (!IS_BLACK[i]) return null;
+                        const active = keyHits[i] > 0;
+                        const color = keyColors[i] ? `#${keyColors[i]}` : null;
+                        const intensity = keyHits[i] / maxHits;
+
+                        // Position black keys between their neighbouring white keys.
+                        // White key indices: C=0, D=1, E=2, F=3, G=4, A=5, B=6
+                        // Black key positions (centred on the gap between white keys):
+                        //   C#(1)→between 0-1, D#(3)→1-2, F#(6)→3-4, G#(8)→4-5, A#(10)→5-6
+                        const BLACK_OFFSETS = { 1: 0.5, 3: 1.5, 6: 3.5, 8: 4.5, 10: 5.5 };
+                        const offset = BLACK_OFFSETS[i];
+                        const leftPercent = ((offset + 0.5) / 7) * 100;
+
+                        return (
+                          <div
+                            key={i}
+                            className={`kb-key kb-black${active ? ' kb-active' : ''}`}
+                            style={{
+                              left: `${leftPercent}%`,
+                              ...(active ? { '--kb-glow': color, '--kb-intensity': intensity } : {}),
+                            }}
+                          >
                             {active && (
-                              <span className="kb-hits">{keyHits[i]}x</span>
+                              <span className="kb-led" style={{ backgroundColor: color }} />
                             )}
+                            <span className="kb-note">{note}</span>
+                            {active && <span className="kb-hits">{keyHits[i]}x</span>}
                           </div>
                         );
                       })}
@@ -1972,37 +2002,47 @@ h2 {
 }
 
 .keyboard-vis {
+  position: relative;
   display: flex;
-  gap: 3px;
-  align-items: flex-end;
+  gap: 2px;
   padding: 12px 4px 8px;
+  height: 140px;
 }
 
 .kb-key {
-  flex: 1;
   display: flex;
   flex-direction: column;
   align-items: center;
+  justify-content: flex-end;
   gap: 4px;
-  padding: 10px 2px 8px;
+  padding: 6px 2px 8px;
   border-radius: 0 0 6px 6px;
   text-align: center;
-  position: relative;
   transition: box-shadow 0.3s, transform 0.15s;
   min-width: 0;
 }
 
 .kb-white {
+  flex: 1;
   background: var(--card);
   border: 1.5px solid var(--border);
-  height: 90px;
+  height: 100%;
+  position: relative;
+  z-index: 1;
 }
 
 .kb-black {
+  position: absolute;
+  top: 12px;
+  width: calc(100% / 7 * 0.58);
+  height: 55%;
+  transform: translateX(-50%);
   background: var(--navy, #0D1B2A);
   border: 1.5px solid var(--navy, #0D1B2A);
   color: #8899AA;
-  height: 64px;
+  z-index: 2;
+  border-radius: 0 0 4px 4px;
+  box-shadow: 0 2px 4px rgba(0,0,0,0.3);
 }
 
 [data-theme="developer"] .kb-white {
@@ -2014,6 +2054,10 @@ h2 {
   box-shadow:
     0 2px 12px color-mix(in srgb, var(--kb-glow, #fff) calc(var(--kb-intensity, 0.5) * 80%), transparent),
     inset 0 -3px 0 color-mix(in srgb, var(--kb-glow, #fff) 40%, transparent);
+}
+
+.kb-active.kb-black {
+  transform: translateX(-50%) translateY(-2px);
 }
 
 .kb-active.kb-white {
@@ -2039,11 +2083,19 @@ h2 {
   margin-top: auto;
 }
 
+.kb-black .kb-note {
+  font-size: 9px;
+}
+
 .kb-hits {
   font-size: 9px;
   font-weight: 600;
   color: var(--muted-foreground);
   font-family: var(--font-mono);
+}
+
+.kb-black .kb-hits {
+  font-size: 8px;
 }
 
 /* ===== PILLS ===== */
