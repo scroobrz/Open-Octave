@@ -1449,9 +1449,22 @@ export default function App() {
                     <div className="modal-subtitle">Match the LED colour to the finger to press.</div>
                   </div>
 
-                  <button className="btn btn-secondary" type="button" onClick={closeFingerHelp}>
-                    Close
-                  </button>
+                  <div style={{ display: 'flex', alignItems: 'center', gap: 12 }}>
+                    <label className="cb-toggle">
+                      <span className="cb-toggle-label">Colourblind-friendly</span>
+                      <input
+                        type="checkbox"
+                        checked={colorMode === 'colorblind'}
+                        onChange={(e) => setColorMode(e.target.checked ? 'colorblind' : 'default')}
+                      />
+                      <span className="cb-toggle-track">
+                        <span className="cb-toggle-knob" />
+                      </span>
+                    </label>
+                    <button className="btn btn-secondary" type="button" onClick={closeFingerHelp}>
+                      Close
+                    </button>
+                  </div>
                 </div>
 
                 <div className="card" style={{ marginBottom: 0 }}>
@@ -1486,17 +1499,7 @@ export default function App() {
                     Tip: In Guided mode, wait for the LED colour, then press the matching finger.
                   </div>
 
-                  <label className="cb-toggle" style={{ marginTop: 12 }}>
-                    <input
-                      type="checkbox"
-                      checked={colorMode === 'colorblind'}
-                      onChange={(e) => setColorMode(e.target.checked ? 'colorblind' : 'default')}
-                    />
-                    <span className="cb-toggle-track">
-                      <span className="cb-toggle-knob" />
-                    </span>
-                    <span className="cb-toggle-label">Colourblind-friendly</span>
-                  </label>
+
                 </div>
               </div>
             </div>
@@ -1993,8 +1996,9 @@ h2 {
 }
 
 .cb-toggle-label {
-  font-size: 12px;
-  color: var(--muted);
+  font-size: 13px;
+  font-weight: 600;
+  color: var(--foreground);
 }
 
 .btn-secondary {
