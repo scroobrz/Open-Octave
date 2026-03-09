@@ -14,6 +14,9 @@ const {
     generateUploadLinesFromData
 } = require('./database/sqlite');
 
+// Shared colour definitions (single source of truth for controller + frontend)
+const COLORS = require('../shared/colors.json');
+
 const app = express();
 
 const PORT = process.env.APP_PORT || 3000;
@@ -82,7 +85,7 @@ function snapshotControllerState() {
 }
 
 function parseKeyValuePairs(line) {
-    // Example: "STATUS mode=MANUAL running=0 seq=1 step=0"
+    // Example: "STATUS running=0 seq=1 step=-1 mode=N/A"
     const parts = String(line).split(' ').slice(1);
     const out = {};
 
@@ -422,34 +425,42 @@ if (COMM_MODE === 'WIFI') {
     connectWebSocket();
 }
 
-// ============ COMMAND TRANSLATION ============
+// ============ COMMAND TRANSLATION (firmware v5) ============
 
 // Translates API endpoint + query parameters into a single-character serial
-// command. This is the shared command format used by both serial and WebSocket.
+// command for firmware v5.
+//
+// Firmware v5 removed the persistent mode system (no more m/a/f commands).
+// Instead, mode is specified at sequence start time:
+//   g = start sequence in guided mode
+//   t = start sequence in teaching mode
+//   x = stop sequence
+//   c = view current sequence
+//   l = test LEDs
+//   s = test servos
+//   q = toggle test log mode
+//   h/? = help
+//
+// Removed from v4: m (manual), a (guided mode), f (teaching mode),
+//                   s (start), n (next), p (prev)
 function translateToSerialCmd(endpoint, query) {
-    if (endpoint === '/api/modes') {
-        if (query.mode === 'manual')   return 'm';
-        if (query.mode === 'guided')   return 'a';
-        if (query.mode === 'teaching') return 'f';
-    }
-    
     if (endpoint === '/api/seq/control') {
-        if (query.cmd === 'start') return 's';
+        // In v5, 'start' requires a mode parameter (guided or teaching).
+        if (query.cmd === 'start') {
+            if (query.mode === 'guided')  return 'g';
+            if (query.mode === 'teaching') return 't';
+            // Default to guided if no mode specified
+            return 'g';
+        }
         if (query.cmd === 'stop')  return 'x';
-        if (query.cmd === 'next')  return 'n';
-        if (query.cmd === 'prev')  return 'p';
-    }
-
-    if (endpoint === '/api/seq/select') {
-        if (query.id !== undefined) return query.id.toString(); 
     }
 
     if (endpoint === '/api/test') {
-        if (query.target === 'leds')   return 't';
-        if (query.target === 'servos') return 'u';
+        if (query.target === 'leds')   return 'l';
+        if (query.target === 'servos') return 's';
     }
 
-    if (endpoint === '/api/seq/list') return 'l';
+    if (endpoint === '/api/seq/list') return 'c';
     if (endpoint === '/api/status')   return '?';
 
     return null;
@@ -514,8 +525,8 @@ function sendRawLine(line) {
   return { error: 'No active transport selected' };
 }
 
-// ============ TRANSPORT FRAMING (DEMO 2 WORKAROUND) ============
-// For Demo 2, firmware_v4 routes WebSocket commands by message length:
+// ============ TRANSPORT FRAMING ============
+// Firmware v5 routes WebSocket commands by message length:
 //   - length === 1  -> treated as a single-char command
 //   - length  >  1  -> treated as a sequence upload command string
 // Therefore, we MUST NOT append a newline for single-char WS commands.
@@ -640,23 +651,13 @@ app.post('/api/disconnect', (req, res) => {
     }
 });
 
-app.post('/api/modes', async (req, res) => {
-    try {
-        const result = await sendCommand('/api/modes', 'POST', req.query);
-        res.json(result);
-    } catch (e) { res.status(500).json({ error: e.message }); }
-});
+// NOTE: /api/modes endpoint removed for firmware v5. Mode is no longer a
+// persistent state — it is specified at sequence start time via
+// /api/seq/control?cmd=start&mode=guided|teaching
 
 app.post('/api/seq/control', async (req, res) => {
     try {
         const result = await sendCommand('/api/seq/control', 'POST', req.query);
-        res.json(result);
-    } catch (e) { res.status(500).json({ error: e.message }); }
-});
-
-app.post('/api/seq/select', async (req, res) => {
-    try {
-        const result = await sendCommand('/api/seq/select', 'POST', req.query);
         res.json(result);
     } catch (e) { res.status(500).json({ error: e.message }); }
 });
@@ -704,6 +705,11 @@ app.get('/api/health', (req, res) => {
             open: serialOpen
         }
     });
+});
+
+// Returns the shared colour palette (finger colours, key mappings).
+app.get('/api/colors', (req, res) => {
+    res.json({ ok: true, ...COLORS });
 });
 
 // Returns the most recent controller/ESP32 log lines for the UI.
@@ -793,7 +799,7 @@ app.get('/api/db/sequences/:id', (req, res) => {
 //   "id": "twinkle",
 //   "name": "Twinkle_Twinkle",
 //   "description": "Demo song",
-//   "steps": [ {"k":0,"c":"FF0000","d":300}, ... ]
+//   "steps": [ {"k":0,"c":"00B4D8","d":300}, ... ]
 // }
 // NOTE: uploadLines are generated on-demand during upload if not stored.
 app.post('/api/db/sequences', (req, res) => {
@@ -835,61 +841,23 @@ app.post('/api/db/sequences', (req, res) => {
 });
 
 // Seeds the demo preset sequences into SQLite (mirroring the firmware preset library).
-// NOTE: uploadLines are sent verbatim to the firmware, so ensure they match the firmware_v4 upload protocol.
+// NOTE: uploadLines are sent verbatim to the firmware, so ensure they match the firmware v5 upload protocol.
 app.post('/api/db/sequences/seed', (req, res) => {
   try {
-    // ============ FINGER COLOUR MAP (Demo 2) ============
-    // One colour scheme that works for both:
-    // - 3-key demos (Thumb/Index/Middle)
-    // - 12-key demos (Thumb/Index/Middle/Ring/Pinky)
-    const FINGER_COLOR = {
-      thumb:  'FF0000', // Red
-      index:  'FFFF00', // Yellow
-      middle: '00FF00', // Green
-      ring:   'FF8000', // Orange
-      pinky:  '0000FF', // Blue
-      none:   'FFFFFF'  // Fallback
-    };
-
+    // Colour helpers — driven by shared/colors.json
     function colorForFinger(f) {
       const key = String(f || '').toLowerCase();
-      return FINGER_COLOR[key] || FINGER_COLOR.none;
+      return COLORS.fingerColors[key] || COLORS.fallbackColor;
     }
 
-    // Legacy 3-key mapping used by older demo presets (keys 0..2).
-    // We interpret:
-    //   0 -> C (thumb), 1 -> D (index), 2 -> E (middle)
-    // so the same finger map screen remains valid.
     function colorFor3KeyIndex(k) {
-      switch (Number(k)) {
-        case 0: return colorForFinger('thumb');
-        case 1: return colorForFinger('index');
-        case 2: return colorForFinger('middle');
-        default: return colorForFinger('none');
-      }
+      const finger = COLORS.keyToFinger3Key[String(k)];
+      return colorForFinger(finger);
     }
 
-    // 12-key chromatic mapping (C4..B4 => keyIndex 0..11).
-    // Natural notes follow a beginner right-hand position:
-    //   C->thumb, D->index, E->middle, F->ring, G->pinky
-    // Sharps inherit the nearest natural note's finger.
-    // Notes outside C..G (A, A#, B) reuse thumb/index for simplicity.
     function colorFor12KeyIndex(k) {
-      switch (Number(k)) {
-        case 0:  return colorForFinger('thumb');  // C
-        case 1:  return colorForFinger('thumb');  // C#
-        case 2:  return colorForFinger('index');  // D
-        case 3:  return colorForFinger('index');  // D#
-        case 4:  return colorForFinger('middle'); // E
-        case 5:  return colorForFinger('ring');   // F
-        case 6:  return colorForFinger('ring');   // F#
-        case 7:  return colorForFinger('pinky');  // G
-        case 8:  return colorForFinger('pinky');  // G#
-        case 9:  return colorForFinger('thumb');  // A
-        case 10: return colorForFinger('thumb');  // A#
-        case 11: return colorForFinger('index');  // B
-        default: return colorForFinger('none');
-      }
+      const finger = COLORS.keyToFinger[String(k)];
+      return colorForFinger(finger);
     }
 
     const presets = [
@@ -1065,7 +1033,7 @@ app.post('/api/db/sequences/seed', (req, res) => {
       {
         id: '8',
         name: 'Mary Had a Little Lamb (12-key)',
-        description: 'Right-hand only. Thumb=Red (C), Index=Yellow (D), Middle=Green (E), Ring=Orange (F), Pinky=Blue (G). Slow pace for guided/teaching tests.',
+        description: 'Right-hand only. Thumb=Cyan (C), Index=Green (D), Middle=Gold (E), Ring=Coral (F), Pinky=Magenta (G). Slow pace for guided/teaching tests.',
         data: {
           steps: [
             { k: 4, c: colorFor12KeyIndex(4), d: 700 },
@@ -1136,17 +1104,15 @@ app.post('/api/db/sequences/:id/upload', async (req, res) => {
       return;
     }
 
-    let lines = Array.isArray(seq.uploadLines) ? seq.uploadLines : [];
-
-    // If uploadLines are not stored, generate them from the software model.
-    if (!lines.length) {
-      const gen = generateUploadLinesFromData(seq.id, seq.name, seq.data);
-      if (!gen.ok) {
-        res.status(400).json({ ok: false, error: gen.error });
-        return;
-      }
-      lines = gen.lines;
+    // Always regenerate upload lines from data.steps so runtime options
+    // (e.g. colourblind palette remapping) are applied consistently.
+    const colorMode = String(req.query.colorMode || 'default');
+    const gen = generateUploadLinesFromData(seq.id, seq.name, seq.data, colorMode);
+    if (!gen.ok) {
+      res.status(400).json({ ok: false, error: gen.error });
+      return;
     }
+    const lines = gen.lines;
 
     // Send lines one-by-one. Firmware parsing is line-based.
     const sent = [];

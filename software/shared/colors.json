@@ -1,0 +1,50 @@
+{
+  "fingerColors": {
+    "thumb":  "00B4D8",
+    "index":  "4ECB71",
+    "middle": "FFD700",
+    "ring":   "FF6B35",
+    "pinky":  "E8368F"
+  },
+  "alternativePalettes": {
+    "colorblind": {
+      "label": "Colourblind-friendly",
+      "fingerColors": {
+        "thumb":  "0072B2",
+        "index":  "009E73",
+        "middle": "F0E442",
+        "ring":   "D55E00",
+        "pinky":  "CC79A7"
+      }
+    }
+  },
+  "fingerOrder": ["thumb", "index", "middle", "ring", "pinky"],
+  "fingerDisplayNames": {
+    "thumb":  "Blue",
+    "index":  "Green",
+    "middle": "Yellow",
+    "ring":   "Orange",
+    "pinky":  "Pink"
+  },
+  "errorColor": "FF0000",
+  "fallbackColor": "FFFFFF",
+  "keyToFinger": {
+    "0":  "thumb",
+    "1":  "thumb",
+    "2":  "index",
+    "3":  "index",
+    "4":  "middle",
+    "5":  "ring",
+    "6":  "ring",
+    "7":  "pinky",
+    "8":  "pinky",
+    "9":  "thumb",
+    "10": "thumb",
+    "11": "index"
+  },
+  "keyToFinger3Key": {
+    "0": "thumb",
+    "1": "index",
+    "2": "middle"
+  }
+}

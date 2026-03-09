@@ -1,4 +1,6 @@
 import { useEffect, useMemo, useRef, useState } from 'react';
+import COLORS from '../../shared/colors.json';
+import './App.css';
 
 function pretty(obj) {
   return JSON.stringify(obj, null, 2);
@@ -67,6 +69,7 @@ function Badge({ connected }) {
 export default function App() {
   const [tab, setTab] = useState('connect');
   const [uiMode, setUiMode] = useState(() => localStorage.getItem('oo-ui-mode') || 'user'); // 'user' | 'developer'
+  const [colorMode, setColorMode] = useState(() => localStorage.getItem('oo-color-mode') || 'default'); // 'default' | 'colorblind'
 
   // User help modal: finger colour map (right hand)
   const [fingerHelpOpen, setFingerHelpOpen] = useState(false);
@@ -84,6 +87,35 @@ export default function App() {
     localStorage.setItem('oo-ui-mode', uiMode);
     document.documentElement.dataset.theme = uiMode;
   }, [uiMode]);
+
+  // Persist colourblind mode toggle.
+  useEffect(() => {
+    localStorage.setItem('oo-color-mode', colorMode);
+  }, [colorMode]);
+
+  // Resolve active finger colours based on colour mode.
+  const activeFingerColors = useMemo(() => {
+    if (colorMode === 'colorblind' && COLORS.alternativePalettes?.colorblind) {
+      return COLORS.alternativePalettes.colorblind.fingerColors;
+    }
+    return COLORS.fingerColors;
+  }, [colorMode]);
+
+  // Map canonical hex → display hex for rendering swatches/LEDs.
+  const colorDisplayMap = useMemo(() => {
+    const map = {};
+    for (const finger of COLORS.fingerOrder) {
+      const original = COLORS.fingerColors[finger].toUpperCase();
+      const display = activeFingerColors[finger].toUpperCase();
+      map[original] = display;
+    }
+    return map;
+  }, [activeFingerColors]);
+
+  function displayColor(hex) {
+    const clean = String(hex || '').trim().toUpperCase().replace('#', '');
+    return colorDisplayMap[clean] || clean;
+  }
 
   // If user switches back to User mode, force them onto safe tabs.
   useEffect(() => {
@@ -133,17 +165,16 @@ export default function App() {
   const [seqModalSeq, setSeqModalSeq] = useState(null); // full sequence object (includes steps)
 
   // ============ DB CREATE SEQUENCE (paste JSON) ============
-  const [dbCreateJson, setDbCreateJson] = useState(
-    pretty({
-      id: '10',
-      name: 'My Sequence',
-      description: 'Optional description',
-      steps: [
-        { k: 0, c: 'FF0000', d: 300 },
-        { k: 1, c: '00FF00', d: 300 }
-      ]
-    })
-  );
+  const defaultTemplate = {
+    id: '10',
+    name: 'My Sequence',
+    description: 'Optional description',
+    steps: [
+      { k: 0, c: COLORS.fingerColors.thumb, d: 300 },
+      { k: 1, c: COLORS.fingerColors.index, d: 300 }
+    ]
+  };
+  const [dbCreateJson, setDbCreateJson] = useState(pretty(defaultTemplate));
   const [dbCreateMsg, setDbCreateMsg] = useState('');
   const [dbCreateErr, setDbCreateErr] = useState('');
   const [dbCreateBusy, setDbCreateBusy] = useState(false);
@@ -202,7 +233,7 @@ export default function App() {
       const name = seqData?.item?.name || id;
 
       if (isConnected) {
-        const data = await apiPost(`/api/db/sequences/${encodeURIComponent(id)}/upload`);
+        const data = await apiPost(`/api/db/sequences/${encodeURIComponent(id)}/upload?colorMode=${colorMode}`);
         setLastResult(data);
         setSelectionStatus({
           sequenceId: id,
@@ -324,13 +355,44 @@ export default function App() {
     setSeqModalSeq(null);
   }
 
+  // Derive hex→friendly-name and hex→finger-name maps from colors.json
+  // so they stay in sync automatically when palettes change.
+  const { HEX_TO_NAME, HEX_TO_FINGER } = useMemo(() => {
+    const nameMap = {};
+    const fingerMap = {};
+    const allPalettes = [
+      COLORS.fingerColors,
+      ...(COLORS.alternativePalettes
+        ? Object.values(COLORS.alternativePalettes).map(p => p.fingerColors)
+        : [])
+    ];
+    for (const finger of COLORS.fingerOrder) {
+      const displayName = COLORS.fingerDisplayNames[finger];
+      const fingerLabel = finger.charAt(0).toUpperCase() + finger.slice(1);
+      for (const palette of allPalettes) {
+        const hex = palette[finger]?.toUpperCase();
+        if (hex) {
+          nameMap[hex] = displayName;
+          fingerMap[hex] = fingerLabel;
+        }
+      }
+    }
+    return { HEX_TO_NAME: nameMap, HEX_TO_FINGER: fingerMap };
+  }, []);
+
+  function hexColorName(hex) {
+    const clean = String(hex || '').trim().toUpperCase().replace('#', '');
+    return HEX_TO_NAME[clean] || hex;
+  }
+
   function renderColorSwatch(hex) {
     const clean = String(hex || '').trim();
-    const css = clean ? `#${clean.replace('#', '')}` : '#000000';
+    const mapped = displayColor(clean);
+    const css = mapped ? `#${mapped.replace('#', '')}` : '#000000';
     return (
       <span
         className="swatch"
-        title={clean || 'n/a'}
+        title={mapped || 'n/a'}
         style={{ backgroundColor: css }}
       />
     );
@@ -650,10 +712,11 @@ export default function App() {
     try {
       let result;
 
-      if (kind === 'mode') {
-        result = await apiPost(`/api/modes?mode=${encodeURIComponent(data.mode)}`);
-      } else if (kind === 'seq') {
-        result = await apiPost(`/api/seq/control?cmd=${encodeURIComponent(data.action)}`);
+      if (kind === 'seq') {
+        // Firmware v5: start commands include mode (guided/teaching)
+        const params = new URLSearchParams({ cmd: data.action });
+        if (data.mode) params.set('mode', data.mode);
+        result = await apiPost(`/api/seq/control?${params}`);
       } else if (kind === 'test') {
         result = await apiPost(`/api/test?target=${encodeURIComponent(data.target)}`);
       } else if (kind === 'currentSeq') {
@@ -726,6 +789,7 @@ export default function App() {
               Developer
             </button>
           </div>
+
         </div>
 
         <nav className="nav">
@@ -852,7 +916,7 @@ export default function App() {
                       Status: {syncState.statusOk === null ? '—' : syncState.statusOk ? 'OK' : 'FAILED'}
                     </span>
                     <span className={syncState.seqListOk === null ? 'pill pill-muted' : syncState.seqListOk ? 'pill pill-green' : 'pill pill-coral'}>
-                      Seq (l): {syncState.seqListOk === null ? '—' : syncState.seqListOk ? 'OK' : 'FAILED'}
+                      Seq (c): {syncState.seqListOk === null ? '—' : syncState.seqListOk ? 'OK' : 'FAILED'}
                     </span>
                     <span className="pill pill-gold">Phase: {syncState.phase}</span>
                   </div>
@@ -879,7 +943,7 @@ export default function App() {
                       Status
                     </button>
                     <button className="btn btn-secondary" disabled={!isConnected} onClick={() => runCommand('currentSeq', {})}>
-                      Current seq (l)
+                      Current seq (c)
                     </button>
                     <button className="btn btn-secondary" disabled={!isConnected} onClick={() => refreshHealth()}>
                       Refresh Health
@@ -996,22 +1060,7 @@ export default function App() {
 
             <div className="grid">
               <div className="card card-accent-teal">
-                <h2>Mode</h2>
-                <div className="btn-row">
-                  <button className="btn" disabled={controlsDisabled} onClick={() => runCommand('mode', { mode: 'manual' })}>
-                    Manual
-                  </button>
-                  <button className="btn" disabled={controlsDisabled} onClick={() => runCommand('mode', { mode: 'guided' })}>
-                    Guided
-                  </button>
-                  <button className="btn" disabled={controlsDisabled} onClick={() => runCommand('mode', { mode: 'teaching' })}>
-                    Teaching
-                  </button>
-                </div>
-              </div>
-
-              <div className="card card-accent-coral">
-                <h2>{uiMode === 'user' ? 'Song' : 'Sequence'}</h2>
+                <h2>{uiMode === 'user' ? 'Play' : 'Sequence Control'}</h2>
 
                 {selectedDbSeq ? (
                   <div className="label" style={{ marginBottom: 10 }}>
@@ -1025,36 +1074,134 @@ export default function App() {
                   </div>
                 )}
 
-                <div className="btn-row">
-                  <button className="btn" disabled={controlsDisabled} onClick={() => runCommand('seq', { action: 'start' })}>
-                    Start
+                <div className="btn-row btn-row-nowrap">
+                  <button className="btn btn-green" disabled={controlsDisabled} onClick={() => runCommand('seq', { action: 'start', mode: 'guided' })}>
+                    {uiMode === 'user' ? 'Practice' : 'Start Guided'}
                   </button>
-                  <button className="btn" disabled={controlsDisabled} onClick={() => runCommand('seq', { action: 'stop' })}>
+                  <button className="btn" disabled={controlsDisabled} onClick={() => runCommand('seq', { action: 'start', mode: 'teaching' })}>
+                    {uiMode === 'user' ? 'Watch & Learn' : 'Start Teaching'}
+                  </button>
+                  <button className="btn btn-coral" disabled={controlsDisabled} onClick={() => runCommand('seq', { action: 'stop' })}>
                     Stop
                   </button>
-                  <button className="btn" disabled={controlsDisabled} onClick={() => runCommand('seq', { action: 'next' })}>
-                    Next
-                  </button>
-                  <button className="btn" disabled={controlsDisabled} onClick={() => runCommand('seq', { action: 'prev' })}>
-                    Prev
-                  </button>
                 </div>
+
+                {uiMode === 'user' && (
+                  <div className="hint">
+                    <b>Practice</b>: Follow the LEDs and press the right keys.<br />
+                    <b>Watch & Learn</b>: The keyboard plays the song for you.
+                  </div>
+                )}
               </div>
 
-              <div className="card card-accent-magenta">
-                <h2>Tests</h2>
-                <div className="btn-row">
-                  <button className="btn" disabled={controlsDisabled} onClick={() => runCommand('test', { target: 'leds' })}>
-                    Test LEDs
-                  </button>
-                  <button className="btn" disabled={controlsDisabled} onClick={() => runCommand('test', { target: 'servos' })}>
-                    Test Servos
-                  </button>
+              {uiMode === 'user' && (() => {
+                const NOTE_NAMES = ['C', 'C#', 'D', 'D#', 'E', 'F', 'F#', 'G', 'G#', 'A', 'A#', 'B'];
+                const IS_BLACK = [false, true, false, true, false, false, true, false, true, false, true, false];
+
+                // Build per-key data from the selected sequence
+                const steps = selectedDbSeq?.data?.steps || [];
+                const keyHits = new Array(12).fill(0);
+                const keyColors = new Array(12).fill(null);
+                for (const s of steps) {
+                  const k = s?.k;
+                  if (k >= 0 && k < 12) {
+                    keyHits[k]++;
+                    if (!keyColors[k]) keyColors[k] = s.c;
+                  }
+                }
+                const maxHits = Math.max(...keyHits, 1);
+
+                return (
+                  <div className="card card-accent-green keyboard-vis-card">
+                    <h2>Keyboard Visualisation</h2>
+
+                    <div className="keyboard-vis">
+                      {/* White keys layer */}
+                      {NOTE_NAMES.map((note, i) => {
+                        if (IS_BLACK[i]) return null;
+                        const active = keyHits[i] > 0;
+                        const color = keyColors[i] ? `#${displayColor(keyColors[i])}` : null;
+                        const intensity = keyHits[i] / maxHits;
+
+                        return (
+                          <div
+                            key={i}
+                            className={`kb-key kb-white${active ? ' kb-active' : ''}`}
+                            style={active ? {
+                              '--kb-glow': color,
+                              '--kb-intensity': intensity,
+                            } : undefined}
+                          >
+                            {active && (
+                              <span className="kb-led" style={{ backgroundColor: color }} />
+                            )}
+                            <span className="kb-note">{note}</span>
+                            {active && <span className="kb-hits">{keyHits[i]}x</span>}
+                          </div>
+                        );
+                      })}
+
+                      {/* Black keys layer (absolutely positioned) */}
+                      {NOTE_NAMES.map((note, i) => {
+                        if (!IS_BLACK[i]) return null;
+                        const active = keyHits[i] > 0;
+                        const color = keyColors[i] ? `#${displayColor(keyColors[i])}` : null;
+                        const intensity = keyHits[i] / maxHits;
+
+                        // Position black keys between their neighbouring white keys.
+                        // White key indices: C=0, D=1, E=2, F=3, G=4, A=5, B=6
+                        // Black key positions (centred on the gap between white keys):
+                        //   C#(1)→between 0-1, D#(3)→1-2, F#(6)→3-4, G#(8)→4-5, A#(10)→5-6
+                        const BLACK_OFFSETS = { 1: 0.5, 3: 1.5, 6: 3.5, 8: 4.5, 10: 5.5 };
+                        const offset = BLACK_OFFSETS[i];
+                        const leftPercent = ((offset + 0.5) / 7) * 100;
+
+                        return (
+                          <div
+                            key={i}
+                            className={`kb-key kb-black${active ? ' kb-active' : ''}`}
+                            style={{
+                              left: `${leftPercent}%`,
+                              ...(active ? { '--kb-glow': color, '--kb-intensity': intensity } : {}),
+                            }}
+                          >
+                            {active && (
+                              <span className="kb-led" style={{ backgroundColor: color }} />
+                            )}
+                            <span className="kb-note">{note}</span>
+                            {active && <span className="kb-hits">{keyHits[i]}x</span>}
+                          </div>
+                        );
+                      })}
+                    </div>
+
+                    {steps.length > 0 ? (
+                      <div className="hint">
+                        <b>{steps.length}</b> steps across <b>{keyHits.filter(h => h > 0).length}</b> keys
+                      </div>
+                    ) : (
+                      <div className="hint">Select a song to see which keys are used.</div>
+                    )}
+                  </div>
+                );
+              })()}
+
+              {uiMode === 'developer' && (
+                <div className="card card-accent-green">
+                  <h2>Tests</h2>
+                  <div className="btn-row">
+                    <button className="btn" disabled={controlsDisabled} onClick={() => runCommand('test', { target: 'leds' })}>
+                      Test LEDs
+                    </button>
+                    <button className="btn" disabled={controlsDisabled} onClick={() => runCommand('test', { target: 'servos' })}>
+                      Test Servos
+                    </button>
+                  </div>
                 </div>
-              </div>
+              )}
             </div>
 
-            <div className="card">
+            <div className="card card-accent-gold">
               <h2>{uiMode === 'user' ? 'Select Song' : 'Select Sequence'}</h2>
 
               <div className="row">
@@ -1139,7 +1286,7 @@ export default function App() {
             </div>
 
             {uiMode === 'user' && (
-              <div className="card card-accent-green">
+              <div className="card card-accent-coral">
                 <h2>Available Songs</h2>
 
                 <div className="row">
@@ -1193,7 +1340,7 @@ export default function App() {
             )}
 
             {uiMode === 'developer' && (
-              <div className="card">
+              <div className="card card-accent-coral">
                 <h2>Available Sequences</h2>
 
                 <div className="row">
@@ -1248,7 +1395,7 @@ export default function App() {
             )}
 
             {uiMode === 'developer' && (
-              <div className="card">
+              <div className="card card-accent-magenta">
                 <h2>JSON Sequence Editor</h2>
 
                 <div className="row">
@@ -1267,17 +1414,7 @@ export default function App() {
                       onClick={() => {
                         setDbCreateMsg('');
                         setDbCreateErr('');
-                        setDbCreateJson(
-                          pretty({
-                            id: '10',
-                            name: 'My Sequence',
-                            description: 'Optional description',
-                            steps: [
-                              { k: 0, c: 'FF0000', d: 300 },
-                              { k: 1, c: '00FF00', d: 300 }
-                            ]
-                          })
-                        );
+                        setDbCreateJson(pretty(defaultTemplate));
                       }}
                     >
                       Reset template
@@ -1297,7 +1434,8 @@ export default function App() {
 
                 <div className="hint">
                   Required fields: <code>id</code> (numeric), <code>name</code>, <code>steps</code> (array of step objects).
-                  Steps: <code>k</code> (key index 0–11), <code>c</code> (6-digit hex color, e.g. FF0000), <code>d</code> (duration ms).
+                  Steps: <code>k</code> (key index 0–11), <code>c</code> (brand hex color — see palette), <code>d</code> (duration ms).<br />
+                  Allowed colours: {COLORS.fingerOrder.map(f => hexColorName(COLORS.fingerColors[f])).join(', ')}
                 </div>
               </div>
             )}
@@ -1311,9 +1449,22 @@ export default function App() {
                     <div className="modal-subtitle">Match the LED colour to the finger to press.</div>
                   </div>
 
-                  <button className="btn btn-secondary" type="button" onClick={closeFingerHelp}>
-                    Close
-                  </button>
+                  <div style={{ display: 'flex', alignItems: 'center', gap: 12 }}>
+                    <label className="cb-toggle">
+                      <span className="cb-toggle-label">Colourblind-friendly</span>
+                      <input
+                        type="checkbox"
+                        checked={colorMode === 'colorblind'}
+                        onChange={(e) => setColorMode(e.target.checked ? 'colorblind' : 'default')}
+                      />
+                      <span className="cb-toggle-track">
+                        <span className="cb-toggle-knob" />
+                      </span>
+                    </label>
+                    <button className="btn btn-secondary" type="button" onClick={closeFingerHelp}>
+                      Close
+                    </button>
+                  </div>
                 </div>
 
                 <div className="card" style={{ marginBottom: 0 }}>
@@ -1328,25 +1479,27 @@ export default function App() {
                       aria-label="Right hand finger colour map"
                     >
                       {/* Thumb */}
-                      <circle cx="130" cy="185" r="18" fill="#FF0000" />
+                      <circle cx="130" cy="185" r="18" fill={`#${activeFingerColors.thumb}`} />
 
                       {/* Index */}
-                      <circle cx="175" cy="60" r="18" fill="#FFFF00" />
+                      <circle cx="175" cy="60" r="18" fill={`#${activeFingerColors.index}`} />
 
                       {/* Middle */}
-                      <circle cx="235" cy="48" r="18" fill="#00FF00" />
+                      <circle cx="235" cy="48" r="18" fill={`#${activeFingerColors.middle}`} />
 
                       {/* Ring */}
-                      <circle cx="295" cy="60" r="18" fill="#FF8000" />
+                      <circle cx="295" cy="60" r="18" fill={`#${activeFingerColors.ring}`} />
 
                       {/* Pinky */}
-                      <circle cx="345" cy="78" r="18" fill="#0000FF" />
+                      <circle cx="345" cy="78" r="18" fill={`#${activeFingerColors.pinky}`} />
                     </svg>
                   </div>
 
                   <div className="hint">
                     Tip: In Guided mode, wait for the LED colour, then press the matching finger.
                   </div>
+
+
                 </div>
               </div>
             </div>
@@ -1474,7 +1627,7 @@ export default function App() {
                           <tr>
                             <th>#</th>
                             <th>Key</th>
-                            <th>Color</th>
+                            <th>{uiMode === 'user' ? 'Finger' : 'Color'}</th>
                             <th>Duration (ms)</th>
                           </tr>
                         </thead>
@@ -1491,7 +1644,11 @@ export default function App() {
                                 <td>
                                   <div className="step-color">
                                     {renderColorSwatch(colorHex)}
-                                    <span className="mono">{String(colorHex)}</span>
+                                    <span className="mono">
+                                      {uiMode === 'user'
+                                        ? (HEX_TO_FINGER[String(colorHex).toUpperCase()] || hexColorName(colorHex))
+                                        : hexColorName(colorHex)}
+                                    </span>
                                   </div>
                                 </td>
                                 <td>{durationMs}</td>
@@ -1511,697 +1668,7 @@ export default function App() {
         </>
       )}
 
-      <style>{styles}</style>
     </div>
   );
 }
 
-const styles = `
-.app {
-  display: grid;
-  grid-template-columns: 260px 1fr;
-  min-height: 100vh;
-  background: var(--background);
-  color: var(--foreground);
-  font-family: var(--font-sans);
-}
-
-/* ===== SIDEBAR ===== */
-.sidebar {
-  background: var(--navy);
-  padding: 20px 16px;
-  display: flex;
-  flex-direction: column;
-  gap: 16px;
-  color: #CBD5E1;
-  min-height: 100vh;
-  position: sticky;
-  top: 0;
-  align-self: start;
-}
-
-.brand {
-  display: flex;
-  flex-direction: column;
-  align-items: center;
-  gap: 8px;
-  position: relative;
-  padding-bottom: 14px;
-}
-
-.brand-logo {
-  width: 120px;
-  height: auto;
-  object-fit: contain;
-}
-
-.brand-text {
-  text-align: center;
-}
-
-.brand-title {
-  font-family: var(--font-heading);
-  font-weight: 800;
-  font-size: 24px;
-  letter-spacing: 0.3px;
-  background: var(--gradient);
-  -webkit-background-clip: text;
-  -webkit-text-fill-color: transparent;
-  background-clip: text;
-}
-
-.brand-subtitle {
-  color: #64748B;
-  font-size: 13px;
-  margin-top: 2px;
-}
-
-.brand::after {
-  content: '';
-  display: block;
-  position: absolute;
-  bottom: 0;
-  left: 0;
-  right: 0;
-  height: 2px;
-  background: var(--gradient);
-  border-radius: 2px;
-}
-
-.nav { display: flex; flex-direction: column; gap: 6px; margin-top: 4px; }
-
-.nav-btn {
-  background: transparent;
-  border: 1px solid transparent;
-  color: #CBD5E1;
-  padding: 10px 14px;
-  border-radius: var(--radius);
-  cursor: pointer;
-  text-align: left;
-  font-size: 14px;
-  font-weight: 500;
-  transition: background 0.15s, color 0.15s;
-}
-
-.nav-btn:hover {
-  background: rgba(232, 54, 143, 0.08);
-  color: #F1F5F9;
-}
-
-.nav-btn.is-active {
-  background: rgba(0, 180, 216, 0.15);
-  color: #00B4D8;
-  border-left: 3px solid;
-  border-image: var(--gradient) 1;
-  border-top: none;
-  border-right: none;
-  border-bottom: none;
-  padding-left: 11px;
-}
-
-.sidebar-footer { margin-top: auto; }
-
-/* ===== BADGE ===== */
-.badge {
-  display: inline-flex;
-  align-items: center;
-  gap: 6px;
-  padding: 6px 12px;
-  border-radius: 999px;
-  font-size: 12px;
-  font-weight: 600;
-}
-
-.badge-dot {
-  width: 8px;
-  height: 8px;
-  border-radius: 50%;
-  display: inline-block;
-}
-
-.badge-offline {
-  background: rgba(185, 28, 28, 0.15);
-  color: #FCA5A5;
-}
-
-.badge-offline .badge-dot {
-  background: #b91c1c;
-}
-
-.badge-online {
-  background: rgba(78, 203, 113, 0.15);
-  color: #86EFAC;
-}
-
-.badge-online .badge-dot {
-  background: var(--green);
-}
-
-/* ===== MAIN CONTENT ===== */
-.main {
-  padding: 32px;
-  overflow-y: auto;
-  position: relative;
-}
-
-.main::before {
-  content: '';
-  position: absolute;
-  top: 0;
-  left: 0;
-  width: 2px;
-  height: 100%;
-  background: linear-gradient(to bottom, #00B4D8, #4ECB71, #FFD700, #FF6B35, #E8368F);
-}
-
-.panel { max-width: 1200px; }
-
-h1 {
-  margin: 0 0 20px 0;
-  font-size: 30px;
-  font-weight: 700;
-  font-family: var(--font-heading);
-  color: var(--foreground);
-}
-
-h2 {
-  margin: 0 0 12px 0;
-  font-size: 22px;
-  font-weight: 600;
-  font-family: var(--font-heading);
-  color: var(--foreground);
-  padding-bottom: 8px;
-  border-bottom: 2px solid var(--border);
-  background-image: var(--gradient);
-  background-size: 100% 2px;
-  background-position: bottom left;
-  background-repeat: no-repeat;
-  border-bottom: none;
-}
-
-/* ===== CARDS ===== */
-.card {
-  background: var(--card);
-  border: 1px solid var(--border);
-  border-radius: 12px;
-  padding: 24px;
-  margin-bottom: 16px;
-  box-shadow: var(--shadow-md);
-  transition: box-shadow 0.2s, transform 0.2s;
-}
-
-.card:hover {
-  box-shadow: 0 4px 16px rgba(0, 180, 216, 0.08);
-}
-
-.grid {
-  display: grid;
-  gap: 16px;
-  grid-template-columns: repeat(3, minmax(220px, 1fr));
-}
-
-@media (max-width: 980px) {
-  .app { grid-template-columns: 1fr; }
-  .sidebar {
-    flex-direction: row;
-    align-items: center;
-    padding: 12px 16px;
-  }
-  .brand::after { display: none; }
-  .nav { flex-direction: row; flex-wrap: wrap; }
-  .sidebar-footer { margin-top: 0; margin-left: auto; }
-  .grid { grid-template-columns: 1fr; }
-  .main { padding: 20px 16px; }
-  .main::before { display: none; }
-}
-
-/* ===== LAYOUT ===== */
-.row {
-  display: flex;
-  align-items: center;
-  justify-content: space-between;
-  gap: 10px;
-}
-
-.row-left, .row-right {
-  display: flex;
-  align-items: center;
-  gap: 8px;
-}
-
-.label {
-  color: var(--muted-foreground);
-  font-size: 13px;
-}
-
-.btn-row {
-  display: flex;
-  flex-wrap: wrap;
-  gap: 8px;
-}
-
-/* ===== BUTTONS ===== */
-.btn {
-  background: var(--primary);
-  border: 1px solid var(--primary);
-  color: var(--primary-foreground);
-  padding: 10px 24px;
-  border-radius: var(--radius);
-  cursor: pointer;
-  font-weight: 600;
-  font-size: 14px;
-  font-family: var(--font-sans);
-  transition: filter 0.15s, transform 0.15s;
-}
-
-.btn:hover {
-  filter: brightness(0.9);
-  transform: scale(1.02);
-}
-
-.btn:disabled {
-  opacity: 0.5;
-  cursor: not-allowed;
-  filter: none;
-  transform: none;
-}
-
-.btn-secondary {
-  background: transparent;
-  border: 2px solid var(--primary);
-  color: var(--primary);
-}
-
-.btn-secondary:hover {
-  background: rgba(0, 180, 216, 0.06);
-  filter: none;
-}
-
-/* ===== INPUTS ===== */
-.input {
-  background: var(--input);
-  border: 1px solid var(--border);
-  color: var(--foreground);
-  padding: 10px 12px;
-  border-radius: var(--radius);
-  width: 100%;
-  font-family: var(--font-sans);
-  font-size: 14px;
-  transition: border-color 0.15s, box-shadow 0.15s;
-}
-
-.input:focus {
-  outline: none;
-  border-color: var(--ring);
-  box-shadow: 0 0 0 3px rgba(0, 180, 216, 0.12);
-}
-
-.input-small { width: 100px; }
-
-/* ===== PRE / CODE ===== */
-.pre {
-  margin: 10px 0 0 0;
-  background: #F8F9FA;
-  border: 1px solid var(--border);
-  border-radius: var(--radius);
-  padding: 14px;
-  overflow: auto;
-  max-height: 260px;
-  font-size: 13px;
-  line-height: 1.5;
-  white-space: pre-wrap;
-  word-break: break-word;
-  color: var(--foreground);
-  font-family: var(--font-mono);
-}
-
-.pre-logs { max-height: 520px; }
-
-/* ===== BUTTON VARIANTS ===== */
-.btn-coral {
-  background: var(--secondary);
-  border-color: var(--secondary);
-  color: #fff;
-}
-
-.btn-coral:hover {
-  filter: brightness(0.9);
-}
-
-.btn-accent {
-  background: var(--accent);
-  border-color: var(--accent);
-  color: #fff;
-}
-
-.btn-accent:hover {
-  filter: brightness(0.9);
-}
-
-.btn-green {
-  background: var(--green);
-  border-color: var(--green);
-  color: #fff;
-}
-
-.btn-green:hover {
-  filter: brightness(0.9);
-}
-
-.btn-gold {
-  background: var(--gold);
-  border-color: var(--gold);
-  color: #1A2B3C;
-}
-
-.btn-gold:hover {
-  filter: brightness(0.9);
-}
-
-/* ===== CARD ACCENT BORDERS ===== */
-.card-accent-teal {
-  border-top: 3px solid var(--primary);
-}
-
-.card-accent-coral {
-  border-top: 3px solid var(--secondary);
-}
-
-.card-accent-magenta {
-  border-top: 3px solid var(--accent);
-}
-
-.card-accent-green {
-  border-top: 3px solid var(--green);
-}
-
-.card-accent-gold {
-  border-top: 3px solid var(--gold);
-}
-
-/* ===== PILLS ===== */
-.pill-row {
-  display: flex;
-  flex-wrap: wrap;
-  align-items: center;
-  gap: 6px;
-}
-
-.pill {
-  display: inline-block;
-  padding: 3px 10px;
-  border-radius: 999px;
-  font-size: 12px;
-  font-weight: 600;
-  white-space: nowrap;
-}
-
-.pill-teal {
-  background: rgba(0, 180, 216, 0.1);
-  color: #0097B2;
-}
-
-.pill-coral {
-  background: rgba(255, 107, 53, 0.1);
-  color: #E55A2B;
-}
-
-.pill-green {
-  background: rgba(78, 203, 113, 0.1);
-  color: #35A85C;
-}
-
-.pill-gold {
-  background: rgba(255, 215, 0, 0.15);
-  color: #B8960B;
-}
-
-.pill-magenta {
-  background: rgba(232, 54, 143, 0.1);
-  color: #C82A78;
-}
-
-.pill-muted {
-  background: var(--muted);
-  color: var(--muted-foreground);
-}
-
-/* ===== UTILITIES ===== */
-.hint {
-  color: var(--muted-foreground);
-  font-size: 12px;
-  margin-top: 10px;
-  line-height: 1.5;
-  border-left: 3px solid var(--gold);
-  padding-left: 10px;
-}
-
-.mt { margin-top: 10px; }
-
-/* ===== SEQUENCE TABLE ===== */
-.seq-table {
-  width: 100%;
-  border-collapse: collapse;
-  margin-top: 10px;
-  font-size: 13px;
-}
-
-.seq-table th {
-  text-align: left;
-  padding: 8px 12px;
-  border-bottom: 2px solid var(--border);
-  color: var(--muted-foreground);
-  font-weight: 600;
-  font-size: 12px;
-  text-transform: uppercase;
-  letter-spacing: 0.5px;
-}
-
-.seq-table td {
-  padding: 6px 12px;
-  border-bottom: 1px solid var(--border);
-}
-
-.seq-table tbody tr:hover {
-  background: rgba(0, 180, 216, 0.04);
-}
-
-.seq-row-active {
-  background: rgba(0, 180, 216, 0.08);
-}
-
-.seq-row-active td:first-child {
-  font-weight: 600;
-}
-
-/* ===== DIAGNOSTICS COLLAPSIBLE ===== */
-details.diagnostics {
-  margin-top: 16px;
-}
-
-details.diagnostics summary {
-  cursor: pointer;
-  font-weight: 600;
-  font-size: 16px;
-  font-family: var(--font-heading);
-  color: var(--muted-foreground);
-  padding: 12px 0;
-}
-
-details.diagnostics summary:hover {
-  color: var(--primary);
-}
-
-details.diagnostics[open] summary {
-  color: var(--primary);
-}
-
-/* ===== MODAL (Sequence Details) ===== */
-.modal-overlay {
-  position: fixed;
-  inset: 0;
-  background: rgba(2, 6, 23, 0.65);
-  display: flex;
-  align-items: center;
-  justify-content: center;
-  padding: 18px;
-  z-index: 9999;
-}
-
-.modal {
-  width: min(920px, 100%);
-  max-height: 85vh;
-  overflow: auto;
-  background: var(--card);
-  border: 1px solid var(--border);
-  border-radius: 14px;
-  box-shadow: 0 16px 48px rgba(0, 0, 0, 0.35);
-  padding: 18px;
-}
-
-.modal-header {
-  display: flex;
-  align-items: flex-start;
-  justify-content: space-between;
-  gap: 12px;
-  margin-bottom: 12px;
-}
-
-.modal-title {
-  font-family: var(--font-heading);
-  font-weight: 800;
-  font-size: 20px;
-  color: var(--foreground);
-}
-
-.modal-subtitle {
-  margin-top: 4px;
-  color: var(--muted-foreground);
-  font-size: 13px;
-}
-
-.seq-row-clickable {
-  cursor: pointer;
-}
-
-.seq-row-clickable:hover {
-  background: rgba(0, 180, 216, 0.04);
-}
-
-/* ===== STEPS TABLE ===== */
-.steps-table {
-  width: 100%;
-  border-collapse: collapse;
-  margin-top: 10px;
-  font-size: 13px;
-}
-
-.steps-table th {
-  text-align: left;
-  padding: 8px 12px;
-  border-bottom: 2px solid var(--border);
-  color: var(--muted-foreground);
-  font-weight: 600;
-  font-size: 12px;
-  text-transform: uppercase;
-  letter-spacing: 0.5px;
-}
-
-.steps-table td {
-  padding: 8px 12px;
-  border-bottom: 1px solid var(--border);
-  vertical-align: middle;
-}
-
-.step-color {
-  display: inline-flex;
-  align-items: center;
-  gap: 10px;
-}
-
-.swatch {
-  width: 18px;
-  height: 18px;
-  border-radius: 6px;
-  border: 1px solid var(--border);
-  display: inline-block;
-}
-
-/* ===== Controls header row + help button ===== */
-.panel-top-row {
-  display: flex;
-  align-items: flex-start;
-  justify-content: space-between;
-  gap: 12px;
-}
-
-.finger-help-btn {
-  white-space: nowrap;
-}
-
-/* ===== Finger map ===== */
-.finger-map-wrap {
-  display: flex;
-  justify-content: center;
-  padding: 10px 0 4px;
-}
-
-.finger-map {
-  width: 100%;
-  max-width: 560px;
-  height: auto;
-}
-
-.mono {
-  font-family: var(--font-mono);
-}
-
-/* ===== DARK MODE (developer theme) OVERRIDES ===== */
-[data-theme="developer"] .pre {
-  background: #0D1B2A;
-}
-
-[data-theme="developer"] code {
-  background: #162336;
-}
-
-[data-theme="developer"] .pill-teal {
-  background: rgba(0, 180, 216, 0.2);
-  color: #4DD4EC;
-}
-
-[data-theme="developer"] .pill-coral {
-  background: rgba(255, 107, 53, 0.2);
-  color: #FF8C66;
-}
-
-[data-theme="developer"] .pill-green {
-  background: rgba(78, 203, 113, 0.2);
-  color: #6EE090;
-}
-
-[data-theme="developer"] .pill-gold {
-  background: rgba(255, 215, 0, 0.2);
-  color: #FFE04D;
-}
-
-[data-theme="developer"] .pill-magenta {
-  background: rgba(232, 54, 143, 0.2);
-  color: #F06AAE;
-}
-
-[data-theme="developer"] .seq-table tbody tr:hover {
-  background: rgba(0, 180, 216, 0.08);
-}
-
-/* ===== UPLOAD LOG ===== */
-.upload-log-toggle {
-  background: none;
-  border: none;
-  color: var(--muted-foreground);
-  font-size: 12px;
-  cursor: pointer;
-  padding: 4px 0;
-  font-family: var(--font-sans);
-}
-
-.upload-log-toggle:hover {
-  color: var(--primary);
-}
-
-.upload-log {
-  margin-top: 6px;
-  padding: 10px;
-  background: var(--muted);
-  border-radius: var(--radius);
-  font-family: var(--font-mono);
-  font-size: 12px;
-  line-height: 1.8;
-}
-
-.upload-log-line {
-  display: flex;
-  justify-content: space-between;
-  gap: 12px;
-}
-`;

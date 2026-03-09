@@ -207,14 +207,14 @@ void loadDefaultSequence() {
   strcpy(currentSequence.name, "Default Scale");
 
   const SequenceStep defaultSteps[] = {
-    {0, COLOR_RED,    500},   // C4 (key 0)
-    {4, COLOR_GREEN,  500},   // E4 (key 4)
-    {7, COLOR_BLUE,   500},   // G4 (key 7)
-    {4, COLOR_GREEN,  500},   // E4 (key 4)
-    {1, COLOR_RED,    500},   // C#4 (key 1)
-    {9, COLOR_GREEN,  500},   // A4 (key 9)
-    {8, COLOR_BLUE,   500},   // G#4 (key 8)
-    {5, COLOR_GREEN,  500}    // F4 (key 5)
+    {0, COLOR_CYAN,    500},   // C4 (key 0) — thumb
+    {4, COLOR_GOLD,    500},   // E4 (key 4) — middle
+    {7, COLOR_MAGENTA, 500},   // G4 (key 7) — pinky
+    {4, COLOR_GOLD,    500},   // E4 (key 4) — middle
+    {1, COLOR_CYAN,    500},   // C#4 (key 1) — thumb
+    {9, COLOR_CYAN,    500},   // A4 (key 9) — thumb
+    {8, COLOR_MAGENTA, 500},   // G#4 (key 8) — pinky
+    {5, COLOR_CORAL,   500}    // F4 (key 5) — ring
   };
 
   currentSequence.length = sizeof(defaultSteps) / sizeof(defaultSteps[0]);
