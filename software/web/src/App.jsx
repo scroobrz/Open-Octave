@@ -324,6 +324,23 @@ export default function App() {
     setSeqModalSeq(null);
   }
 
+  const HEX_TO_NAME = {
+    '00B4D8': 'Blue',
+    '4ECB71': 'Green',
+    'FFD700': 'Yellow',
+    'FF6B35': 'Orange',
+    'E8368F': 'Pink',
+  };
+
+  function hexColorName(hex) {
+    const clean = String(hex || '').trim().toUpperCase().replace('#', '');
+    return HEX_TO_NAME[clean] || hex;
+  }
+
+  const HEX_TO_FINGER = Object.fromEntries(
+    Object.entries(COLORS.fingerColors).map(([finger, hex]) => [hex.toUpperCase(), finger.charAt(0).toUpperCase() + finger.slice(1)])
+  );
+
   function renderColorSwatch(hex) {
     const clean = String(hex || '').trim();
     const css = clean ? `#${clean.replace('#', '')}` : '#000000';
@@ -1342,7 +1359,7 @@ export default function App() {
                 <div className="hint">
                   Required fields: <code>id</code> (numeric), <code>name</code>, <code>steps</code> (array of step objects).
                   Steps: <code>k</code> (key index 0–11), <code>c</code> (brand hex color — see palette), <code>d</code> (duration ms).<br />
-                  Allowed colours: {COLORS.fingerOrder.map(f => COLORS.fingerColors[f]).join(', ')}
+                  Allowed colours: {COLORS.fingerOrder.map(f => hexColorName(COLORS.fingerColors[f])).join(', ')}
                 </div>
               </div>
             )}
@@ -1519,7 +1536,7 @@ export default function App() {
                           <tr>
                             <th>#</th>
                             <th>Key</th>
-                            <th>Color</th>
+                            <th>{uiMode === 'user' ? 'Finger' : 'Color'}</th>
                             <th>Duration (ms)</th>
                           </tr>
                         </thead>
@@ -1536,7 +1553,11 @@ export default function App() {
                                 <td>
                                   <div className="step-color">
                                     {renderColorSwatch(colorHex)}
-                                    <span className="mono">{String(colorHex)}</span>
+                                    <span className="mono">
+                                      {uiMode === 'user'
+                                        ? (HEX_TO_FINGER[String(colorHex).toUpperCase()] || hexColorName(colorHex))
+                                        : hexColorName(colorHex)}
+                                    </span>
                                   </div>
                                 </td>
                                 <td>{durationMs}</td>
