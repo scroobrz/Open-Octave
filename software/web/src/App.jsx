@@ -355,36 +355,35 @@ export default function App() {
     setSeqModalSeq(null);
   }
 
-  const HEX_TO_NAME = {
-    // Default palette
-    '00B4D8': 'Blue',
-    '4ECB71': 'Green',
-    'FFD700': 'Yellow',
-    'FF6B35': 'Orange',
-    'E8368F': 'Pink',
-    // CB-friendly palette (same names)
-    '0072B2': 'Blue',
-    '009E73': 'Green',
-    'F0E442': 'Yellow',
-    'D55E00': 'Orange',
-    'CC79A7': 'Pink',
-  };
+  // Derive hex→friendly-name and hex→finger-name maps from colors.json
+  // so they stay in sync automatically when palettes change.
+  const { HEX_TO_NAME, HEX_TO_FINGER } = useMemo(() => {
+    const nameMap = {};
+    const fingerMap = {};
+    const allPalettes = [
+      COLORS.fingerColors,
+      ...(COLORS.alternativePalettes
+        ? Object.values(COLORS.alternativePalettes).map(p => p.fingerColors)
+        : [])
+    ];
+    for (const finger of COLORS.fingerOrder) {
+      const displayName = COLORS.fingerDisplayNames[finger];
+      const fingerLabel = finger.charAt(0).toUpperCase() + finger.slice(1);
+      for (const palette of allPalettes) {
+        const hex = palette[finger]?.toUpperCase();
+        if (hex) {
+          nameMap[hex] = displayName;
+          fingerMap[hex] = fingerLabel;
+        }
+      }
+    }
+    return { HEX_TO_NAME: nameMap, HEX_TO_FINGER: fingerMap };
+  }, []);
 
   function hexColorName(hex) {
     const clean = String(hex || '').trim().toUpperCase().replace('#', '');
     return HEX_TO_NAME[clean] || hex;
   }
-
-  const HEX_TO_FINGER = useMemo(() => {
-    const map = {};
-    for (const finger of COLORS.fingerOrder) {
-      const name = finger.charAt(0).toUpperCase() + finger.slice(1);
-      // Map both default and active-palette hex values to the finger name.
-      map[COLORS.fingerColors[finger].toUpperCase()] = name;
-      map[activeFingerColors[finger].toUpperCase()] = name;
-    }
-    return map;
-  }, [activeFingerColors]);
 
   function renderColorSwatch(hex) {
     const clean = String(hex || '').trim();

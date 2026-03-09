@@ -19,6 +19,13 @@
     }
   },
   "fingerOrder": ["thumb", "index", "middle", "ring", "pinky"],
+  "fingerDisplayNames": {
+    "thumb":  "Blue",
+    "index":  "Green",
+    "middle": "Yellow",
+    "ring":   "Orange",
+    "pinky":  "Pink"
+  },
   "errorColor": "FF0000",
   "fallbackColor": "FFFFFF",
   "keyToFinger": {
