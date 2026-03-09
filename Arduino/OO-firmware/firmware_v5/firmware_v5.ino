@@ -100,6 +100,9 @@ These are the two functions that Arduino calls automatically.
 
 // runs once
 void setup() {
+  // === SERIAL INITIALIZATION ===
+  Serial.begin(115200);
+
   LOGLN("\n========================================");
   LOGLN("    OPEN OCTAVE FIRMWARE V5 - INIT");
   LOGLN("========================================");
