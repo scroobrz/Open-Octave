@@ -232,7 +232,7 @@ export default function App() {
       const name = seqData?.item?.name || id;
 
       if (isConnected) {
-        const data = await apiPost(`/api/db/sequences/${encodeURIComponent(id)}/upload`);
+        const data = await apiPost(`/api/db/sequences/${encodeURIComponent(id)}/upload?colorMode=${colorMode}`);
         setLastResult(data);
         setSelectionStatus({
           sequenceId: id,

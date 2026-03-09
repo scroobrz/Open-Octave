@@ -15,9 +15,23 @@ const Database = require('better-sqlite3');
 const COLORS = require('../../shared/colors.json');
 
 // Build the set of allowed hex colours (uppercase) from the shared definitions.
-const ALLOWED_COLORS = new Set(
-  Object.values(COLORS.fingerColors).map(c => c.toUpperCase())
-);
+// Include both default and colourblind palette colours.
+const ALLOWED_COLORS = new Set([
+  ...Object.values(COLORS.fingerColors).map(c => c.toUpperCase()),
+  ...(COLORS.alternativePalettes?.colorblind
+    ? Object.values(COLORS.alternativePalettes.colorblind.fingerColors).map(c => c.toUpperCase())
+    : [])
+]);
+
+// Build a remap table: default hex → CB hex (for colourblind upload mode).
+const CB_COLOR_REMAP = {};
+if (COLORS.alternativePalettes?.colorblind) {
+  for (const finger of COLORS.fingerOrder) {
+    const original = COLORS.fingerColors[finger].toUpperCase();
+    const cbColor = COLORS.alternativePalettes.colorblind.fingerColors[finger].toUpperCase();
+    CB_COLOR_REMAP[original] = cbColor;
+  }
+}
 
 // Firmware v5 hard-limits uploads to MAX_SEQUENCE_LENGTH (see firmware_V5_config.h).
 // Keep this mirrored here so we fail fast before sending an upload that firmware will reject.
@@ -195,7 +209,7 @@ function sanitizeNameForFirmware(name) {
   return s || 'seq';
 }
 
-function generateUploadLinesFromData(id, name, data) {
+function generateUploadLinesFromData(id, name, data, colorMode = 'default') {
   const cleanId = String(id || '').trim();
   const cleanName = sanitizeNameForFirmware(name);
 
@@ -243,7 +257,12 @@ function generateUploadLinesFromData(id, name, data) {
       };
     }
 
-    lines.push(`S k=${k} c=${colorHex} d=${d}`);
+    // Remap to CB palette if colourblind mode is active.
+    const finalColor = (colorMode === 'colorblind' && CB_COLOR_REMAP[colorHex])
+      ? CB_COLOR_REMAP[colorHex]
+      : colorHex;
+
+    lines.push(`S k=${k} c=${finalColor} d=${d}`);
   }
 
   lines.push(`E i=${cleanId}`);

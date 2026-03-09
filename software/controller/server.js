@@ -1107,8 +1107,10 @@ app.post('/api/db/sequences/:id/upload', async (req, res) => {
     let lines = Array.isArray(seq.uploadLines) ? seq.uploadLines : [];
 
     // If uploadLines are not stored, generate them from the software model.
+    // Pass colorMode so the generator can remap colours for CB-friendly LEDs.
+    const colorMode = String(req.query.colorMode || 'default');
     if (!lines.length) {
-      const gen = generateUploadLinesFromData(seq.id, seq.name, seq.data);
+      const gen = generateUploadLinesFromData(seq.id, seq.name, seq.data, colorMode);
       if (!gen.ok) {
         res.status(400).json({ ok: false, error: gen.error });
         return;
