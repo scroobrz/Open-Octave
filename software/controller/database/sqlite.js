@@ -12,7 +12,7 @@ const path = require('path');
 const Database = require('better-sqlite3');
 
 // Shared colour definitions (single source of truth for controller + frontend)
-const COLORS = require('../shared/colors.json');
+const COLORS = require('../../shared/colors.json');
 
 // Build the set of allowed hex colours (uppercase) from the shared definitions.
 const ALLOWED_COLORS = new Set(
