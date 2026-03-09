@@ -799,7 +799,7 @@ app.get('/api/db/sequences/:id', (req, res) => {
 //   "id": "twinkle",
 //   "name": "Twinkle_Twinkle",
 //   "description": "Demo song",
-//   "steps": [ {"k":0,"c":"FF0000","d":300}, ... ]
+//   "steps": [ {"k":0,"c":"00B4D8","d":300}, ... ]
 // }
 // NOTE: uploadLines are generated on-demand during upload if not stored.
 app.post('/api/db/sequences', (req, res) => {

@@ -134,17 +134,16 @@ export default function App() {
   const [seqModalSeq, setSeqModalSeq] = useState(null); // full sequence object (includes steps)
 
   // ============ DB CREATE SEQUENCE (paste JSON) ============
-  const [dbCreateJson, setDbCreateJson] = useState(
-    pretty({
-      id: '10',
-      name: 'My Sequence',
-      description: 'Optional description',
-      steps: [
-        { k: 0, c: '00B4D8', d: 300 },
-        { k: 1, c: '4ECB71', d: 300 }
-      ]
-    })
-  );
+  const defaultTemplate = {
+    id: '10',
+    name: 'My Sequence',
+    description: 'Optional description',
+    steps: [
+      { k: 0, c: COLORS.fingerColors.thumb, d: 300 },
+      { k: 1, c: COLORS.fingerColors.index, d: 300 }
+    ]
+  };
+  const [dbCreateJson, setDbCreateJson] = useState(pretty(defaultTemplate));
   const [dbCreateMsg, setDbCreateMsg] = useState('');
   const [dbCreateErr, setDbCreateErr] = useState('');
   const [dbCreateBusy, setDbCreateBusy] = useState(false);
@@ -1322,17 +1321,7 @@ export default function App() {
                       onClick={() => {
                         setDbCreateMsg('');
                         setDbCreateErr('');
-                        setDbCreateJson(
-                          pretty({
-                            id: '10',
-                            name: 'My Sequence',
-                            description: 'Optional description',
-                            steps: [
-                              { k: 0, c: '00B4D8', d: 300 },
-                              { k: 1, c: '4ECB71', d: 300 }
-                            ]
-                          })
-                        );
+                        setDbCreateJson(pretty(defaultTemplate));
                       }}
                     >
                       Reset template
@@ -1352,7 +1341,8 @@ export default function App() {
 
                 <div className="hint">
                   Required fields: <code>id</code> (numeric), <code>name</code>, <code>steps</code> (array of step objects).
-                  Steps: <code>k</code> (key index 0–11), <code>c</code> (6-digit hex color, e.g. 00B4D8), <code>d</code> (duration ms).
+                  Steps: <code>k</code> (key index 0–11), <code>c</code> (brand hex color — see palette), <code>d</code> (duration ms).
+                  Allowed colours: {COLORS.fingerOrder.map(f => COLORS.fingerColors[f]).join(', ')}
                 </div>
               </div>
             )}
@@ -1664,8 +1654,8 @@ const styles = `
 }
 
 .nav-btn.is-active {
-  background: rgba(0, 180, 216, 0.15);
-  color: #00B4D8;
+  background: color-mix(in srgb, var(--primary) 15%, transparent);
+  color: var(--primary);
   border-left: 3px solid;
   border-image: var(--gradient) 1;
   border-top: none;
@@ -1726,7 +1716,7 @@ const styles = `
   left: 0;
   width: 2px;
   height: 100%;
-  background: linear-gradient(to bottom, #00B4D8, #4ECB71, #FFD700, #FF6B35, #E8368F);
+  background: linear-gradient(to bottom, var(--primary), var(--green), var(--gold), var(--secondary), var(--accent));
 }
 
 .panel { max-width: 1200px; }
