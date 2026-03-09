@@ -1486,22 +1486,17 @@ export default function App() {
                     Tip: In Guided mode, wait for the LED colour, then press the matching finger.
                   </div>
 
-                  <div className="btn-row" style={{ justifyContent: 'center', marginTop: 12 }}>
-                    <button
-                      className={colorMode === 'default' ? 'btn btn-sm' : 'btn btn-sm btn-secondary'}
-                      type="button"
-                      onClick={() => setColorMode('default')}
-                    >
-                      Standard colours
-                    </button>
-                    <button
-                      className={colorMode === 'colorblind' ? 'btn btn-sm' : 'btn btn-sm btn-secondary'}
-                      type="button"
-                      onClick={() => setColorMode('colorblind')}
-                    >
-                      Colourblind-friendly
-                    </button>
-                  </div>
+                  <label className="cb-toggle" style={{ marginTop: 12 }}>
+                    <input
+                      type="checkbox"
+                      checked={colorMode === 'colorblind'}
+                      onChange={(e) => setColorMode(e.target.checked ? 'colorblind' : 'default')}
+                    />
+                    <span className="cb-toggle-track">
+                      <span className="cb-toggle-knob" />
+                    </span>
+                    <span className="cb-toggle-label">Colourblind-friendly</span>
+                  </label>
                 </div>
               </div>
             </div>
@@ -1948,6 +1943,58 @@ h2 {
 .btn-sm {
   padding: 6px 14px;
   font-size: 12px;
+}
+
+/* ===== CB TOGGLE PILL ===== */
+.cb-toggle {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  gap: 10px;
+  cursor: pointer;
+  user-select: none;
+}
+
+.cb-toggle input {
+  position: absolute;
+  opacity: 0;
+  width: 0;
+  height: 0;
+}
+
+.cb-toggle-track {
+  position: relative;
+  width: 38px;
+  height: 20px;
+  background: var(--border);
+  border-radius: 10px;
+  transition: background 0.25s;
+  flex-shrink: 0;
+}
+
+.cb-toggle input:checked + .cb-toggle-track {
+  background: var(--primary);
+}
+
+.cb-toggle-knob {
+  position: absolute;
+  top: 2px;
+  left: 2px;
+  width: 16px;
+  height: 16px;
+  background: #fff;
+  border-radius: 50%;
+  transition: transform 0.25s;
+  box-shadow: 0 1px 3px rgba(0,0,0,0.3);
+}
+
+.cb-toggle input:checked + .cb-toggle-track .cb-toggle-knob {
+  transform: translateX(18px);
+}
+
+.cb-toggle-label {
+  font-size: 12px;
+  color: var(--muted);
 }
 
 .btn-secondary {
