@@ -65,6 +65,7 @@ uint8_t numModulesInChain = 1;
 
 unsigned long timeLastHeartbeatSent = 0;
 unsigned long timeLastHeartbeatReceived = 0;
+unsigned long timeLastHeartbeatReplyReceived = 0;
 
 bool uploadingSequence = false;
 uint8_t uploadStepCount = 0;
@@ -200,10 +201,7 @@ void setup() {
 
 // runs repeatedly forever
 void loop() {
-  handleSerialCommandsFromUpstream();
-  handleSerialCommandsFromDownstream();
-  checkHeartbeat();
-  sendHeartbeat();
+  handleChainCommunication();
 
   if (isMaster){
     webSocket.loop();

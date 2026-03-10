@@ -40,6 +40,14 @@ void handleWebSocketCommand(char *cmd, size_t length){
   }
 }
 
+void handleChainCommunication(){
+  handleSerialCommandsFromUpstream();
+  handleSerialCommandsFromDownstream();
+  checkHeartbeat();
+  checkHeartbeatReply();
+  sendHeartbeat();
+}
+
 // Masters begin the heartbeat chain
 void sendHeartbeat() {
   if (isMaster && millis() - timeLastHeartbeatSent >= HEARTBEAT_INTERVAL) {
@@ -60,6 +68,15 @@ void checkHeartbeat() {
     LOGLN("[SETUP] Connecting to WiFi...");
     setupWiFi();
     LOGLN("[SETUP] WiFi & WebSocket Active!");
+  }
+}
+
+// Modules with downstream neighbors check for downstream replies and reset count if lost
+void checkHeartbeatReply() {
+  if (numModulesInChain > moduleChainIndex + 1 &&
+      millis() - timeLastHeartbeatReplyReceived >= HEARTBEAT_TIMEOUT) {
+    numModulesInChain = moduleChainIndex + 1;  // Only count up to self
+    LOGF("[CHAIN] Downstream lost — chain count reset to %d\n", numModulesInChain);
   }
 }
 
@@ -121,7 +138,16 @@ void handleSerialCommandsFromDownstream(){
 }
 
 void handleHeartbeatFromDownstream(uint8_t num){
-  numModulesInChain = num + 1;
+  timeLastHeartbeatReplyReceived = millis();
+
+  // Only accept if this represents a higher count than we currently know.
+  // Prevents flickering when intermediate modules reply before the tail's
+  // forwarded reply arrives. The timeout in checkHeartbeatReply()
+  // handles the count going DOWN (module removal).
+  uint8_t reportedCount = num + 1;
+  if (reportedCount > numModulesInChain) {
+    numModulesInChain = reportedCount;
+  }
 
   // slaves forward replies upstream
   if (!isMaster){
