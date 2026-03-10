@@ -85,6 +85,7 @@ void handleSerialCommandsFromUpstream(){
 void handleHeartbeatFromUpstream(uint8_t num){
   timeLastHeartbeatReceived = millis();
   moduleChainIndex = num;
+  numModulesInChain = num + 1;
 
   if (isMaster){
     isMaster = false;
