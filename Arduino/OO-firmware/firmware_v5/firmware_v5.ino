@@ -60,7 +60,7 @@ HardwareSerial DownstreamSerial(2);
 // ============ GLOBAL STATE ============
 
 bool isMaster = true;
-uint8_t moduleNumberInChain = 0;
+uint8_t moduleChainIndex = 0;
 uint8_t numModulesInChain = 1;
 
 unsigned long timeLastHeartbeatSent = 0;

@@ -44,7 +44,7 @@ void handleWebSocketCommand(char *cmd, size_t length){
 void sendHeartbeat() {
   if (isMaster && millis() - timeLastHeartbeatSent >= HEARTBEAT_INTERVAL) {
     DownstreamSerial.write(CHAIN_HEARTBEAT_BYTE);
-    DownstreamSerial.write(moduleNumberInChain + 1);
+    DownstreamSerial.write(moduleChainIndex + 1);
     timeLastHeartbeatSent = millis();
   }
 }
@@ -53,7 +53,7 @@ void sendHeartbeat() {
 void checkHeartbeat() {
   if (!isMaster && millis() - timeLastHeartbeatReceived >= HEARTBEAT_TIMEOUT){
     isMaster = true;
-    moduleNumberInChain = 0;                                                                                                              
+    moduleChainIndex = 0;                                                                                                              
     numModulesInChain = 1;                                                                                                                
     LOGLN("[CHAIN] Upstream lost — promoting to MASTER");
 
@@ -84,7 +84,7 @@ void handleSerialCommandsFromUpstream(){
 
 void handleHeartbeatFromUpstream(uint8_t num){
   timeLastHeartbeatReceived = millis();
-  moduleNumberInChain = num;
+  moduleChainIndex = num;
 
   if (isMaster){
     isMaster = false;
@@ -93,11 +93,11 @@ void handleHeartbeatFromUpstream(uint8_t num){
 
   // Forward heartbeat downstream
   DownstreamSerial.write(CHAIN_HEARTBEAT_BYTE);
-  DownstreamSerial.write(moduleNumberInChain + 1);
+  DownstreamSerial.write(moduleChainIndex + 1);
 
   // Reply upstream
   UpstreamSerial.write(CHAIN_HEARTBEAT_BYTE);
-  UpstreamSerial.write(moduleNumberInChain);
+  UpstreamSerial.write(moduleChainIndex);
 }
 
 // Handles incoming commands from the downstream serial port.
