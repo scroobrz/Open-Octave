@@ -4,6 +4,15 @@
 ===============================
 */
 
+bool checkUpstream(){
+  pinMode(16, INPUT_PULLDOWN);
+  delay(10);
+  bool hasUpstream = digitalRead(16) == HIGH;
+  pinMode(16, INPUT);
+
+  return hasUpstream;
+}
+
 void safeServoSetAngle(uint8_t channel, uint16_t angle) {
   uint16_t clampedAngle = constrain(angle, SERVO_MIN_SAFE_ANGLE, SERVO_MAX_SAFE_ANGLE);
 

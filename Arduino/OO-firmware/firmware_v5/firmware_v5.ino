@@ -119,6 +119,8 @@ These are the two functions that Arduino calls automatically.
 
 // runs once
 void setup() {
+  bool hasUpstream = checkUpstream(); // raw GPIO read before serial init
+
   // === SERIAL INITIALIZATION ===
   Serial.begin(115200);
   UpstreamSerial.begin(9600, SERIAL_8N1, 16, 17);
@@ -185,9 +187,11 @@ void setup() {
   }
   LOGF("OK (%d keys initialized)\n", NUM_KEYS);
 
-  LOGLN("[SETUP] Connecting to WiFi...");
-  setupWiFi();
-  LOGLN("[SETUP] WiFi & WebSocket Active!");
+  if (!hasUpstream){
+    LOGLN("[SETUP] Connecting to WiFi...");
+    setupWiFi();
+    LOGLN("[SETUP] WiFi & WebSocket Active!");
+  }
 
   LOGLN("========================================");
   LOGLN("[SETUP] Complete!");

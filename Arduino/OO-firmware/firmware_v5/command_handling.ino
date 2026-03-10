@@ -55,6 +55,10 @@ void checkHeartbeat() {
     moduleNumberInChain = 0;                                                                                                              
     numModulesInChain = 1;                                                                                                                
     LOGLN("[CHAIN] Upstream lost — promoting to MASTER");
+
+    LOGLN("[SETUP] Connecting to WiFi...");
+    setupWiFi();
+    LOGLN("[SETUP] WiFi & WebSocket Active!");
   }
 }
 
