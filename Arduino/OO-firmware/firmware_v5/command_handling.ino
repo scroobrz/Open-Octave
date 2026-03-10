@@ -5,7 +5,7 @@
 The firmware exposes a command API over two transports:
 
   1. USB Serial — characters arrive one byte at a time via the hardware
-     UART (Serial.read). handleSerialCommand() accumulates them into a
+     UART (Serial.read). handleSerialCommands() accumulates them into a
      line buffer until a newline is received, then dispatches the
      complete line. Log output is printed to Serial.
 
@@ -30,6 +30,7 @@ Both transports use identical routing logic: a 1-byte payload goes to
 processSingleCharCommand(); anything longer goes to handleSequenceCommand().
 */
 
+#include <cstdint>
 void handleWebSocketCommand(char *cmd, size_t length){
   if (length == 1){
     // regular single-character command
@@ -40,12 +41,91 @@ void handleWebSocketCommand(char *cmd, size_t length){
   }
 }
 
-void handleSerialCommand() {
-  // Read all available bytes into the line buffer one at a time.
-  // Serial data arrives byte-by-byte (unlike WebSocket, which delivers
-  // complete payloads), so we must accumulate characters until a newline
-  // signals the end of a line and a complete command is ready.
+void sendHeartbeat() {
+  if (isMaster && millis() - timeLastHeartbeatSent >= HEARTBEAT_INTERVAL) {
+    DownstreamSerial.write(CHAIN_HEARTBEAT_BYTE);
+    DownstreamSerial.write(moduleNumberInChain + 1);
+    timeLastHeartbeatSent = millis();
+  }
+}
 
+void checkHeartbeat() {
+  if (!isMaster && millis() - timeLastHeartbeatReceived >= HEARTBEAT_TIMEOUT){
+    isMaster = true;
+    moduleNumberInChain = 0;                                                                                                              
+    numModulesInChain = 1;                                                                                                                
+    LOGLN("[CHAIN] Upstream lost — promoting to MASTER");
+  }
+}
+
+// Handles incoming commands from the upstream serial port
+void handleUpstreamSerialCommands(){
+  while (UpstreamSerial.available()){
+    uint8_t byte = UpstreamSerial.peek();
+
+    if (byte == CHAIN_HEARTBEAT_BYTE){
+      // wait for both bytes
+      if (UpstreamSerial.available() < 2) {
+        return;
+      }
+
+      UpstreamSerial.read(); // conusme
+      handleUpstreamHeartbeat(UpstreamSerial.read());
+    } else {
+      // TODO handle non-heartbeat intermodule commands
+    }
+  }
+}
+
+void handleUpstreamHeartbeat(uint8_t num){
+  timeLastHeartbeatReceived = millis();
+  moduleNumberInChain = num;
+
+  if (isMaster){
+    isMaster = false;
+    LOGLN("[CHAIN] Upstream detected — demoting to SLAVE");
+  }
+
+  // Forward heartbeat downstream
+  DownstreamSerial.write(CHAIN_HEARTBEAT_BYTE);
+  DownstreamSerial.write(moduleNumberInChain + 1);
+
+  // Reply upstream
+  UpstreamSerial.write(CHAIN_HEARTBEAT_BYTE);
+  UpstreamSerial.write(moduleNumberInChain);
+}
+
+// Handles incoming commands from the downstream serial port
+void handleDownstreamSerialCommands(){
+  while (DownstreamSerial.available()){
+    uint8_t byte = DownstreamSerial.peek();
+
+    if (byte == CHAIN_HEARTBEAT_BYTE){
+      // wait for both bytes
+      if (DownstreamSerial.available() < 2) {
+        return;
+      }
+
+      DownstreamSerial.read(); // conusme
+      handleDownstreamHeartbeat(DownstreamSerial.read());
+    } else {
+      // TODO handle non-heartbeat intermodule commands
+    }
+  }
+}
+
+void handleDownstreamHeartbeat(uint8_t num){
+  numModulesInChain = num + 1;
+
+  // slaves forward replies upstream
+  if (!isMaster){
+    UpstreamSerial.write(CHAIN_HEARTBEAT_BYTE);
+    UpstreamSerial.write(num);
+  }
+}
+
+// Handles incoming commands from the USB serial port
+void handleUsbSerialCommands() {
   // NOTE: Serial monitor must be set to "Newline" or "Both NL and CR" for
   // commands to be properly processed by this function
 

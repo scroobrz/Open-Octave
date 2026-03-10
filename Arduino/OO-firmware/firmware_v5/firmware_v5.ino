@@ -25,6 +25,7 @@
 #include "clsPCA9555.h"
 #include "firmware_V5_config.h"
 #include "firmware_V5_debug.h"
+#include "sys/_intsup.h"
 #include <Adafruit_NeoPixel.h>
 #include <Wire.h>
 #include <WiFi.h>
@@ -53,7 +54,17 @@ PCA9555 ioport(0x20);
 
 WebSocketsServer webSocket(81);
 
+HardwareSerial UpstreamSerial(1);
+HardwareSerial DownstreamSerial(2);
+
 // ============ GLOBAL STATE ============
+
+bool isMaster = true;
+uint8_t moduleNumberInChain = 0;
+uint8_t numModulesInChain = 1;
+
+unsigned long timeLastHeartbeatSent = 0;
+unsigned long timeLastHeartbeatReceived = 0;
 
 bool uploadingSequence = false;
 uint8_t uploadStepCount = 0;
@@ -89,7 +100,15 @@ bool wsReady = false;  // Prevents wsBroadcastLog() from running before webSocke
 
 char serialBuf[SERIAL_BUF_SIZE];
 uint8_t serialBufPos = 0;
-bool serialBufOverflow = false;  // true = discard bytes until next newline
+bool serialBufOverflow = false;
+
+char upstreamSerialBuf[SERIAL_BUF_SIZE];
+uint8_t upstreamSerialBufPos = 0;
+bool upstreamSerialBufOverflow = false;
+
+char downstreamSerialBuf[SERIAL_BUF_SIZE];
+uint8_t downstreamSerialBufPos = 0;
+bool downstreamSerialBufOverflow = false;
 
 /*
 ===============================
@@ -102,6 +121,8 @@ These are the two functions that Arduino calls automatically.
 void setup() {
   // === SERIAL INITIALIZATION ===
   Serial.begin(115200);
+  UpstreamSerial.begin(9600, SERIAL_8N1, 16, 17);
+  DownstreamSerial.begin(9600, SERIAL_8N1, 4, 15);
 
   LOGLN("\n========================================");
   LOGLN("    OPEN OCTAVE FIRMWARE V5 - INIT");
@@ -175,9 +196,17 @@ void setup() {
 
 // runs repeatedly forever
 void loop() {
-  webSocket.loop();
-  handleSerialCommand();
+  handleUpstreamSerialCommands();
+  handleDownstreamSerialCommands();
+  checkHeartbeat();
+  sendHeartbeat();
+
+  if (isMaster){
+    webSocket.loop();
+    handleUsbSerialCommands();
+    checkWiFiStatus();
+  }
+
   handleKeyPresses();
-  checkWiFiStatus();
   handleSequencePlayback();
 }

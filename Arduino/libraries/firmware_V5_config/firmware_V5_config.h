@@ -10,15 +10,19 @@
 #define WIFI_SSID "Open Octave"
 #define WIFI_PASSWORD "oop321321"
 
-// ============ HARDWARE CONFIG ============
-
-#define DEBOUNCE_DELAY 50
-#define SERVO_RELEASE_DELAY 120   // ms to wait for servo to physically release
+#define HEARTBEAT_INTERVAL 1000
+#define HEARTBEAT_TIMEOUT 2000
+#define CHAIN_HEARTBEAT_BYTE 0xFE
 
 #define MAX_SEQUENCE_LENGTH 64
 
 #define MIN_NOTE_DURATION 100
 #define MAX_NOTE_DURATION 10000
+
+// ============ HARDWARE CONFIG ============
+
+#define DEBOUNCE_DELAY 50
+#define SERVO_RELEASE_DELAY 120   // ms to wait for servo to physically release
 
 #define SERVO_FREQ 50
 #define SERVO_REST_ANGLE 0
