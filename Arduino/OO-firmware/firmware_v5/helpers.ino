@@ -5,10 +5,10 @@
 */
 
 bool checkUpstream(){
-  pinMode(16, INPUT_PULLDOWN);
+  pinMode(RX1, INPUT_PULLDOWN);
   delay(10);
-  bool hasUpstream = digitalRead(16) == HIGH;
-  pinMode(16, INPUT);
+  bool hasUpstream = digitalRead(RX1) == HIGH;
+  pinMode(RX1, INPUT);
 
   return hasUpstream;
 }

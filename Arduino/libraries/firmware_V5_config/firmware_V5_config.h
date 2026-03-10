@@ -39,6 +39,12 @@
 // STRICTLY AVOID On ESP32: IO6-IO11 (SPI flash), IO1/IO3 (UART), IO34-IO39 (input-only)
 // RESERVED On ESP32: IO21 (SDA) and IO22 (SCL) for I2C to PCA9685 and PCA9555
 
+#define RX1 16
+#define TX1 17
+
+#define RX2 4
+#define TX2 15
+
 #define SPEAKER_PIN 25          // D2 (IO25) — DAC-capable, good for audio
 
 #define KEY0_BUTTON_PIN 0
