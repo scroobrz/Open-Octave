@@ -30,7 +30,6 @@ Both transports use identical routing logic: a 1-byte payload goes to
 processSingleCharCommand(); anything longer goes to handleSequenceCommand().
 */
 
-#include <cstdint>
 void handleWebSocketCommand(char *cmd, size_t length){
   if (length == 1){
     // regular single-character command
@@ -41,6 +40,7 @@ void handleWebSocketCommand(char *cmd, size_t length){
   }
 }
 
+// Masters begin the heartbeat chain
 void sendHeartbeat() {
   if (isMaster && millis() - timeLastHeartbeatSent >= HEARTBEAT_INTERVAL) {
     DownstreamSerial.write(CHAIN_HEARTBEAT_BYTE);
@@ -49,6 +49,7 @@ void sendHeartbeat() {
   }
 }
 
+// Slaves check for upstream heartbeats and promote themselves if lost
 void checkHeartbeat() {
   if (!isMaster && millis() - timeLastHeartbeatReceived >= HEARTBEAT_TIMEOUT){
     isMaster = true;
@@ -63,7 +64,7 @@ void checkHeartbeat() {
 }
 
 // Handles incoming commands from the upstream serial port
-void handleUpstreamSerialCommands(){
+void handleSerialCommandsFromUpstream(){
   while (UpstreamSerial.available()){
     uint8_t byte = UpstreamSerial.peek();
 
@@ -81,7 +82,7 @@ void handleUpstreamSerialCommands(){
   }
 }
 
-void handleUpstreamHeartbeat(uint8_t num){
+void handleHeartbeatFromUpstream(uint8_t num){
   timeLastHeartbeatReceived = millis();
   moduleNumberInChain = num;
 
@@ -99,8 +100,8 @@ void handleUpstreamHeartbeat(uint8_t num){
   UpstreamSerial.write(moduleNumberInChain);
 }
 
-// Handles incoming commands from the downstream serial port
-void handleDownstreamSerialCommands(){
+// Handles incoming commands from the downstream serial port.
+void handleSerialCommandsFromDownstream(){
   while (DownstreamSerial.available()){
     uint8_t byte = DownstreamSerial.peek();
 
@@ -118,7 +119,7 @@ void handleDownstreamSerialCommands(){
   }
 }
 
-void handleDownstreamHeartbeat(uint8_t num){
+void handleHeartbeatFromDownstream(uint8_t num){
   numModulesInChain = num + 1;
 
   // slaves forward replies upstream

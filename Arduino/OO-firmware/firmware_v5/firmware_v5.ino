@@ -200,8 +200,8 @@ void setup() {
 
 // runs repeatedly forever
 void loop() {
-  handleUpstreamSerialCommands();
-  handleDownstreamSerialCommands();
+  handleSerialCommandsFromUpstream();
+  handleSerialCommandsFromDownstream();
   checkHeartbeat();
   sendHeartbeat();
 
