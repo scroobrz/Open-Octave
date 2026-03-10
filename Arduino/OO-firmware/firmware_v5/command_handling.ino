@@ -75,7 +75,7 @@ void handleSerialCommandsFromUpstream(){
       }
 
       UpstreamSerial.read(); // conusme
-      handleUpstreamHeartbeat(UpstreamSerial.read());
+      handleHeartbeatFromUpstream(UpstreamSerial.read());
     } else {
       // TODO handle non-heartbeat intermodule commands
     }
@@ -113,7 +113,7 @@ void handleSerialCommandsFromDownstream(){
       }
 
       DownstreamSerial.read(); // conusme
-      handleDownstreamHeartbeat(DownstreamSerial.read());
+      handleHeartbeatFromDownstream(DownstreamSerial.read());
     } else {
       // TODO handle non-heartbeat intermodule commands
     }
