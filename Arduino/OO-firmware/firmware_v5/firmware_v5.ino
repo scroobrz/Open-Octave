@@ -191,6 +191,7 @@ void setup() {
   if (!hasUpstream){
     LOGLN("[SETUP] Connecting to WiFi...");
     connectToWifi();
+    connectToWebsocket();
     LOGLN("[SETUP] WiFi & WebSocket Active!");
   }
 
