@@ -27,6 +27,11 @@ void connectToWifi() {
   }
 }
 
+void disconnectWifi() {
+  WiFi.disconnect();
+  LOGLN("[WIFI] Disconnected");
+}
+
 void checkWiFiStatus() {
   // report connection status periodically
   if (millis() - lastWifiCheckTime >= WIFI_CHECK_INTERVAL) {
@@ -42,7 +47,13 @@ void connectToWebsocket(){
   // Auto-reconnect every 5 seconds if connection gets dropped
   webSocket.setReconnectInterval(2500);
   wsReady = true;
-  LOGLN("[SETUP] WebSocket client started");
+  LOGLN("[WS] WebSocket client started");
+}
+
+void disconnectWebsocket() {
+  webSocket.disconnect();
+  wsReady = false;
+  LOGLN("[WS] Disconnected");
 }
 
 // Called by the WebSocketsClient library whenever a WebSocket event occurs.

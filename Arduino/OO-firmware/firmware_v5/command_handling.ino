@@ -60,14 +60,7 @@ void sendHeartbeat() {
 // Slaves check for upstream heartbeats and promote themselves if lost
 void checkHeartbeat() {
   if (!isMaster && millis() - timeLastHeartbeatReceived >= HEARTBEAT_TIMEOUT){
-    isMaster = true;
-    moduleChainIndex = 0;                                                                                                              
-    numModulesInChain = 1;                                                                                                                
-    LOGLN("[CHAIN] Upstream lost — promoting to MASTER");
-
-    LOGLN("[SETUP] Connecting to WiFi...");
-    setupWiFi();
-    LOGLN("[SETUP] WiFi & WebSocket Active!");
+    promoteToMaster();
   }
 }
 
@@ -105,8 +98,7 @@ void handleHeartbeatFromUpstream(uint8_t num){
   numModulesInChain = num + 1;
 
   if (isMaster){
-    isMaster = false;
-    LOGLN("[CHAIN] Upstream detected — demoting to SLAVE");
+    demoteToSlave();
   }
 
   // Forward heartbeat downstream
