@@ -24,9 +24,9 @@ void safeServoSetAngle(uint8_t channel, uint16_t angle) {
   servoDriver.setAngle(channel, clampedAngle);
 }
 
-void wsBroadcastLog(const char* msg) {
+void wsSendLog(const char* msg) {
   if (!wsReady) return;  // WebSocket not yet initialized
-  webSocket.broadcastTXT(msg);
+  webSocket.sendTXT(msg);
 }
 
 inline void servoPull(int channel) {

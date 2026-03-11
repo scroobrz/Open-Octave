@@ -13,11 +13,11 @@
 #if DEBUG_ENABLED
 
 // Forward declaration
-void wsBroadcastLog(const char* msg);
+void wsSendLog(const char* msg);
 
 // Print string literals (uses F() for flash storage)
-#define LOG(str)   do { Serial.print(F(str)); wsBroadcastLog(str); } while(0)
-#define LOGLN(str) do { Serial.println(F(str)); wsBroadcastLog(str); wsBroadcastLog("\n"); } while(0)
+#define LOG(str)   do { Serial.print(F(str)); wsSendLog(str); } while(0)
+#define LOGLN(str) do { Serial.println(F(str)); wsSendLog(str); wsSendLog("\n"); } while(0)
 
 // Print variables/values (non-string-literal values)
 // These use a small stack buffer to convert the value to a string,
@@ -27,7 +27,7 @@ void wsBroadcastLog(const char* msg);
     char _buf[LOG_BUFFER_SIZE];                   \
     String _tmp(x);                               \
     _tmp.toCharArray(_buf, sizeof(_buf));          \
-    wsBroadcastLog(_buf);                          \
+    wsSendLog(_buf);                          \
   } while(0)
 
 #define LOGLN_VAL(x) do {                         \
@@ -35,8 +35,8 @@ void wsBroadcastLog(const char* msg);
     char _buf[LOG_BUFFER_SIZE];                   \
     String _tmp(x);                               \
     _tmp.toCharArray(_buf, sizeof(_buf));          \
-    wsBroadcastLog(_buf);                          \
-    wsBroadcastLog("\n");                          \
+    wsSendLog(_buf);                          \
+    wsSendLog("\n");                          \
   } while(0)
 
 // Print formatted strings (printf-style)
@@ -45,7 +45,7 @@ void wsBroadcastLog(const char* msg);
     Serial.printf(fmt, ##__VA_ARGS__);            \
     char _buf[LOG_BUFFER_SIZE];                   \
     snprintf(_buf, sizeof(_buf), fmt, ##__VA_ARGS__); \
-    wsBroadcastLog(_buf);                          \
+    wsSendLog(_buf);                          \
   } while(0)
 
 #else

@@ -29,7 +29,7 @@
 #include <Adafruit_NeoPixel.h>
 #include <Wire.h>
 #include <WiFi.h>
-#include <WebSocketsServer.h>
+#include <WebSocketsClient.h>
 #include <cstdint>
 
 // ============ HARDWARE DEFINITIONS ============
@@ -52,7 +52,7 @@ Key keys[NUM_KEYS] = {
 ServoDriver servoDriver;
 PCA9555 ioport(0x20);
 
-WebSocketsServer webSocket(81);
+WebSocketsClient webSocket;
 
 HardwareSerial UpstreamSerial(1);
 HardwareSerial DownstreamSerial(2);
@@ -97,7 +97,7 @@ uint8_t testLogAutoRepeatStreak = 0;
 
 unsigned long lastWifiCheckTime = 0;
 bool isWifiConnected = false;
-bool wsReady = false;  // Prevents wsBroadcastLog() from running before webSocket.begin()
+bool wsReady = false;  // Prevents wsSendLog() from running before webSocket.begin()
 
 char serialBuf[SERIAL_BUF_SIZE];
 uint8_t serialBufPos = 0;

@@ -14,6 +14,9 @@
 #define ESP32_GATEWAY IPAddress(192, 168, 4, 1)
 #define ESP32_SUBNET  IPAddress(255, 255, 255, 0)
 
+#define CONTROLLER_IP "192.168.4.2" // replace with real IP
+#define CONTROLLER_PORT 81
+
 #define WIFI_CHECK_INTERVAL 20000
 
 #define HEARTBEAT_INTERVAL 1000

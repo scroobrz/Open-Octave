@@ -25,12 +25,6 @@ void connectToWifi() {
   } else {
     LOGF("[WIFI] Connection FAILED (status: %d)\n", WiFi.status());
   }
-
-  // Start WebSocket server
-  webSocket.begin();
-  webSocket.onEvent(webSocketEvent);
-  wsReady = true;
-  LOGLN("[SETUP] WebSocket server started on port 81");
 }
 
 void checkWiFiStatus() {
@@ -41,24 +35,33 @@ void checkWiFiStatus() {
   }
 }
 
-// Called by the WebSocketsServer library whenever a WebSocket event occurs.
+void connectToWebsocket(){
+  // Connect to the controller (acting as the WebSocket server).
+  webSocket.begin(CONTROLLER_IP, CONTROLLER_PORT, "/");
+  webSocket.onEvent(webSocketEvent);
+  // Auto-reconnect every 5 seconds if connection gets dropped
+  webSocket.setReconnectInterval(2500);
+  wsReady = true;
+  LOGLN("[SETUP] WebSocket client started");
+}
+
+// Called by the WebSocketsClient library whenever a WebSocket event occurs.
 // WStype_t tells us what kind of event it is (connect, disconnect, message, etc).
-void webSocketEvent(uint8_t num, WStype_t type, uint8_t *payload, size_t length) {
+// Notice that 'num' (client ID) is not present because we are the client.
+void webSocketEvent(WStype_t type, uint8_t * payload, size_t length) {
   switch (type) {
 
     case WStype_DISCONNECTED:
-      LOGF("[WS] Client %u disconnected\n", num);
+      LOGLN("[WS] Disconnected from server");
       break;
 
     case WStype_CONNECTED:
-      {
-        LOGF("[WS] Client %u connected\n", num);
-      }
+      LOGLN("[WS] Connected to server");
       break;
 
     case WStype_TEXT:
       if (length > 0) {
-        LOGF("[WS] Received payload from client %u (%d bytes)\n", num, (int)length);
+        LOGF("[WS] Received payload from server (%d bytes)\n", (int)length);
         handleWebSocketCommand((char*)payload, length);
       }
       break;
