@@ -10,6 +10,12 @@
 #define WIFI_SSID "Open Octave"
 #define WIFI_PASSWORD "oop321321"
 
+#define ESP32_IP      IPAddress(192, 168, 4, 100)
+#define ESP32_GATEWAY IPAddress(192, 168, 4, 1)
+#define ESP32_SUBNET  IPAddress(255, 255, 255, 0)
+
+#define WIFI_CHECK_INTERVAL 20000
+
 #define HEARTBEAT_INTERVAL 1000
 #define HEARTBEAT_TIMEOUT 2000
 #define CHAIN_HEARTBEAT_BYTE 0xFE

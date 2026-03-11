@@ -190,7 +190,7 @@ void setup() {
 
   if (!hasUpstream){
     LOGLN("[SETUP] Connecting to WiFi...");
-    setupWiFi();
+    connectToWifi();
     LOGLN("[SETUP] WiFi & WebSocket Active!");
   }
 

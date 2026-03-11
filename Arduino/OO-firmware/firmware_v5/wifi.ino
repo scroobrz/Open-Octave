@@ -6,13 +6,25 @@ WiFi Access Point setup, connection status reporting,
 and WebSocket event handling.
 */
 
-void setupWiFi() {
-  WiFi.mode(WIFI_AP);
-  WiFi.softAP(WIFI_SSID, WIFI_PASSWORD);
-  LOG("[WIFI] Access Point started: ");
-  LOGLN(WIFI_SSID);
-  LOG("[WIFI] IP Address: ");
-  LOGLN_VAL(WiFi.softAPIP());
+void connectToWifi() {
+  WiFi.config(ESP32_IP, ESP32_GATEWAY, ESP32_SUBNET);
+
+  WiFi.begin(WIFI_SSID, WIFI_PASSWORD);
+  LOGF("[WIFI] Connecting to %s...\n", WIFI_SSID);
+
+  unsigned long wifiStart = millis();
+  // Try repeatedly for 10 seconds
+  while (WiFi.status() != WL_CONNECTED && millis() - wifiStart < 10000) {
+    delay(250);
+    LOG(".");
+  }
+  LOGLN("");
+
+  if (WiFi.status() == WL_CONNECTED) {
+    LOGF("[WIFI] Connected! IP: %s\n", WiFi.localIP().toString().c_str());
+  } else {
+    LOGF("[WIFI] Connection FAILED (status: %d)\n", WiFi.status());
+  }
 
   // Start WebSocket server
   webSocket.begin();
@@ -22,10 +34,10 @@ void setupWiFi() {
 }
 
 void checkWiFiStatus() {
-  // report client connections periodically
-  if (millis() - lastWifiCheckTime > 20000) {
+  // report connection status periodically
+  if (millis() - lastWifiCheckTime >= WIFI_CHECK_INTERVAL) {
     lastWifiCheckTime = millis();
-    LOGF("[WIFI] AP clients connected: %d\n", WiFi.softAPgetStationNum());
+    LOGF("[WIFI] Status: %d, IP: %s\n", WiFi.status(), WiFi.localIP().toString().c_str());
   }
 }
 
