@@ -205,9 +205,8 @@ void loop() {
   handleChainCommunication();
 
   if (isMaster){
-    webSocket.loop();
-    handleUsbSerialCommands();
-    checkWiFiStatus();
+    handleControllerCommunication();
+    checkWifiStatus();
   }
 
   handleKeyPresses();

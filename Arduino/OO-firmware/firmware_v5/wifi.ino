@@ -32,7 +32,7 @@ void disconnectWifi() {
   LOGLN("[WIFI] Disconnected");
 }
 
-void checkWiFiStatus() {
+void checkWifiStatus() {
   // report connection status periodically
   if (millis() - lastWifiCheckTime >= WIFI_CHECK_INTERVAL) {
     lastWifiCheckTime = millis();
