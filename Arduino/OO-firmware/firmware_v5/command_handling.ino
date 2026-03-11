@@ -30,16 +30,6 @@ Both transports use identical routing logic: a 1-byte payload goes to
 processSingleCharCommand(); anything longer goes to handleSequenceCommand().
 */
 
-void handleWebSocketCommand(char *cmd, size_t length){
-  if (length == 1){
-    // regular single-character command
-    processSingleCharCommand(cmd[0]);
-  } else {
-    // sequence command; string of characters
-    handleSequenceCommand(cmd);
-  }
-}
-
 void handleChainCommunication(){
   handleSerialCommandsFromUpstream();
   handleSerialCommandsFromDownstream();
@@ -197,6 +187,16 @@ void handleUsbSerialCommands() {
       memset(serialBuf, 0, SERIAL_BUF_SIZE);
       serialBufPos = 0;
     }
+  }
+}
+
+void handleWebSocketCommand(char *cmd, size_t length){
+  if (length == 1){
+    // regular single-character command
+    processSingleCharCommand(cmd[0]);
+  } else {
+    // sequence command; string of characters
+    handleSequenceCommand(cmd);
   }
 }
 
