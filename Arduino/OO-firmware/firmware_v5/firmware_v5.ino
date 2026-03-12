@@ -1,22 +1,23 @@
 /*
  * FIRMWARE V5
  *
- * This firmware currently controls 3 keys across the following three modes:
- *   - MANUAL: User plays keys manually, no automation
- *   - GUIDED: Guided mode - LEDs light up, user must press key to advance
- *   - TEACHING: LEDs + servos play automatically (no user input needed)
+ * Each module is a 12-key octave with servo actuators, per-key LEDs, and a
+ * speaker. Modules daisy-chain together via serial to form larger keyboards,
+ * with automatic master/slave role assignment through a heartbeat protocol.
  *
- * Sound is always triggered by button presses - whether the user presses a key
+ * Sequence playback operates in one of two modes:
+ *   - GUIDED:  LEDs light up sequentially; the user must press and hold the
+ *              correct key for the step's duration before the sequence advances.
+ *   - TEACHING: LEDs light up and servos auto-press keys to demonstrate melodies.
+ *
+ * Sound is always triggered by button presses — whether the user presses a key
  * or a servo pulls it down, the button underneath is what triggers the sound.
  *
  * NETWORKING:
- *   The ESP32 hosts a WiFi Access Point and runs a WebSocket server on port 81.
- *   Commands are received as single-character text messages (same format as USB
- *   serial commands), and all log output is broadcast back to connected clients.
- *   This "serial-over-WebSocket" design keeps the firmware simple and makes the
- *   WiFi interface behave identically to the USB serial interface. Sequences are
- *   uploaded through a specialised protocol; these are the only commands
- *   that are not single-character.
+ *   The master module connects as a WiFi client to the controller's network and
+ *   opens a WebSocket connection to the controller server. Commands and log
+ *   output flow over this link as a "serial-over-WiFi" transport. Slave modules
+ *   do not use WiFi; they receive commands from the master via the daisy-chain.
  */
 
 #include "Arduino.h"
