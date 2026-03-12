@@ -127,8 +127,8 @@ void setup() {
 
   // === SERIAL INITIALIZATION ===
   Serial.begin(115200);
-  UpstreamSerial.begin(9600, SERIAL_8N1, RX1, TX1);
-  DownstreamSerial.begin(9600, SERIAL_8N1, RX2, TX2);
+  UpstreamSerial.begin(115200, SERIAL_8N1, RX1, TX1);
+  DownstreamSerial.begin(115200, SERIAL_8N1, RX2, TX2);
 
   LOGLN("\n========================================");
   LOGLN("    OPEN OCTAVE FIRMWARE V5 - INIT");
