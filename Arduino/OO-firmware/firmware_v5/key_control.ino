@@ -33,14 +33,13 @@ void handleKeyPresses() {
 
         LOGF("[KEY] Key %d PRESSED (pin %d, freq %dHz)\n", i, keys[i].buttonPin, keys[i].noteFreq);
 
-        // In guided mode, light wrong keys red as feedback
-        if (sequenceRunning && currentSequenceMode == GUIDED && i != CURRENT_STEP.keyIndex) {
-          lightUpKey(i, COLOR_RED);
+        startKeyTone(i);
+
+        if (isMaster) {
+          evaluateWrongKeyFeedback(globalKey, true);
         }
 
-        startKeyTone(i);
         unsigned long audioStartedMs = millis();
-
         testLogLogManualPress(i, pressDetectedMs, audioStartedMs);
       }
 
@@ -54,12 +53,11 @@ void handleKeyPresses() {
       
       LOGF("[KEY] Key %d RELEASED\n", i);
 
-      // Turn off wrong-key red LED on release
-      if (sequenceRunning && currentSequenceMode == GUIDED && i != CURRENT_STEP.keyIndex) {
-        lightDownKey(i);
-      }
-
       stopKeyTone(i);
+
+      if (isMaster) {
+        evaluateWrongKeyFeedback(globalKey, false);
+      }
     }
   }
 }

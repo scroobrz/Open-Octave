@@ -243,6 +243,10 @@ void handleCommandsFromDownstream(){
             if (isPressed) {
               globalKeyPressTime[globalKey] = millis();
             }
+
+            if (isMaster) {
+              evaluateWrongKeyFeedback(globalKey, isPressed);
+            }
           }
         }
 

@@ -227,6 +227,31 @@ void forwardNextStepAlongChain(uint8_t moduleIndex) {
   }
 }
 
+// Evaluates whether a local or global key press is correct and 
+// lights up the key red if it is wrong
+void evaluateWrongKeyFeedback(int globalKey, bool isPressed) {
+  if (sequenceRunning && currentSequenceMode == GUIDED) {
+    if (globalKey != CURRENT_STEP.keyIndex) {
+      uint8_t targetModule = globalKey / NUM_KEYS;
+      int localKey = globalKey % NUM_KEYS;
+      
+      if (isPressed) {
+        if (targetModule == 0) {
+          lightUpKey(localKey, COLOR_RED);
+        } else {
+          DownstreamSerial.printf("g%d.%d.%lX\n", targetModule, globalKey, (unsigned long)COLOR_RED);
+        }
+      } else {
+        if (targetModule == 0) {
+          lightDownKey(localKey);
+        } else {
+          DownstreamSerial.printf("r%d.%d\n", targetModule, globalKey);
+        }
+      }
+    }
+  }
+}
+
 // Loads a hardcoded default sequence into currentSequence.
 // The melody is a simple ascending/descending scale across 3 keys:
 void loadDefaultSequence() {
