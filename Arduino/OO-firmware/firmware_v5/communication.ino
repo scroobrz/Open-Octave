@@ -89,6 +89,7 @@ void handleSerialFromUpstream(){
 
 void handleCommandsFromUpstream(){
   while (UpstreamSerial.available()) {
+    if (UpstreamSerial.peek() == CHAIN_HEARTBEAT_BYTE) return;
     char c = (char)UpstreamSerial.read();
 
     // Process accumulated characters when we reach a new line
@@ -215,6 +216,7 @@ void handleSerialFromDownstream(){
 
 void handleCommandsFromDownstream(){
   while (DownstreamSerial.available()) {
+    if (DownstreamSerial.peek() == CHAIN_HEARTBEAT_BYTE) return;
     char c = (char)DownstreamSerial.read();
 
     // Process accumulated characters when we reach a new line
