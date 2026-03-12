@@ -105,8 +105,13 @@ void handleCommandsFromUpstream(){
         // ignore empty lines / trailing CR
         continue;
       } else if (upstreamSerialBufPos == 1) {
-        // regular single-character command
-        processSingleCharCommand(upstreamSerialBuf[0]);
+        if (upstreamSerialBuf[0] == 'x'){
+          for (int i = 0; i < NUM_KEYS; i++) {
+            resetKey(i);
+          }
+
+          DownstreamSerial.printf("x\n");
+        }
       } else {
         upstreamSerialBuf[upstreamSerialBufPos] = '\0';
         char cmdType = upstreamSerialBuf[0];
@@ -234,7 +239,7 @@ void handleCommandsFromDownstream(){
           if (globalKey >= 0 && globalKey < MAX_TOTAL_KEYS) {
             bool isPressed = (cmdType == 'K'); // lowercase means key released
             globalKeyIsPressed[globalKey] = isPressed;
-            
+
             if (isPressed) {
               globalKeyPressTime[globalKey] = millis();
             }

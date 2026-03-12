@@ -146,6 +146,8 @@ void stopSequence() {
     resetKey(i);
   }
 
+  DownstreamSerial.printf("x\n");
+
   if (testLogEnabled) {
     testLogExpectedNextStepStartTime = 0;
     testLogLastAutoKey = -1;
