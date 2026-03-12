@@ -11,7 +11,7 @@ void handleKeyPresses() {
   // stateOfPin() then reads from the cached value — no further I2C traffic per key.
   ioport.pinStates();
   for (int i = 0; i < NUM_KEYS; i++) {
-    unsigned long globalKey = (moduleChainIndex * NUM_KEYS) + i;
+    int globalKey = (moduleChainIndex * NUM_KEYS) + i;
     bool buttonPressed = ioport.stateOfPin(keys[i].buttonPin) == HIGH;
 
     if (buttonPressed && !keys[i].isPressed) {
