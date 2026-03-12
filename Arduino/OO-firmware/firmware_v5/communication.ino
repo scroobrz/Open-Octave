@@ -206,7 +206,7 @@ void handleSerialFromDownstream(){
         return;
       }
 
-      DownstreamSerial.read(); // conusme
+      DownstreamSerial.read(); // consume
       handleHeartbeatFromDownstream(DownstreamSerial.read());
     } else {
       handleCommandsFromDownstream();
