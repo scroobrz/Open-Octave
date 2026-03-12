@@ -219,7 +219,7 @@ void executeCurrentSequenceStep() {
   }
 }
 
-void forwardNextStepAlongChain(uint8_t moduleIndex) {
+void forwardNextStepAlongChain() {
   if (currentSequenceMode == GUIDED){
     DownstreamSerial.printf("g%d.%lX\n", CURRENT_STEP.keyIndex, (unsigned long)CURRENT_STEP.color);
   } else if (currentSequenceMode == TEACHING){
