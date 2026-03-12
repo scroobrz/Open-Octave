@@ -97,7 +97,6 @@ void handleCommandsFromUpstream(){
       // If this line overflowed, just clear the flag and move on
       if (upstreamSerialBufOverflow) {
         upstreamSerialBufOverflow = false;
-        memset(upstreamSerialBuf, 0, SERIAL_BUF_SIZE);
         upstreamSerialBufPos = 0;
         continue;
       }
@@ -111,7 +110,7 @@ void handleCommandsFromUpstream(){
             resetKey(i);
           }
 
-          DownstreamSerial.printf("x\n");
+          DownstreamSerial.write("x\n", 2);
         }
       } else {
         upstreamSerialBuf[upstreamSerialBufPos] = '\0';
@@ -125,16 +124,16 @@ void handleCommandsFromUpstream(){
           // Parse `<globalKeyIndex>.[<color>]`
           targetKey = (int)strtol(&upstreamSerialBuf[1], &endPtr, 10);
           targetModule = targetKey / NUM_KEYS;
-          
+
           // If the moduleIndex matches ours, process the hardware logic locally
           if (targetModule == moduleChainIndex) {
             int localKeyIndex = targetKey % NUM_KEYS; // convert to local 0-11 space
-            
+
             if (cmdType == 'r') {
               resetKey(localKeyIndex);
             } else if (*endPtr == '.') {
               uint32_t color = strtoul(endPtr + 1, NULL, 16);
-              
+
               lightUpKey(localKeyIndex, color);
               if (cmdType == 't') {
                 autoPressKey(localKeyIndex);
@@ -142,13 +141,13 @@ void handleCommandsFromUpstream(){
             }
           } else if (targetModule > moduleChainIndex) {
             // Pass the message further down the chain if it's not for us
-            DownstreamSerial.printf("%s\n", upstreamSerialBuf);
+            DownstreamSerial.write((uint8_t *)upstreamSerialBuf, upstreamSerialBufPos);
+            DownstreamSerial.write('\n');
           }
         }
       }
 
       // Reset buffer for next line
-      memset(upstreamSerialBuf, 0, SERIAL_BUF_SIZE);
       upstreamSerialBufPos = 0;
       continue;
     }
@@ -163,7 +162,6 @@ void handleCommandsFromUpstream(){
       // Buffer full without newline — enter overflow mode
       LOGLN("[SERIAL] Input buffer overflow — line discarded");
       upstreamSerialBufOverflow = true;
-      memset(upstreamSerialBuf, 0, SERIAL_BUF_SIZE);
       upstreamSerialBufPos = 0;
     }
   }
@@ -221,7 +219,6 @@ void handleCommandsFromDownstream(){
       // If this line overflowed, just clear the flag and move on
       if (downstreamSerialBufOverflow) {
         downstreamSerialBufOverflow = false;
-        memset(downstreamSerialBuf, 0, SERIAL_BUF_SIZE);
         downstreamSerialBufPos = 0;
         continue;
       }
@@ -251,12 +248,12 @@ void handleCommandsFromDownstream(){
         }
 
         if (!isMaster) {
-          UpstreamSerial.printf("%s\n", downstreamSerialBuf);
+          UpstreamSerial.write((uint8_t *)downstreamSerialBuf, downstreamSerialBufPos);
+          UpstreamSerial.write('\n');
         }
       }
 
       // Reset buffer for next line
-      memset(downstreamSerialBuf, 0, SERIAL_BUF_SIZE);
       downstreamSerialBufPos = 0;
       continue;
     }
@@ -271,7 +268,6 @@ void handleCommandsFromDownstream(){
       // Buffer full without newline — enter overflow mode
       LOGLN("[SERIAL] Downstream input buffer overflow — line discarded");
       downstreamSerialBufOverflow = true;
-      memset(downstreamSerialBuf, 0, SERIAL_BUF_SIZE);
       downstreamSerialBufPos = 0;
     }
   }
@@ -309,7 +305,6 @@ void handleUsbSerialCommands() {
       // If this line overflowed, just clear the flag and move on
       if (serialBufOverflow) {
         serialBufOverflow = false;
-        memset(serialBuf, 0, SERIAL_BUF_SIZE);
         serialBufPos = 0;
         continue;
       }
@@ -327,7 +322,6 @@ void handleUsbSerialCommands() {
       }
 
       // Reset buffer for next line
-      memset(serialBuf, 0, SERIAL_BUF_SIZE);
       serialBufPos = 0;
       continue;
     }
@@ -342,7 +336,6 @@ void handleUsbSerialCommands() {
       // Buffer full without newline — enter overflow mode
       LOGLN("[SERIAL] Input buffer overflow — line discarded");
       serialBufOverflow = true;
-      memset(serialBuf, 0, SERIAL_BUF_SIZE);
       serialBufPos = 0;
     }
   }

@@ -87,6 +87,18 @@ const char *getColorString(uint32_t color) {
   }
 }
 
+void chainSendCmd(HardwareSerial &serialPort, char cmd, int key) {
+  char buf[8];
+  uint8_t len = snprintf(buf, sizeof(buf), "%c%d\n", cmd, key);
+  serialPort.write(buf, len);
+}
+
+void chainSendCmdWithColor(HardwareSerial &serialPort, char cmd, int key, uint32_t color) {
+  char buf[16];
+  uint8_t len = snprintf(buf, sizeof(buf), "%c%d.%lX\n", cmd, key, (unsigned long)color);
+  serialPort.write(buf, len);
+}
+
 void toLowercase(char &c) {
   if (c >= 'A' && c <= 'Z') {
     c = c + ('a' - 'A');

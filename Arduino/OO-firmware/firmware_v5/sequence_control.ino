@@ -39,7 +39,7 @@ void handleTeachingModePlayback() {
 
     uint8_t moduleIndexForStep = CURRENT_STEP.keyIndex / NUM_KEYS;
     if (moduleIndexForStep > 0) {
-      DownstreamSerial.printf("r%d\n", CURRENT_STEP.keyIndex);
+      chainSendCmd(DownstreamSerial, 'r', CURRENT_STEP.keyIndex);
     } else {
       resetKey(CURRENT_STEP.keyIndex);
     }
@@ -79,7 +79,7 @@ void handleGuidedModePlayback() {
 
     uint8_t moduleIndexForStep = CURRENT_STEP.keyIndex / NUM_KEYS;
     if (moduleIndexForStep > 0) {
-      DownstreamSerial.printf("r%d\n", CURRENT_STEP.keyIndex);
+      chainSendCmd(DownstreamSerial, 'r', CURRENT_STEP.keyIndex);
     } else {
       resetKey(CURRENT_STEP.keyIndex);
     }
@@ -146,7 +146,7 @@ void stopSequence() {
     resetKey(i);
   }
 
-  DownstreamSerial.printf("x\n");
+  DownstreamSerial.write("x\n", 2);
 
   if (testLogEnabled) {
     testLogExpectedNextStepStartTime = 0;
@@ -220,11 +220,8 @@ void executeCurrentSequenceStep() {
 }
 
 void forwardNextStepAlongChain() {
-  if (currentSequenceMode == GUIDED){
-    DownstreamSerial.printf("g%d.%lX\n", CURRENT_STEP.keyIndex, (unsigned long)CURRENT_STEP.color);
-  } else if (currentSequenceMode == TEACHING){
-    DownstreamSerial.printf("t%d.%lX\n", CURRENT_STEP.keyIndex, (unsigned long)CURRENT_STEP.color);
-  }
+  char cmd = (currentSequenceMode == GUIDED) ? 'g' : 't';
+  chainSendCmdWithColor(DownstreamSerial, cmd, CURRENT_STEP.keyIndex, CURRENT_STEP.color);
 }
 
 // Evaluates whether a local or global key press is correct and 
@@ -239,13 +236,13 @@ void evaluateWrongKeyFeedback(int globalKey, bool isPressed) {
         if (targetModule == 0) {
           lightUpKey(localKey, COLOR_RED);
         } else {
-          DownstreamSerial.printf("g%d.%lX\n", globalKey, (unsigned long)COLOR_RED);
+          chainSendCmdWithColor(DownstreamSerial, 'g', globalKey, COLOR_RED);
         }
       } else {
         if (targetModule == 0) {
           lightDownKey(localKey);
         } else {
-          DownstreamSerial.printf("r%d\n", globalKey);
+          chainSendCmd(DownstreamSerial, 'r', globalKey);
         }
       }
     }
