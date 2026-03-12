@@ -25,7 +25,6 @@
 #include "clsPCA9555.h"
 #include "firmware_V5_config.h"
 #include "firmware_V5_debug.h"
-#include "sys/_intsup.h"
 #include <Adafruit_NeoPixel.h>
 #include <Wire.h>
 #include <WiFi.h>
