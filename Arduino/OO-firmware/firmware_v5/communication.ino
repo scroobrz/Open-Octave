@@ -144,9 +144,6 @@ void handleCommandsFromUpstream(){
             // Pass the message further down the chain if it's not for us
             DownstreamSerial.printf("%s\n", upstreamSerialBuf);
           }
-        } else {
-            // sequence upload command; string of characters
-            handleSequenceCommand(upstreamSerialBuf);
         }
       }
 
