@@ -29,7 +29,7 @@ void handleTeachingModePlayback() {
   if (waitingForServoRelease) {
     if (millis() - servoReleaseStartTime >= SERVO_RELEASE_DELAY) {
       waitingForServoRelease = false;
-      executeNextSequenceStep();
+      executeCurrentSequenceStep();
     }
     return;
   }
@@ -37,7 +37,12 @@ void handleTeachingModePlayback() {
   if (millis() - currentStepStartTime >= CURRENT_STEP.duration) {
     LOGF("[SEQ] Step %d/%d complete\n", currentSequenceStepIndex + 1, currentSequence.length);
 
-    resetKey(CURRENT_STEP.keyIndex);
+    uint8_t moduleIndexForStep = CURRENT_STEP.keyIndex / NUM_KEYS;
+    if (moduleIndexForStep > 0) {
+      chainSendCmd(DownstreamSerial, 'r', CURRENT_STEP.keyIndex);
+    } else {
+      resetKey(CURRENT_STEP.keyIndex);
+    }
 
     currentSequenceStepIndex++;
     if (currentSequenceStepIndex >= currentSequence.length) {
@@ -52,7 +57,7 @@ void handleTeachingModePlayback() {
       servoReleaseStartTime = millis();
       // Don't execute step yet - will be done on next loop iteration after delay
     } else {
-      executeNextSequenceStep();
+      executeCurrentSequenceStep();
     }
   }
 }
@@ -62,18 +67,24 @@ void handleGuidedModePlayback() {
   // that began before the current step don't count toward its duration.
   // This prevents instant-skip when the key is already held from a
   // previous step or from the user pre-pressing.
-  unsigned long holdStart = lastKeyPressTime[CURRENT_STEP.keyIndex];
+  unsigned long holdStart = globalKeyPressTime[CURRENT_STEP.keyIndex];
   if (holdStart < currentStepStartTime) {
     holdStart = currentStepStartTime;
   }
 
   if (millis() - holdStart >= CURRENT_STEP.duration &&
-      keys[CURRENT_STEP.keyIndex].isPressed) {
+      globalKeyIsPressed[CURRENT_STEP.keyIndex]) {
 
     LOGF("[SEQ] Correct key %d pressed, advancing sequence.\n", CURRENT_STEP.keyIndex);
-    resetKey(CURRENT_STEP.keyIndex);
-    currentSequenceStepIndex++;
 
+    uint8_t moduleIndexForStep = CURRENT_STEP.keyIndex / NUM_KEYS;
+    if (moduleIndexForStep > 0) {
+      chainSendCmd(DownstreamSerial, 'r', CURRENT_STEP.keyIndex);
+    } else {
+      resetKey(CURRENT_STEP.keyIndex);
+    }
+
+    currentSequenceStepIndex++;
     if (currentSequenceStepIndex >= currentSequence.length) {
       LOGLN("[SEQ] Sequence complete");
       stopSequence();
@@ -85,7 +96,7 @@ void handleGuidedModePlayback() {
       delay(80);
     }
 
-    executeNextSequenceStep();
+    executeCurrentSequenceStep();
   }
 }
 
@@ -119,7 +130,7 @@ void startSequence(SequenceMode mode) {
   }
 
   // immediately play the first step
-  executeNextSequenceStep();
+  executeCurrentSequenceStep();
 }
 
 // stops the sequence and turns off all keys
@@ -135,6 +146,8 @@ void stopSequence() {
     resetKey(i);
   }
 
+  DownstreamSerial.write("x\n", 2);
+
   if (testLogEnabled) {
     testLogExpectedNextStepStartTime = 0;
     testLogLastAutoKey = -1;
@@ -146,57 +159,93 @@ void stopSequence() {
 }
 
 // plays a single step of a sequence
-void executeNextSequenceStep() {
+void executeCurrentSequenceStep() {
   currentStepStartTime = millis();
 
-  if (!isValidKeyIndex(CURRENT_STEP.keyIndex)) {
+  if (!isValidGlobalKeyIndex(CURRENT_STEP.keyIndex)) {
     LOGF("[ERROR] Invalid keyIndex: %d encountered while executing sequence step\n", CURRENT_STEP.keyIndex);
     testLogLogError(TESTLOG_INVALID_KEY_INDEX, F("ERROR_INVALID_KEY"));
     return;
   }
 
-  LOGF("[SEQ] Step %d/%d: key=%d, color=%s, duration=%dms\n",
+  uint8_t moduleIndexForStep = CURRENT_STEP.keyIndex / NUM_KEYS;
+  if (moduleIndexForStep > 0){
+    LOGF("[SEQ] Forwarding step %d/%d along chain\n", currentSequenceStepIndex + 1, currentSequence.length);
+    forwardNextStepAlongChain(moduleIndexForStep);
+  } else {
+    LOGF("[SEQ] Step %d/%d: key=%d, color=%s, duration=%dms\n",
        currentSequenceStepIndex + 1, currentSequence.length,
        CURRENT_STEP.keyIndex, getColorString(CURRENT_STEP.color), 
        CURRENT_STEP.duration);
 
-  unsigned long stepStartCallTime = millis();
+    unsigned long stepStartCallTime = millis();
 
-  // Compute autoplay timing error against expected time
-  long autoplayTimingErrorMs = 0;
-  if (testLogEnabled) {
-    if (testLogExpectedNextStepStartTime == 0) {
-      testLogExpectedNextStepStartTime = stepStartCallTime;
-    }
-    autoplayTimingErrorMs = (long)(stepStartCallTime - testLogExpectedNextStepStartTime);
-  }
-
-  unsigned long ledCmdStart = millis();
-  // light up the key's LED with the specified color
-  lightUpKey(CURRENT_STEP.keyIndex, CURRENT_STEP.color);
-  unsigned long ledCmdLatencyMs = millis() - ledCmdStart;
-
-  unsigned long servoCmdLatencyMs = 0;
-  // if we're in teaching mode, also press the key with the servo
-  if (currentSequenceMode == TEACHING) {
-    LOGF("[SERVO] Auto-pressing key %d (channel %d)\n", 
-         CURRENT_STEP.keyIndex, keys[CURRENT_STEP.keyIndex].servoChannel);
-    unsigned long servoCmdStart = millis();
-    autoPressKey(CURRENT_STEP.keyIndex);
-    servoCmdLatencyMs = millis() - servoCmdStart;
-  }
-
-  if (testLogEnabled) {
-    int nextIndex = currentSequenceStepIndex + 1;
-    bool nextIsSameKey = false;
-
-    if (nextIndex >= 0 && nextIndex < currentSequence.length) {
-      nextIsSameKey = (currentSequence.steps[nextIndex].keyIndex == CURRENT_STEP.keyIndex);
+    // Compute autoplay timing error against expected time
+    long autoplayTimingErrorMs = 0;
+    if (testLogEnabled) {
+      if (testLogExpectedNextStepStartTime == 0) {
+        testLogExpectedNextStepStartTime = stepStartCallTime;
+      }
+      autoplayTimingErrorMs = (long)(stepStartCallTime - testLogExpectedNextStepStartTime);
     }
 
-    testLogLogAutoStep(CURRENT_STEP.keyIndex, autoplayTimingErrorMs, 
-      ledCmdLatencyMs, servoCmdLatencyMs, (uint16_t)CURRENT_STEP.duration, 
-      nextIsSameKey);
+    unsigned long ledCmdStart = millis();
+    // light up the key's LED with the specified color
+    lightUpKey(CURRENT_STEP.keyIndex, CURRENT_STEP.color);
+    unsigned long ledCmdLatencyMs = millis() - ledCmdStart;
+
+    unsigned long servoCmdLatencyMs = 0;
+    // if we're in teaching mode, also press the key with the servo
+    if (currentSequenceMode == TEACHING) {
+      LOGF("[SERVO] Auto-pressing key %d (channel %d)\n", 
+           CURRENT_STEP.keyIndex, keys[CURRENT_STEP.keyIndex].servoChannel);
+      unsigned long servoCmdStart = millis();
+      autoPressKey(CURRENT_STEP.keyIndex);
+      servoCmdLatencyMs = millis() - servoCmdStart;
+    }
+
+    if (testLogEnabled) {
+      int nextIndex = currentSequenceStepIndex + 1;
+      bool nextIsSameKey = false;
+
+      if (nextIndex >= 0 && nextIndex < currentSequence.length) {
+        nextIsSameKey = (currentSequence.steps[nextIndex].keyIndex == CURRENT_STEP.keyIndex);
+      }
+
+      testLogLogAutoStep(CURRENT_STEP.keyIndex, autoplayTimingErrorMs, 
+        ledCmdLatencyMs, servoCmdLatencyMs, (uint16_t)CURRENT_STEP.duration, 
+        nextIsSameKey);
+    }
+  }
+}
+
+void forwardNextStepAlongChain() {
+  char cmd = (currentSequenceMode == GUIDED) ? 'g' : 't';
+  chainSendCmdWithColor(DownstreamSerial, cmd, CURRENT_STEP.keyIndex, CURRENT_STEP.color);
+}
+
+// Evaluates whether a local or global key press is correct and 
+// lights up the key red if it is wrong
+void evaluateWrongKeyFeedback(int globalKey, bool isPressed) {
+  if (sequenceRunning && currentSequenceMode == GUIDED) {
+    if (globalKey != CURRENT_STEP.keyIndex) {
+      uint8_t targetModule = globalKey / NUM_KEYS;
+      int localKey = globalKey % NUM_KEYS;
+      
+      if (isPressed) {
+        if (targetModule == 0) {
+          lightUpKey(localKey, COLOR_RED);
+        } else {
+          chainSendCmdWithColor(DownstreamSerial, 'g', globalKey, COLOR_RED);
+        }
+      } else {
+        if (targetModule == 0) {
+          lightDownKey(localKey);
+        } else {
+          chainSendCmd(DownstreamSerial, 'r', globalKey);
+        }
+      }
+    }
   }
 }
 

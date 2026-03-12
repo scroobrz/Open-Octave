@@ -8,8 +8,7 @@ trigger: always_on
 
 ## Project Context & Knowledge Base
 
-- **Project Overview**: `.agent/rules/Open-Octave.md` — Core project details and milestones. Use as a core source of truth for the Open Octave project.
-- **NotebookLM**: (https://notebooklm.google.com/notebook/614b20a2-c1a8-454a-8f66-34bf908c75dd) — Technical specs, datasheets, course materials. Consult using the NotebookLM MCP server before complex design decisions (protocol selection, hardware migration, new libraries), or when unsure about hardware specs or broader project requirements.
+`.agent/rules/Open-Octave.md` — Core project details and milestones. Use as a core source of truth for the Open Octave project.
 
 ## Firmware Development Standards
 

@@ -10,7 +10,6 @@ bool validateHardwareInit() {
     return false;
   }
 
-
   if (MAX_SEQUENCE_LENGTH <= 0) {
     LOGF("[ERROR] Invalid MAX_SEQUENCE_LENGTH: %d", MAX_SEQUENCE_LENGTH);
     return false;
@@ -56,6 +55,14 @@ bool validateHardwareInit() {
   }
 
   return true;
+}
+
+inline bool isValidLocalKeyIndex(int keyIndex) {
+  return (keyIndex >= 0 && keyIndex < NUM_KEYS);
+}
+
+inline bool isValidGlobalKeyIndex(int keyIndex) {
+  return (keyIndex >= 0 && keyIndex < (NUM_KEYS * numModulesInChain));
 }
 
 void testLEDs() {

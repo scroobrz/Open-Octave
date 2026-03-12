@@ -1,51 +1,299 @@
 /*
 ===============================
-       COMMAND HANDLING
+        COMMUNICATION
 ===============================
-The firmware exposes a command API over two transports:
+The firmware coordinates control and API commands across three distinct transports:
 
-  1. USB Serial — characters arrive one byte at a time via the hardware
-     UART (Serial.read). handleSerialCommand() accumulates them into a
-     line buffer until a newline is received, then dispatches the
-     complete line. Log output is printed to Serial.
+  1. USB Serial — Intended for hardwired debugging. Characters arrive one byte
+     at a time via the USB UART. handleUsbSerialCommands() accumulates them
+     into a line buffer until a newline is received, then dispatches the line.
+     Log output is printed to Serial.
 
-  2. WiFi WebSocket — the ESP32 hosts a WiFi Access Point and runs a
-     WebSocket server on port 81. Each WebSocket text message is
-     delivered as a complete payload, so no line buffering is needed.
-     All log output is broadcast back to every connected client,
-     creating a "serial-over-WiFi" experience.
+  2. WiFi WebSocket — The primary control link. The Master module connects to
+     a remote WebSocket server as a client. Commands arrive as complete text
+     payloads via handleWebSocketCommand(), requiring no line buffering. Logs
+     are transmitted back to the server to maintain a "serial-over-WiFi" experience.
 
-Two kinds of commands are supported:
+  3. Daisy Chain Serial — Handles physical modularity. Two hardware serial ports
+     (Upstream and Downstream) continuously exchange heartbeats for dynamic role
+     assignment (Master vs. Slave) and sequence coordination down the module chain.
 
-  - Single-character commands (e.g. 'm', 's', 'h') are routed to
-    processSingleCharCommand(char cmd) for mode control, sequence
-    playback, testing, and help. See the 'h' command for a full list.
+The API processes commands through unified routing logic:
 
-  - Multi-character sequence-upload commands begin with an uppercase
-    letter ('U', 'S', or 'E') and are routed to
-    handleSequenceCommand(char *cmd), which manages the upload
-    protocol (start upload, define steps, finalise).
+  - Single-character commands (e.g. 'g', 'x') go to processSingleCharCommand()
+    for sequence playback control, hardware testing, etc.
 
-Both transports use identical routing logic: a 1-byte payload goes to
-processSingleCharCommand(); anything longer goes to handleSequenceCommand().
+  - Multi-character sequence commands (prefixed by 'U', 'S', 'E') go to
+    handleSequenceCommand() for the sequence upload protocol.
+
+External transports (USB, WebSocket) share this logic: 1-byte payloads go
+to processSingleCharCommand(); anything longer goes to handleSequenceCommand().
 */
 
-void handleWebSocketCommand(char *cmd, size_t length){
-  if (length == 1){
-    // regular single-character command
-    processSingleCharCommand(cmd[0]);
-  } else {
-    // sequence command; string of characters
-    handleSequenceCommand(cmd);
+void handleChainCommunication(){
+  handleSerialFromUpstream();
+  handleSerialFromDownstream();
+  checkHeartbeat();
+  checkHeartbeatReply();
+  sendHeartbeat();
+}
+
+void handleControllerCommunication(){
+    webSocket.loop();
+    handleUsbSerialCommands();
+}
+
+// Masters begin the heartbeat chain
+void sendHeartbeat() {
+  if (isMaster && millis() - timeLastHeartbeatSent >= HEARTBEAT_INTERVAL) {
+    DownstreamSerial.write(CHAIN_HEARTBEAT_BYTE);
+    DownstreamSerial.write(moduleChainIndex + 1);
+    timeLastHeartbeatSent = millis();
   }
 }
 
-void handleSerialCommand() {
-  // Read all available bytes into the line buffer one at a time.
-  // Serial data arrives byte-by-byte (unlike WebSocket, which delivers
-  // complete payloads), so we must accumulate characters until a newline
-  // signals the end of a line and a complete command is ready.
+// Slaves check for upstream heartbeats and promote themselves if lost
+void checkHeartbeat() {
+  if (!isMaster && millis() - timeLastHeartbeatReceived >= HEARTBEAT_TIMEOUT){
+    promoteToMaster();
+  }
+}
 
+// Modules with downstream neighbors check for downstream replies and reset count if lost
+void checkHeartbeatReply() {
+  if (numModulesInChain > moduleChainIndex + 1 &&
+      millis() - timeLastHeartbeatReplyReceived >= HEARTBEAT_TIMEOUT) {
+    numModulesInChain = moduleChainIndex + 1;  // Only count up to self
+    LOGF("[CHAIN] Downstream lost — chain count reset to %d\n", numModulesInChain);
+  }
+}
+
+// Handles incoming commands from the upstream serial port
+void handleSerialFromUpstream(){
+  while (UpstreamSerial.available()){
+    uint8_t byte = UpstreamSerial.peek();
+
+    if (byte == CHAIN_HEARTBEAT_BYTE){
+      // wait for both bytes
+      if (UpstreamSerial.available() < 2) {
+        return;
+      }
+
+      UpstreamSerial.read(); // conusme
+      handleHeartbeatFromUpstream(UpstreamSerial.read());
+    } else {
+      handleCommandsFromUpstream();
+    }
+  }
+}
+
+void handleCommandsFromUpstream(){
+  while (UpstreamSerial.available()) {
+    if (UpstreamSerial.peek() == CHAIN_HEARTBEAT_BYTE) return;
+    char c = (char)UpstreamSerial.read();
+
+    // Process accumulated characters when we reach a new line
+    if (c == '\n' || c == '\r') {
+      // If this line overflowed, just clear the flag and move on
+      if (upstreamSerialBufOverflow) {
+        upstreamSerialBufOverflow = false;
+        upstreamSerialBufPos = 0;
+        continue;
+      }
+
+      if (upstreamSerialBufPos == 0) {
+        // ignore empty lines / trailing CR
+        continue;
+      } else if (upstreamSerialBufPos == 1) {
+        if (upstreamSerialBuf[0] == 'x'){
+          for (int i = 0; i < NUM_KEYS; i++) {
+            resetKey(i);
+          }
+
+          DownstreamSerial.write("x\n", 2);
+        }
+      } else {
+        upstreamSerialBuf[upstreamSerialBufPos] = '\0';
+        char cmdType = upstreamSerialBuf[0];
+
+        // Is it a slave hardware-override command (t, g, r)?
+        if (cmdType == 't' || cmdType == 'g' || cmdType == 'r') {
+          int targetModule, targetKey;
+          char *endPtr;
+
+          // Parse `<globalKeyIndex>.[<color>]`
+          targetKey = (int)strtol(&upstreamSerialBuf[1], &endPtr, 10);
+          targetModule = targetKey / NUM_KEYS;
+
+          // If the moduleIndex matches ours, process the hardware logic locally
+          if (targetModule == moduleChainIndex) {
+            int localKeyIndex = targetKey % NUM_KEYS; // convert to local 0-11 space
+
+            if (cmdType == 'r') {
+              resetKey(localKeyIndex);
+            } else if (*endPtr == '.') {
+              uint32_t color = strtoul(endPtr + 1, NULL, 16);
+
+              lightUpKey(localKeyIndex, color);
+              if (cmdType == 't') {
+                autoPressKey(localKeyIndex);
+              }
+            }
+          } else if (targetModule > moduleChainIndex) {
+            // Pass the message further down the chain if it's not for us
+            DownstreamSerial.write((uint8_t *)upstreamSerialBuf, upstreamSerialBufPos);
+            DownstreamSerial.write('\n');
+          }
+        }
+      }
+
+      // Reset buffer for next line
+      upstreamSerialBufPos = 0;
+      continue;
+    }
+
+    // If we're in overflow mode, discard bytes until the next newline
+    if (upstreamSerialBufOverflow) continue;
+
+    // Accumulate character into buffer (guard against overflow)
+    if (upstreamSerialBufPos < SERIAL_BUF_SIZE - 1) {
+      upstreamSerialBuf[upstreamSerialBufPos++] = c;
+    } else {
+      // Buffer full without newline — enter overflow mode
+      LOGLN("[SERIAL] Input buffer overflow — line discarded");
+      upstreamSerialBufOverflow = true;
+      upstreamSerialBufPos = 0;
+    }
+  }
+}
+
+void handleHeartbeatFromUpstream(uint8_t num){
+  timeLastHeartbeatReceived = millis();
+  
+  if (moduleChainIndex != num) {
+    moduleChainIndex = num;
+    configureNotes();
+  }
+  
+  numModulesInChain = num + 1;
+
+  if (isMaster){
+    demoteToSlave();
+  }
+
+  // Forward heartbeat downstream
+  DownstreamSerial.write(CHAIN_HEARTBEAT_BYTE);
+  DownstreamSerial.write(moduleChainIndex + 1);
+
+  // Reply upstream
+  UpstreamSerial.write(CHAIN_HEARTBEAT_BYTE);
+  UpstreamSerial.write(moduleChainIndex);
+}
+
+// Handles incoming commands from the downstream serial port.
+void handleSerialFromDownstream(){
+  while (DownstreamSerial.available()){
+    uint8_t byte = DownstreamSerial.peek();
+
+    if (byte == CHAIN_HEARTBEAT_BYTE){
+      // wait for both bytes
+      if (DownstreamSerial.available() < 2) {
+        return;
+      }
+
+      DownstreamSerial.read(); // consume
+      handleHeartbeatFromDownstream(DownstreamSerial.read());
+    } else {
+      handleCommandsFromDownstream();
+    }
+  }
+}
+
+void handleCommandsFromDownstream(){
+  while (DownstreamSerial.available()) {
+    if (DownstreamSerial.peek() == CHAIN_HEARTBEAT_BYTE) return;
+    char c = (char)DownstreamSerial.read();
+
+    // Process accumulated characters when we reach a new line
+    if (c == '\n' || c == '\r') {
+      // If this line overflowed, just clear the flag and move on
+      if (downstreamSerialBufOverflow) {
+        downstreamSerialBufOverflow = false;
+        downstreamSerialBufPos = 0;
+        continue;
+      }
+
+      if (downstreamSerialBufPos == 0) {
+        // ignore empty lines / trailing CR
+        continue;
+      } else {
+        downstreamSerialBuf[downstreamSerialBufPos] = '\0';
+        char cmdType = downstreamSerialBuf[0];
+
+        if (cmdType == 'K' || cmdType == 'k') {
+          int globalKey = atoi(&downstreamSerialBuf[1]);
+
+          if (globalKey >= 0 && globalKey < MAX_TOTAL_KEYS) {
+            bool isPressed = (cmdType == 'K'); // lowercase means key released
+            globalKeyIsPressed[globalKey] = isPressed;
+
+            if (isPressed) {
+              globalKeyPressTime[globalKey] = millis();
+            }
+
+            if (isMaster) {
+              evaluateWrongKeyFeedback(globalKey, isPressed);
+            }
+          }
+        }
+
+        if (!isMaster) {
+          UpstreamSerial.write((uint8_t *)downstreamSerialBuf, downstreamSerialBufPos);
+          UpstreamSerial.write('\n');
+        }
+      }
+
+      // Reset buffer for next line
+      downstreamSerialBufPos = 0;
+      continue;
+    }
+
+    // If we're in overflow mode, discard bytes until the next newline
+    if (downstreamSerialBufOverflow) continue;
+
+    // Accumulate character into buffer (guard against overflow)
+    if (downstreamSerialBufPos < SERIAL_BUF_SIZE - 1) {
+      downstreamSerialBuf[downstreamSerialBufPos++] = c;
+    } else {
+      // Buffer full without newline — enter overflow mode
+      LOGLN("[SERIAL] Downstream input buffer overflow — line discarded");
+      downstreamSerialBufOverflow = true;
+      downstreamSerialBufPos = 0;
+    }
+  }
+}
+
+void handleHeartbeatFromDownstream(uint8_t num){
+  timeLastHeartbeatReplyReceived = millis();
+
+  // Only accept if this represents a higher count than we currently know.
+  // Prevents flickering when intermediate modules reply before the tail's
+  // forwarded reply arrives. The timeout in checkHeartbeatReply()
+  // handles the count going DOWN (module removal).
+  uint8_t reportedCount = num + 1;
+  if (reportedCount > numModulesInChain) {
+    numModulesInChain = reportedCount;
+  }
+
+  // slaves forward replies upstream
+  if (!isMaster){
+    UpstreamSerial.write(CHAIN_HEARTBEAT_BYTE);
+    UpstreamSerial.write(num);
+  }
+}
+
+// Handles incoming commands from the USB serial port
+void handleUsbSerialCommands() {
   // NOTE: Serial monitor must be set to "Newline" or "Both NL and CR" for
   // commands to be properly processed by this function
 
@@ -57,7 +305,6 @@ void handleSerialCommand() {
       // If this line overflowed, just clear the flag and move on
       if (serialBufOverflow) {
         serialBufOverflow = false;
-        memset(serialBuf, 0, SERIAL_BUF_SIZE);
         serialBufPos = 0;
         continue;
       }
@@ -75,7 +322,6 @@ void handleSerialCommand() {
       }
 
       // Reset buffer for next line
-      memset(serialBuf, 0, SERIAL_BUF_SIZE);
       serialBufPos = 0;
       continue;
     }
@@ -90,9 +336,18 @@ void handleSerialCommand() {
       // Buffer full without newline — enter overflow mode
       LOGLN("[SERIAL] Input buffer overflow — line discarded");
       serialBufOverflow = true;
-      memset(serialBuf, 0, SERIAL_BUF_SIZE);
       serialBufPos = 0;
     }
+  }
+}
+
+void handleWebSocketCommand(char *cmd, size_t length){
+  if (length == 1){
+    // regular single-character command
+    processSingleCharCommand(cmd[0]);
+  } else {
+    // sequence command; string of characters
+    handleSequenceCommand(cmd);
   }
 }
 
@@ -375,7 +630,7 @@ bool processSequenceStepCommand(uint8_t stepIndex, char *cmd){
             int parsedKey = (int)strtol(&cmd[i+2], &endPtr, 10);
 
             // if endPtr is not the same as the start pointer, then the value was parsed
-            if (endPtr != &cmd[i+2] && parsedKey >= 0 && parsedKey < NUM_KEYS) {
+            if (endPtr != &cmd[i+2] && parsedKey >= 0 && parsedKey < MAX_TOTAL_KEYS) {
               keyIndex = parsedKey;
             } else {
               LOGF("[SEQ] Step %d: invalid key index\n", stepIndex);

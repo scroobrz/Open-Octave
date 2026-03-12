@@ -11,41 +11,53 @@ void handleKeyPresses() {
   // stateOfPin() then reads from the cached value — no further I2C traffic per key.
   ioport.pinStates();
   for (int i = 0; i < NUM_KEYS; i++) {
+    int globalKey = (moduleChainIndex * NUM_KEYS) + i;
     bool buttonPressed = ioport.stateOfPin(keys[i].buttonPin) == HIGH;
 
     if (buttonPressed && !keys[i].isPressed) {
 
       // apply debouncing to avoid false triggers
-      if (millis() - lastKeyPressTime[i] >= DEBOUNCE_DELAY) {
+      if (millis() - globalKeyPressTime[globalKey] >= DEBOUNCE_DELAY) {
         unsigned long pressDetectedMs = millis();
 
+        // use local keys array to detect button press edges, and global array
+        // for sequence handling.
         keys[i].isPressed = true;
-        lastKeyPressTime[i] = pressDetectedMs;
+        globalKeyIsPressed[globalKey] = true;
+        globalKeyPressTime[globalKey] = pressDetectedMs;
         toneStartTime[i] = pressDetectedMs;  // Track when this tone started
+
+        if (!isMaster) {
+          chainSendCmd(UpstreamSerial, 'K', globalKey);
+        }
 
         LOGF("[KEY] Key %d PRESSED (pin %d, freq %dHz)\n", i, keys[i].buttonPin, keys[i].noteFreq);
 
-        // In guided mode, light wrong keys red as feedback
-        if (sequenceRunning && currentSequenceMode == GUIDED && i != CURRENT_STEP.keyIndex) {
-          lightUpKey(i, COLOR_RED);
+        startKeyTone(i);
+
+        if (isMaster) {
+          evaluateWrongKeyFeedback(globalKey, true);
         }
 
-        startKeyTone(i);
         unsigned long audioStartedMs = millis();
-
         testLogLogManualPress(i, pressDetectedMs, audioStartedMs);
       }
 
     } else if (!buttonPressed && keys[i].isPressed) {
       keys[i].isPressed = false;
+      globalKeyIsPressed[globalKey] = false;
+
+      if (!isMaster) {
+        chainSendCmd(UpstreamSerial, 'k', globalKey);
+      }
+      
       LOGF("[KEY] Key %d RELEASED\n", i);
 
-      // Turn off wrong-key red LED on release
-      if (sequenceRunning && currentSequenceMode == GUIDED && i != CURRENT_STEP.keyIndex) {
-        lightDownKey(i);
-      }
-
       stopKeyTone(i);
+
+      if (isMaster) {
+        evaluateWrongKeyFeedback(globalKey, false);
+      }
     }
   }
 }
@@ -82,7 +94,7 @@ void stopKeyTone(int keyIndex) {
 
 // lights up all LEDs on a key's LED strip with the specified color
 void lightUpKey(int keyIndex, uint32_t color) {
-  if (!isValidKeyIndex(keyIndex)) {
+  if (!isValidLocalKeyIndex(keyIndex)) {
     LOGF("[ERROR] Invalid keyIndex: %d encountered while turning on LEDs\n", keyIndex);
     return;
   }
@@ -98,7 +110,7 @@ void lightUpKey(int keyIndex, uint32_t color) {
 
 // turns off all LEDs on a key's LED strip
 void lightDownKey(int keyIndex) {
-  if (!isValidKeyIndex(keyIndex)) {
+  if (!isValidLocalKeyIndex(keyIndex)) {
     LOGF("[ERROR] Invalid keyIndex: %d encountered while turning off LEDs\n", keyIndex);
     return;
   }
@@ -121,7 +133,7 @@ void lightDownKey(int keyIndex) {
 // For consecutive same-key steps, the SERVO_RELEASE_DELAY provides enough
 // time for the physical release + handleKeyPresses() to detect it.
 void resetKey(int keyIndex) {
-  if (!isValidKeyIndex(keyIndex)) {
+  if (!isValidLocalKeyIndex(keyIndex)) {
     LOGF("[ERROR] Invalid keyIndex: %d encountered while resetting key\n", keyIndex);
     return;
   }

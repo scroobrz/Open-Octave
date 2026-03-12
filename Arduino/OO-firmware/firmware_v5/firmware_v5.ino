@@ -1,22 +1,23 @@
 /*
  * FIRMWARE V5
  *
- * This firmware currently controls 3 keys across the following three modes:
- *   - MANUAL: User plays keys manually, no automation
- *   - GUIDED: Guided mode - LEDs light up, user must press key to advance
- *   - TEACHING: LEDs + servos play automatically (no user input needed)
+ * Each module is a 12-key octave with servo actuators, per-key LEDs, and a
+ * speaker. Modules daisy-chain together via serial to form larger keyboards,
+ * with automatic master/slave role assignment through a heartbeat protocol.
  *
- * Sound is always triggered by button presses - whether the user presses a key
+ * Sequence playback operates in one of two modes:
+ *   - GUIDED:  LEDs light up sequentially; the user must press and hold the
+ *              correct key for the step's duration before the sequence advances.
+ *   - TEACHING: LEDs light up and servos auto-press keys to demonstrate melodies.
+ *
+ * Sound is always triggered by button presses — whether the user presses a key
  * or a servo pulls it down, the button underneath is what triggers the sound.
  *
  * NETWORKING:
- *   The ESP32 hosts a WiFi Access Point and runs a WebSocket server on port 81.
- *   Commands are received as single-character text messages (same format as USB
- *   serial commands), and all log output is broadcast back to connected clients.
- *   This "serial-over-WebSocket" design keeps the firmware simple and makes the
- *   WiFi interface behave identically to the USB serial interface. Sequences are
- *   uploaded through a specialised protocol; these are the only commands
- *   that are not single-character.
+ *   The master module connects as a WiFi client to the controller's network and
+ *   opens a WebSocket connection to the controller server. Commands and log
+ *   output flow over this link as a "serial-over-WiFi" transport. Slave modules
+ *   do not use WiFi; they receive commands from the master via the daisy-chain.
  */
 
 #include "Arduino.h"
@@ -28,7 +29,7 @@
 #include <Adafruit_NeoPixel.h>
 #include <Wire.h>
 #include <WiFi.h>
-#include <WebSocketsServer.h>
+#include <WebSocketsClient.h>
 #include <cstdint>
 
 // ============ HARDWARE DEFINITIONS ============
@@ -51,9 +52,20 @@ Key keys[NUM_KEYS] = {
 ServoDriver servoDriver;
 PCA9555 ioport(0x20);
 
-WebSocketsServer webSocket(81);
+WebSocketsClient webSocket;
+
+HardwareSerial UpstreamSerial(1);
+HardwareSerial DownstreamSerial(2);
 
 // ============ GLOBAL STATE ============
+
+bool isMaster = true;
+uint8_t moduleChainIndex = 0;
+uint8_t numModulesInChain = 1;
+
+unsigned long timeLastHeartbeatSent = 0;
+unsigned long timeLastHeartbeatReceived = 0;
+unsigned long timeLastHeartbeatReplyReceived = 0;
 
 bool uploadingSequence = false;
 uint8_t uploadStepCount = 0;
@@ -67,8 +79,11 @@ unsigned long currentStepStartTime = 0;
 #define CURRENT_STEP currentSequence.steps[currentSequenceStepIndex]
 #define PREVIOUS_STEP currentSequence.steps[currentSequenceStepIndex - 1]
 
-unsigned long lastKeyPressTime[NUM_KEYS] = {0};
-unsigned long toneStartTime[NUM_KEYS] = {0};
+// To keep track of key presses across other chained modules for the 
+// master to handle sequences
+bool globalKeyIsPressed[MAX_TOTAL_KEYS] = {false};
+unsigned long globalKeyPressTime[MAX_TOTAL_KEYS] = {0};
+unsigned long toneStartTime[MAX_TOTAL_KEYS] = {0};
 
 bool waitingForServoRelease = false;
 unsigned long servoReleaseStartTime = 0;
@@ -85,11 +100,19 @@ uint8_t testLogAutoRepeatStreak = 0;
 
 unsigned long lastWifiCheckTime = 0;
 bool isWifiConnected = false;
-bool wsReady = false;  // Prevents wsBroadcastLog() from running before webSocket.begin()
+bool wsReady = false;  // Prevents wsSendLog() from running before webSocket.begin()
 
 char serialBuf[SERIAL_BUF_SIZE];
 uint8_t serialBufPos = 0;
-bool serialBufOverflow = false;  // true = discard bytes until next newline
+bool serialBufOverflow = false;
+
+char upstreamSerialBuf[SERIAL_BUF_SIZE];
+uint8_t upstreamSerialBufPos = 0;
+bool upstreamSerialBufOverflow = false;
+
+char downstreamSerialBuf[SERIAL_BUF_SIZE];
+uint8_t downstreamSerialBufPos = 0;
+bool downstreamSerialBufOverflow = false;
 
 /*
 ===============================
@@ -100,8 +123,12 @@ These are the two functions that Arduino calls automatically.
 
 // runs once
 void setup() {
+  bool hasUpstream = checkUpstream(); // raw GPIO read before serial init
+
   // === SERIAL INITIALIZATION ===
   Serial.begin(115200);
+  UpstreamSerial.begin(115200, SERIAL_8N1, RX1, TX1);
+  DownstreamSerial.begin(115200, SERIAL_8N1, RX2, TX2);
 
   LOGLN("\n========================================");
   LOGLN("    OPEN OCTAVE FIRMWARE V5 - INIT");
@@ -164,9 +191,12 @@ void setup() {
   }
   LOGF("OK (%d keys initialized)\n", NUM_KEYS);
 
-  LOGLN("[SETUP] Connecting to WiFi...");
-  setupWiFi();
-  LOGLN("[SETUP] WiFi & WebSocket Active!");
+  if (!hasUpstream){
+    LOGLN("[SETUP] Connecting to WiFi...");
+    connectToWifi();
+    connectToWebsocket();
+    LOGLN("[SETUP] WiFi & WebSocket Active!");
+  }
 
   LOGLN("========================================");
   LOGLN("[SETUP] Complete!");
@@ -175,9 +205,13 @@ void setup() {
 
 // runs repeatedly forever
 void loop() {
-  webSocket.loop();
-  handleSerialCommand();
+  handleChainCommunication();
+
+  if (isMaster){
+    handleControllerCommunication();
+    checkWifiStatus();
+    handleSequencePlayback();
+  }
+
   handleKeyPresses();
-  checkWiFiStatus();
-  handleSequencePlayback();
 }

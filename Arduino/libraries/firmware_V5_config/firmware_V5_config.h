@@ -10,15 +10,28 @@
 #define WIFI_SSID "Open Octave"
 #define WIFI_PASSWORD "oop321321"
 
-// ============ HARDWARE CONFIG ============
+#define ESP32_IP      IPAddress(192, 168, 4, 100)
+#define ESP32_GATEWAY IPAddress(192, 168, 4, 1)
+#define ESP32_SUBNET  IPAddress(255, 255, 255, 0)
 
-#define DEBOUNCE_DELAY 50
-#define SERVO_RELEASE_DELAY 120   // ms to wait for servo to physically release
+#define CONTROLLER_IP "192.168.4.2" // replace with real IP
+#define CONTROLLER_PORT 81
+
+#define WIFI_CHECK_INTERVAL 20000
+
+#define HEARTBEAT_INTERVAL 1000
+#define HEARTBEAT_TIMEOUT 2000
+#define CHAIN_HEARTBEAT_BYTE 0xFE
 
 #define MAX_SEQUENCE_LENGTH 64
 
 #define MIN_NOTE_DURATION 100
 #define MAX_NOTE_DURATION 10000
+
+// ============ HARDWARE CONFIG ============
+
+#define DEBOUNCE_DELAY 50
+#define SERVO_RELEASE_DELAY 120   // ms to wait for servo to physically release
 
 #define SERVO_FREQ 50
 #define SERVO_REST_ANGLE 0
@@ -27,6 +40,8 @@
 #define SERVO_MAX_SAFE_ANGLE 180
 
 #define NUM_KEYS 12
+#define MAX_MODULES 4
+#define MAX_TOTAL_KEYS (NUM_KEYS * MAX_MODULES)
 
 #define LEDS_PER_KEY 1
 #define LED_BRIGHTNESS 50
@@ -34,6 +49,12 @@
 // Pin assignments
 // STRICTLY AVOID On ESP32: IO6-IO11 (SPI flash), IO1/IO3 (UART), IO34-IO39 (input-only)
 // RESERVED On ESP32: IO21 (SDA) and IO22 (SCL) for I2C to PCA9685 and PCA9555
+
+#define RX1 16
+#define TX1 17
+
+#define RX2 4
+#define TX2 15
 
 #define SPEAKER_PIN 25          // D2 (IO25) — DAC-capable, good for audio
 

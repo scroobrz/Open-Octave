@@ -4,6 +4,15 @@
 ===============================
 */
 
+bool checkUpstream(){
+  pinMode(RX1, INPUT_PULLDOWN);
+  delay(10);
+  bool hasUpstream = digitalRead(RX1) == HIGH;
+  pinMode(RX1, INPUT);
+
+  return hasUpstream;
+}
+
 void safeServoSetAngle(uint8_t channel, uint16_t angle) {
   uint16_t clampedAngle = constrain(angle, SERVO_MIN_SAFE_ANGLE, SERVO_MAX_SAFE_ANGLE);
 
@@ -15,9 +24,9 @@ void safeServoSetAngle(uint8_t channel, uint16_t angle) {
   servoDriver.setAngle(channel, clampedAngle);
 }
 
-void wsBroadcastLog(const char* msg) {
+void wsSendLog(const char* msg) {
   if (!wsReady) return;  // WebSocket not yet initialized
-  webSocket.broadcastTXT(msg);
+  webSocket.sendTXT(msg);
 }
 
 inline void servoPull(int channel) {
@@ -34,10 +43,6 @@ inline void autoPressKey(int keyIndex) {
 
 inline void autoReleaseKey(int keyIndex) {
   servoRest(keys[keyIndex].servoChannel);
-}
-
-inline bool isValidKeyIndex(int keyIndex) {
-  return (keyIndex >= 0 && keyIndex < NUM_KEYS);
 }
 
 const char *getCurrentSequenceModeString() {
@@ -80,6 +85,18 @@ const char *getColorString(uint32_t color) {
   default:
     return "CUSTOM";
   }
+}
+
+void chainSendCmd(HardwareSerial &serialPort, char cmd, int key) {
+  char buf[8];
+  uint8_t len = snprintf(buf, sizeof(buf), "%c%d\n", cmd, key);
+  serialPort.write(buf, len);
+}
+
+void chainSendCmdWithColor(HardwareSerial &serialPort, char cmd, int key, uint32_t color) {
+  char buf[16];
+  uint8_t len = snprintf(buf, sizeof(buf), "%c%d.%lX\n", cmd, key, (unsigned long)color);
+  serialPort.write(buf, len);
 }
 
 void toLowercase(char &c) {
