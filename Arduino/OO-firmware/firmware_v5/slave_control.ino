@@ -13,3 +13,9 @@ void demoteToSlave(){
     disconnectWifi();
     LOGLN("[SETUP] WiFi & WebSocket disconnected");
 }
+
+void configureNotes(){
+    // TODO: once laurie has figured out audio processing, use this 
+    // function to automatically configure the notes for this slave 
+    // module based on index (octave).
+}

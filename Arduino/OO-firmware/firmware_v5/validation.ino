@@ -10,7 +10,6 @@ bool validateHardwareInit() {
     return false;
   }
 
-
   if (MAX_SEQUENCE_LENGTH <= 0) {
     LOGF("[ERROR] Invalid MAX_SEQUENCE_LENGTH: %d", MAX_SEQUENCE_LENGTH);
     return false;

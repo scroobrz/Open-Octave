@@ -78,8 +78,11 @@ unsigned long currentStepStartTime = 0;
 #define CURRENT_STEP currentSequence.steps[currentSequenceStepIndex]
 #define PREVIOUS_STEP currentSequence.steps[currentSequenceStepIndex - 1]
 
-unsigned long lastKeyPressTime[NUM_KEYS] = {0};
-unsigned long toneStartTime[NUM_KEYS] = {0};
+// To keep track of key presses across other chained modules for the 
+// master to handle sequences
+bool globalKeyIsPressed[MAX_TOTAL_KEYS] = {false};
+unsigned long globalKeyPressTime[MAX_TOTAL_KEYS] = {0};
+unsigned long toneStartTime[MAX_TOTAL_KEYS] = {0};
 
 bool waitingForServoRelease = false;
 unsigned long servoReleaseStartTime = 0;
@@ -206,8 +209,8 @@ void loop() {
   if (isMaster){
     handleControllerCommunication();
     checkWifiStatus();
+    handleSequencePlayback();
   }
 
   handleKeyPresses();
-  handleSequencePlayback();
 }

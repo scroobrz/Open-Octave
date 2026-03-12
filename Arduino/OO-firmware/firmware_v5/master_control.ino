@@ -15,9 +15,3 @@ void promoteToMaster(){
     connectToWebsocket();
     LOGLN("[SETUP] WiFi & WebSocket Active!");
 }
-
-void handleControllerCommunication(){
-    webSocket.loop();
-    handleUsbSerialCommands();
-}
-

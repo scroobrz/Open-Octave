@@ -38,6 +38,11 @@ void handleChainCommunication(){
   sendHeartbeat();
 }
 
+void handleControllerCommunication(){
+    webSocket.loop();
+    handleUsbSerialCommands();
+}
+
 // Masters begin the heartbeat chain
 void sendHeartbeat() {
   if (isMaster && millis() - timeLastHeartbeatSent >= HEARTBEAT_INTERVAL) {
@@ -83,7 +88,86 @@ void handleSerialFromUpstream(){
 }
 
 void handleCommandsFromUpstream(){
-  
+  while (UpstreamSerial.available()) {
+    char c = (char)UpstreamSerial.read();
+
+    // Process accumulated characters when we reach a new line
+    if (c == '\n' || c == '\r') {
+      // If this line overflowed, just clear the flag and move on
+      if (upstreamSerialBufOverflow) {
+        upstreamSerialBufOverflow = false;
+        memset(upstreamSerialBuf, 0, SERIAL_BUF_SIZE);
+        upstreamSerialBufPos = 0;
+        continue;
+      }
+
+      if (upstreamSerialBufPos == 0) {
+        // ignore empty lines / trailing CR
+        continue;
+      } else if (upstreamSerialBufPos == 1) {
+        // regular single-character command
+        processSingleCharCommand(upstreamSerialBuf[0]);
+      } else {
+        upstreamSerialBuf[upstreamSerialBufPos] = '\0';
+        char cmdType = upstreamSerialBuf[0];
+
+        // Is it a slave hardware-override command (t, g, r)?
+        if (cmdType == 't' || cmdType == 'g' || cmdType == 'r') {
+          int targetModule, targetKey;
+          char *endPtr;
+
+          // Parse `<moduleIndex>.`
+          targetModule = (int)strtol(&upstreamSerialBuf[1], &endPtr, 10);
+          if (*endPtr == '.') {
+            // Parse `<globalKeyIndex>.[<color>]`
+            char *colorStartData = endPtr + 1;
+            targetKey = (int)strtol(colorStartData, &endPtr, 10);
+            
+            // If the moduleIndex matches ours, process the hardware logic locally
+            if (targetModule == moduleChainIndex) {
+              int localKeyIndex = targetKey % NUM_KEYS; // convert to local 0-11 space
+              
+              if (cmdType == 'r') {
+                resetKey(localKeyIndex);
+              } else if (*endPtr == '.') {
+                uint32_t color = strtoul(endPtr + 1, NULL, 16);
+                
+                lightUpKey(localKeyIndex, color);
+                if (cmdType == 't') {
+                  autoPressKey(localKeyIndex);
+                }
+              }
+            } else if (targetModule > moduleChainIndex) {
+              // Pass the message further down the chain if it's not for us
+              DownstreamSerial.printf("%s\n", upstreamSerialBuf);
+            }
+          }
+        } else {
+            // sequence upload command; string of characters
+            handleSequenceCommand(upstreamSerialBuf);
+        }
+      }
+
+      // Reset buffer for next line
+      memset(upstreamSerialBuf, 0, SERIAL_BUF_SIZE);
+      upstreamSerialBufPos = 0;
+      continue;
+    }
+
+    // If we're in overflow mode, discard bytes until the next newline
+    if (upstreamSerialBufOverflow) continue;
+
+    // Accumulate character into buffer (guard against overflow)
+    if (upstreamSerialBufPos < SERIAL_BUF_SIZE - 1) {
+      upstreamSerialBuf[upstreamSerialBufPos++] = c;
+    } else {
+      // Buffer full without newline — enter overflow mode
+      LOGLN("[SERIAL] Input buffer overflow — line discarded");
+      upstreamSerialBufOverflow = true;
+      memset(upstreamSerialBuf, 0, SERIAL_BUF_SIZE);
+      upstreamSerialBufPos = 0;
+    }
+  }
 }
 
 void handleHeartbeatFromUpstream(uint8_t num){
@@ -124,7 +208,64 @@ void handleSerialFromDownstream(){
 }
 
 void handleCommandsFromDownstream(){
-  
+  while (DownstreamSerial.available()) {
+    char c = (char)DownstreamSerial.read();
+
+    // Process accumulated characters when we reach a new line
+    if (c == '\n' || c == '\r') {
+      // If this line overflowed, just clear the flag and move on
+      if (downstreamSerialBufOverflow) {
+        downstreamSerialBufOverflow = false;
+        memset(downstreamSerialBuf, 0, SERIAL_BUF_SIZE);
+        downstreamSerialBufPos = 0;
+        continue;
+      }
+
+      if (downstreamSerialBufPos == 0) {
+        // ignore empty lines / trailing CR
+        continue;
+      } else {
+        downstreamSerialBuf[downstreamSerialBufPos] = '\0';
+        char cmdType = downstreamSerialBuf[0];
+
+        if (cmdType == 'K' || cmdType == 'k') {
+          int globalKey = atoi(&downstreamSerialBuf[1]);
+
+          if (globalKey >= 0 && globalKey < MAX_TOTAL_KEYS) {
+            bool isPressed = (cmdType == 'K'); // lowercase means key released
+            globalKeyIsPressed[globalKey] = isPressed;
+            
+            if (isPressed) {
+              globalKeyPressTime[globalKey] = millis();
+            }
+          }
+        }
+
+        if (!isMaster) {
+          UpstreamSerial.printf("%s\n", downstreamSerialBuf);
+        }
+      }
+
+      // Reset buffer for next line
+      memset(downstreamSerialBuf, 0, SERIAL_BUF_SIZE);
+      downstreamSerialBufPos = 0;
+      continue;
+    }
+
+    // If we're in overflow mode, discard bytes until the next newline
+    if (downstreamSerialBufOverflow) continue;
+
+    // Accumulate character into buffer (guard against overflow)
+    if (downstreamSerialBufPos < SERIAL_BUF_SIZE - 1) {
+      downstreamSerialBuf[downstreamSerialBufPos++] = c;
+    } else {
+      // Buffer full without newline — enter overflow mode
+      LOGLN("[SERIAL] Downstream input buffer overflow — line discarded");
+      downstreamSerialBufOverflow = true;
+      memset(downstreamSerialBuf, 0, SERIAL_BUF_SIZE);
+      downstreamSerialBufPos = 0;
+    }
+  }
 }
 
 void handleHeartbeatFromDownstream(uint8_t num){
@@ -487,7 +628,7 @@ bool processSequenceStepCommand(uint8_t stepIndex, char *cmd){
             int parsedKey = (int)strtol(&cmd[i+2], &endPtr, 10);
 
             // if endPtr is not the same as the start pointer, then the value was parsed
-            if (endPtr != &cmd[i+2] && parsedKey >= 0 && parsedKey < NUM_KEYS) {
+            if (endPtr != &cmd[i+2] && parsedKey >= 0 && parsedKey < MAX_TOTAL_KEYS) {
               keyIndex = parsedKey;
             } else {
               LOGF("[SEQ] Step %d: invalid key index\n", stepIndex);

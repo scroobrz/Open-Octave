@@ -11,17 +11,25 @@ void handleKeyPresses() {
   // stateOfPin() then reads from the cached value — no further I2C traffic per key.
   ioport.pinStates();
   for (int i = 0; i < NUM_KEYS; i++) {
+    unsigned long globalKey = (moduleChainIndex * NUM_KEYS) + i;
     bool buttonPressed = ioport.stateOfPin(keys[i].buttonPin) == HIGH;
 
     if (buttonPressed && !keys[i].isPressed) {
 
       // apply debouncing to avoid false triggers
-      if (millis() - lastKeyPressTime[i] >= DEBOUNCE_DELAY) {
+      if (millis() - globalKeyPressTime[globalKey] >= DEBOUNCE_DELAY) {
         unsigned long pressDetectedMs = millis();
 
+        // use local keys array to detect button press edges, and global array
+        // for sequence handling.
         keys[i].isPressed = true;
-        lastKeyPressTime[i] = pressDetectedMs;
+        globalKeyIsPressed[globalKey] = true;
+        globalKeyPressTime[globalKey] = pressDetectedMs;
         toneStartTime[i] = pressDetectedMs;  // Track when this tone started
+
+        if (!isMaster) {
+          UpstreamSerial.printf("K%d\n", globalKey);
+        }
 
         LOGF("[KEY] Key %d PRESSED (pin %d, freq %dHz)\n", i, keys[i].buttonPin, keys[i].noteFreq);
 
@@ -38,6 +46,12 @@ void handleKeyPresses() {
 
     } else if (!buttonPressed && keys[i].isPressed) {
       keys[i].isPressed = false;
+      globalKeyIsPressed[globalKey] = false;
+
+      if (!isMaster) {
+        UpstreamSerial.printf("k%d\n", globalKey);
+      }
+      
       LOGF("[KEY] Key %d RELEASED\n", i);
 
       // Turn off wrong-key red LED on release

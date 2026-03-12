@@ -46,7 +46,7 @@ inline void autoReleaseKey(int keyIndex) {
 }
 
 inline bool isValidKeyIndex(int keyIndex) {
-  return (keyIndex >= 0 && keyIndex < NUM_KEYS);
+  return (keyIndex >= 0 && keyIndex < (NUM_KEYS * numModulesInChain));
 }
 
 const char *getCurrentSequenceModeString() {
