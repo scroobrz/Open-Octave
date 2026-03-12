@@ -121,31 +121,27 @@ void handleCommandsFromUpstream(){
           int targetModule, targetKey;
           char *endPtr;
 
-          // Parse `<moduleIndex>.`
-          targetModule = (int)strtol(&upstreamSerialBuf[1], &endPtr, 10);
-          if (*endPtr == '.') {
-            // Parse `<globalKeyIndex>.[<color>]`
-            char *colorStartData = endPtr + 1;
-            targetKey = (int)strtol(colorStartData, &endPtr, 10);
+          // Parse `<globalKeyIndex>.[<color>]`
+          targetKey = (int)strtol(&upstreamSerialBuf[1], &endPtr, 10);
+          targetModule = targetKey / NUM_KEYS;
+          
+          // If the moduleIndex matches ours, process the hardware logic locally
+          if (targetModule == moduleChainIndex) {
+            int localKeyIndex = targetKey % NUM_KEYS; // convert to local 0-11 space
             
-            // If the moduleIndex matches ours, process the hardware logic locally
-            if (targetModule == moduleChainIndex) {
-              int localKeyIndex = targetKey % NUM_KEYS; // convert to local 0-11 space
+            if (cmdType == 'r') {
+              resetKey(localKeyIndex);
+            } else if (*endPtr == '.') {
+              uint32_t color = strtoul(endPtr + 1, NULL, 16);
               
-              if (cmdType == 'r') {
-                resetKey(localKeyIndex);
-              } else if (*endPtr == '.') {
-                uint32_t color = strtoul(endPtr + 1, NULL, 16);
-                
-                lightUpKey(localKeyIndex, color);
-                if (cmdType == 't') {
-                  autoPressKey(localKeyIndex);
-                }
+              lightUpKey(localKeyIndex, color);
+              if (cmdType == 't') {
+                autoPressKey(localKeyIndex);
               }
-            } else if (targetModule > moduleChainIndex) {
-              // Pass the message further down the chain if it's not for us
-              DownstreamSerial.printf("%s\n", upstreamSerialBuf);
             }
+          } else if (targetModule > moduleChainIndex) {
+            // Pass the message further down the chain if it's not for us
+            DownstreamSerial.printf("%s\n", upstreamSerialBuf);
           }
         } else {
             // sequence upload command; string of characters
