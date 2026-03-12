@@ -57,6 +57,14 @@ bool validateHardwareInit() {
   return true;
 }
 
+inline bool isValidLocalKeyIndex(int keyIndex) {
+  return (keyIndex >= 0 && keyIndex < NUM_KEYS);
+}
+
+inline bool isValidGlobalKeyIndex(int keyIndex) {
+  return (keyIndex >= 0 && keyIndex < (NUM_KEYS * numModulesInChain));
+}
+
 void testLEDs() {
   LOGLN("[TEST] Testing LEDs...");
 

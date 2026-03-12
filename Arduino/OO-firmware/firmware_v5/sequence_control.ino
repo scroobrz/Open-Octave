@@ -162,7 +162,7 @@ void stopSequence() {
 void executeCurrentSequenceStep() {
   currentStepStartTime = millis();
 
-  if (!isValidKeyIndex(CURRENT_STEP.keyIndex)) {
+  if (!isValidGlobalKeyIndex(CURRENT_STEP.keyIndex)) {
     LOGF("[ERROR] Invalid keyIndex: %d encountered while executing sequence step\n", CURRENT_STEP.keyIndex);
     testLogLogError(TESTLOG_INVALID_KEY_INDEX, F("ERROR_INVALID_KEY"));
     return;

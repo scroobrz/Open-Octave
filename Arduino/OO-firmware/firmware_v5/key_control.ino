@@ -94,7 +94,7 @@ void stopKeyTone(int keyIndex) {
 
 // lights up all LEDs on a key's LED strip with the specified color
 void lightUpKey(int keyIndex, uint32_t color) {
-  if (!isValidKeyIndex(keyIndex)) {
+  if (!isValidLocalKeyIndex(keyIndex)) {
     LOGF("[ERROR] Invalid keyIndex: %d encountered while turning on LEDs\n", keyIndex);
     return;
   }
@@ -110,7 +110,7 @@ void lightUpKey(int keyIndex, uint32_t color) {
 
 // turns off all LEDs on a key's LED strip
 void lightDownKey(int keyIndex) {
-  if (!isValidKeyIndex(keyIndex)) {
+  if (!isValidLocalKeyIndex(keyIndex)) {
     LOGF("[ERROR] Invalid keyIndex: %d encountered while turning off LEDs\n", keyIndex);
     return;
   }
@@ -133,7 +133,7 @@ void lightDownKey(int keyIndex) {
 // For consecutive same-key steps, the SERVO_RELEASE_DELAY provides enough
 // time for the physical release + handleKeyPresses() to detect it.
 void resetKey(int keyIndex) {
-  if (!isValidKeyIndex(keyIndex)) {
+  if (!isValidLocalKeyIndex(keyIndex)) {
     LOGF("[ERROR] Invalid keyIndex: %d encountered while resetting key\n", keyIndex);
     return;
   }
