@@ -272,20 +272,22 @@ void evaluateWrongKeyFeedback(int globalKey, bool isPressed) {
 }
 
 // Loads a hardcoded default sequence into currentSequence.
-// The melody is a simple ascending/descending scale across 3 keys:
 void loadDefaultSequence() {
   currentSequence.id = 0;
-  strcpy(currentSequence.name, "Default Scale");
+  strcpy(currentSequence.name, "Default");
 
+  // Short demo mixing single melody notes and chords
   const SequenceStep defaultSteps[] = {
-    {0, COLOR_CYAN,    500},   // C4 (key 0) — thumb
-    {4, COLOR_GOLD,    500},   // E4 (key 4) — middle
-    {7, COLOR_MAGENTA, 500},   // G4 (key 7) — pinky
-    {4, COLOR_GOLD,    500},   // E4 (key 4) — middle
-    {1, COLOR_CYAN,    500},   // C#4 (key 1) — thumb
-    {9, COLOR_CYAN,    500},   // A4 (key 9) — thumb
-    {8, COLOR_MAGENTA, 500},   // G#4 (key 8) — pinky
-    {5, COLOR_CORAL,   500}    // F4 (key 5) — ring
+    {3, {0, 4, 7},   {COLOR_CYAN, COLOR_GOLD, COLOR_MAGENTA},  800},  // C major chord
+    {1, {4},          {COLOR_GOLD},                              400},  // E4 melody
+    {1, {5},          {COLOR_CORAL},                             400},  // F4 melody
+    {3, {5, 9, 0},    {COLOR_CORAL, COLOR_CYAN, COLOR_CYAN},    800},  // F major chord
+    {1, {7},          {COLOR_MAGENTA},                           400},  // G4 melody
+    {1, {4},          {COLOR_GOLD},                              400},  // E4 melody
+    {2, {0, 7},       {COLOR_CYAN, COLOR_MAGENTA},               600},  // C4+G4 fifth
+    {3, {7, 11, 2},   {COLOR_MAGENTA, COLOR_CORAL, COLOR_GREEN}, 800},  // G major chord
+    {1, {2},          {COLOR_GREEN},                             400},  // D4 melody
+    {3, {0, 4, 7},    {COLOR_CYAN, COLOR_GOLD, COLOR_MAGENTA}, 1000},  // C major chord resolve
   };
 
   currentSequence.length = sizeof(defaultSteps) / sizeof(defaultSteps[0]);
