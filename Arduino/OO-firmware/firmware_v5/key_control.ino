@@ -99,13 +99,9 @@ void lightUpKey(int keyIndex, uint32_t color) {
     return;
   }
 
+  leds.setPixelColor(keys[keyIndex].ledIndex, color);
+  leds.show();
   LOGF("[LED] Key %d LED ON: color=%s\n", keyIndex, getColorString(color));
-
-  for (int i = 0; i < LEDS_PER_KEY; i++) {
-    keys[keyIndex].led->setPixelColor(i, color);
-  }
-
-  keys[keyIndex].led->show();
 }
 
 // turns off all LEDs on a key's LED strip
@@ -115,13 +111,9 @@ void lightDownKey(int keyIndex) {
     return;
   }
 
+  leds.setPixelColor(keys[keyIndex].ledIndex, 0);
+  leds.show();
   LOGF("[LED] Key %d OFF\n", keyIndex);
-
-  for (int i = 0; i < LEDS_PER_KEY; i++) {
-    keys[keyIndex].led->setPixelColor(i, 0);
-  }
-
-  keys[keyIndex].led->show();
 }
 
 // resets a key to its default state (LED off, servo at rest)
