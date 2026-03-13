@@ -406,11 +406,26 @@ void processSingleCharCommand(char cmd) {
       LOGF("  Name: %s\n", currentSequence.name);
       LOGF("  Length: %d steps\n", currentSequence.length);
       for (int i = 0; i < currentSequence.length; i++) {
-        LOGF("    Step %d: Key %d, Color %s, Duration %dms\n",
-             i,
-             currentSequence.steps[i].keyIndex,
-             getColorString(currentSequence.steps[i].color),
-             currentSequence.steps[i].duration);
+        const SequenceStep &s = currentSequence.steps[i];
+        // Build dot-separated key and color list strings
+        char keyStr[24];
+        uint8_t pos = 0;
+        for (uint8_t k = 0; k < s.numKeys && pos < sizeof(keyStr) - 4; k++) {
+          if (k > 0) keyStr[pos++] = '.';
+          pos += snprintf(&keyStr[pos], sizeof(keyStr) - pos, "%d", s.keys[k]);
+        }
+        keyStr[pos] = '\0';
+
+        char colorStr[80];
+        pos = 0;
+        for (uint8_t k = 0; k < s.numKeys && pos < sizeof(colorStr) - 12; k++) {
+          if (k > 0) { colorStr[pos++] = ','; colorStr[pos++] = ' '; }
+          pos += snprintf(&colorStr[pos], sizeof(colorStr) - pos, "%s", getColorString(s.colors[k]));
+        }
+        colorStr[pos] = '\0';
+
+        LOGF("    Step %d: Keys %s, Colors [%s], Duration %dms\n",
+             i, keyStr, colorStr, s.duration);
       }
       LOGLN("========================================\n");
       break;
