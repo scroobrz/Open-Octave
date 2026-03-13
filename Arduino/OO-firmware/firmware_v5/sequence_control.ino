@@ -37,19 +37,25 @@ void handleTeachingModePlayback() {
   if (millis() - currentStepStartTime >= CURRENT_STEP.duration) {
     LOGF("[SEQ] Step %d/%d complete\n", currentSequenceStepIndex + 1, currentSequence.length);
 
+    bool requiresServoDelay = false;
+
     for (int i = 0; i < CURRENT_STEP.numKeys; i++) {
-      uint8_t moduleIndexForStep = CURRENT_STEP.keys[i] / NUM_KEYS;
+      uint8_t keyIndex = CURRENT_STEP.keys[i];
+      uint8_t moduleIndexForStep = keyIndex / NUM_KEYS;
+
       if (moduleIndexForStep > 0) {
-        chainSendKeyCmd(DownstreamSerial, 'r', CURRENT_STEP.keys[i]);
+        chainSendKeyCmd(DownstreamSerial, 'r', keyIndex);
       } else {
-        resetKey(CURRENT_STEP.keys[i]);
+        resetKey(keyIndex);
       }
 
-      if (CURRENT_STEP.keys[i] == PREVIOUS_STEP.keys[i]) {
-        waitingForServoRelease = true;
-        servoReleaseStartTime = millis();
-        // Don't execute step yet - will be done on next loop iteration after delay
-        return;
+      int nextIndex = currentSequenceStepIndex + 1;
+      if (nextIndex < currentSequence.length) {
+        for (int j = 0; j < currentSequence.steps[nextIndex].numKeys; j++) {
+          if (currentSequence.steps[nextIndex].keys[j] == keyIndex) {
+            requiresServoDelay = true;
+          }
+        }
       }
     }
 
@@ -60,7 +66,12 @@ void handleTeachingModePlayback() {
       return;
     }
 
-    executeCurrentSequenceStep();
+    if (requiresServoDelay) {
+      waitingForServoRelease = true;
+      servoReleaseStartTime = millis();
+    } else {
+      executeCurrentSequenceStep();
+    }
   }
 }
 
@@ -229,10 +240,15 @@ void executeCurrentSequenceStep() {
         bool nextIsSameKey = false;
 
         if (nextIndex >= 0 && nextIndex < currentSequence.length) {
-          nextIsSameKey = (currentSequence.steps[nextIndex].keys[0] == CURRENT_STEP.keys[0]);
+          for (int j = 0; j < currentSequence.steps[nextIndex].numKeys; j++) {
+            if (currentSequence.steps[nextIndex].keys[j] == CURRENT_STEP.keys[i]) {
+              nextIsSameKey = true;
+              break;
+            }
+          }
         }
 
-        testLogLogAutoStep(CURRENT_STEP.keys[0], autoplayTimingErrorMs, 
+        testLogLogAutoStep(CURRENT_STEP.keys[i], autoplayTimingErrorMs, 
           ledCmdLatencyMs, servoCmdLatencyMs, (uint16_t)CURRENT_STEP.duration, 
           nextIsSameKey);
       }
