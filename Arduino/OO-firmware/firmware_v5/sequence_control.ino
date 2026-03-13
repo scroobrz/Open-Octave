@@ -171,7 +171,7 @@ void executeCurrentSequenceStep() {
   uint8_t moduleIndexForStep = CURRENT_STEP.keyIndex / NUM_KEYS;
   if (moduleIndexForStep > 0){
     LOGF("[SEQ] Forwarding step %d/%d along chain\n", currentSequenceStepIndex + 1, currentSequence.length);
-    forwardNextStepAlongChain(moduleIndexForStep);
+    forwardNextStepAlongChain();
   } else {
     LOGF("[SEQ] Step %d/%d: key=%d, color=%s, duration=%dms\n",
        currentSequenceStepIndex + 1, currentSequence.length,
