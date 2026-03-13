@@ -24,6 +24,7 @@
 #define CHAIN_HEARTBEAT_BYTE 0xFE
 
 #define MAX_SEQUENCE_LENGTH 64
+#define MAX_KEYS_PER_STEP 4
 
 #define MIN_NOTE_DURATION 100
 #define MAX_NOTE_DURATION 10000
@@ -151,9 +152,10 @@ struct Key {
 };
 
 struct SequenceStep {
-  uint8_t keyIndex;   // Which key to activate (0 to NUM_KEYS-1)
-  uint32_t color;     // LED color
-  uint16_t duration;  // How long to hold (ms)
+  uint8_t numKeys;                       // Number of keys to activate
+  uint8_t keys[MAX_KEYS_PER_STEP];       // Which keys to activate
+  uint32_t colors[MAX_KEYS_PER_STEP];    // LED color
+  uint16_t duration;                     // How long to hold (ms)
 };
 
 struct Sequence {

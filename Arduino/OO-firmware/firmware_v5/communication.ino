@@ -734,3 +734,15 @@ bool processSequenceEndCommand(char *cmd){
   uploadStepCount = 0;
   return true;
 }
+
+void chainSendKeyCmd(HardwareSerial &serialPort, char cmd, int key) {
+  char buf[8];
+  uint8_t len = snprintf(buf, sizeof(buf), "%c%d\n", cmd, key);
+  serialPort.write(buf, len);
+}
+
+void chainSendKeyCmdWithColor(HardwareSerial &serialPort, char cmd, int key, uint32_t color) {
+  char buf[16];
+  uint8_t len = snprintf(buf, sizeof(buf), "%c%d.%lX\n", cmd, key, (unsigned long)color);
+  serialPort.write(buf, len);
+}
