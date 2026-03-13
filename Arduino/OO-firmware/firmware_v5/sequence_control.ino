@@ -194,63 +194,30 @@ void executeCurrentSequenceStep() {
   for (int i = 0; i < CURRENT_STEP.numKeys; i++) {
     if (!isValidGlobalKeyIndex(CURRENT_STEP.keys[i])) {
       LOGF("[ERROR] Invalid keyIndex: %d encountered while executing sequence step\n", CURRENT_STEP.keys[i]);
-      testLogLogError(TESTLOG_INVALID_KEY_INDEX, F("ERROR_INVALID_KEY"));
       continue;
     }
 
     uint8_t moduleIndexForKey = CURRENT_STEP.keys[i] / NUM_KEYS;
+    
     if (moduleIndexForKey > 0){
       LOGF("[SEQ] Forwarding step %d/%d along chain\n", currentSequenceStepIndex + 1, currentSequence.length);
       char cmd = (currentSequenceMode == GUIDED) ? 'g' : 't';
       chainSendKeyCmdWithColor(DownstreamSerial, cmd, CURRENT_STEP.keys[i], CURRENT_STEP.colors[i]);
+
     } else {
       LOGF("[SEQ] Step %d/%d: key=%d, color=%s, duration=%dms\n",
        currentSequenceStepIndex + 1, currentSequence.length,
        CURRENT_STEP.keys[i], getColorString(CURRENT_STEP.colors[i]), 
        CURRENT_STEP.duration);
 
-      unsigned long stepStartCallTime = millis();
-
-      // Compute autoplay timing error against expected time
-      long autoplayTimingErrorMs = 0;
-      if (testLogEnabled) {
-        if (testLogExpectedNextStepStartTime == 0) {
-          testLogExpectedNextStepStartTime = stepStartCallTime;
-        }
-        autoplayTimingErrorMs = (long)(stepStartCallTime - testLogExpectedNextStepStartTime);
-      }
-
-      unsigned long ledCmdStart = millis();
       // light up the key's LED with the specified color
       lightUpKey(CURRENT_STEP.keys[i], CURRENT_STEP.colors[i]);
-      unsigned long ledCmdLatencyMs = millis() - ledCmdStart;
 
-      unsigned long servoCmdLatencyMs = 0;
       // if we're in teaching mode, also press the key with the servo
       if (currentSequenceMode == TEACHING) {
         LOGF("[SERVO] Auto-pressing key %d (channel %d)\n", 
              CURRENT_STEP.keys[i], keys[CURRENT_STEP.keys[i]].servoChannel);
-        unsigned long servoCmdStart = millis();
         autoPressKey(CURRENT_STEP.keys[i]);
-        servoCmdLatencyMs = millis() - servoCmdStart;
-      }
-
-      if (testLogEnabled) {
-        int nextIndex = currentSequenceStepIndex + 1;
-        bool nextIsSameKey = false;
-
-        if (nextIndex >= 0 && nextIndex < currentSequence.length) {
-          for (int j = 0; j < currentSequence.steps[nextIndex].numKeys; j++) {
-            if (currentSequence.steps[nextIndex].keys[j] == CURRENT_STEP.keys[i]) {
-              nextIsSameKey = true;
-              break;
-            }
-          }
-        }
-
-        testLogLogAutoStep(CURRENT_STEP.keys[i], autoplayTimingErrorMs, 
-          ledCmdLatencyMs, servoCmdLatencyMs, (uint16_t)CURRENT_STEP.duration, 
-          nextIsSameKey);
       }
     }
   }
