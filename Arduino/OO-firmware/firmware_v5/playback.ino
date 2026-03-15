@@ -30,7 +30,7 @@ void ampSetup() {
     LOGLN("[ERROR] MAX98357A init failed, retrying...");
     delay(1000); 
   }
-  LOGLN("[INFO]  MAX98357A ready");
+  LOGLN("[SETUP]  MAX98357A ready");
 
   // Re-configure I2S port to match our sample rate / bit depth.
   // The DFRobot library sets up I2S_NUM_0 internally; we reconfigure
