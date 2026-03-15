@@ -18,13 +18,6 @@
  */
 
 
-// TODO: refactor this so it correctly uses the headers we need
-
-#include <Arduino.h>
-#include <DFRobot_MAX98357A.h>
-
-#include <vector>
-
 using namespace std;
 
 // ── Pin / hardware configuration ─────────────────────────────────────────────
@@ -82,7 +75,7 @@ static size_t           g_cursor = 0;   // current playback position (samples)
  * To loop playback instead of stopping, reset g_cursor = 0 rather than
  * calling freeWavStream().
  */
-void loop() {
+void loop(WavStream ws) {
   if (!i2sOut || g_stream.samples == nullptr) {
     delay(100);
     return;

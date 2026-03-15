@@ -22,13 +22,6 @@
  *   - ESP8266Audio  by  earlephilhower
  */
 
-
-// TODO: refactor this so it correctly uses the headers we need
-
-#include <Arduino.h>
-#include <DFRobot_MAX98357A.h>
-#include <vector>
-
 using namespace std; 
 
 // ── Pin / hardware configuration ─────────────────────────────────────────────
@@ -79,61 +72,11 @@ static bool decodeMp3ToPcm(const char* path, int16_t** outBuf, size_t* outLen);
 static void mixBuffers(int16_t** bufs, size_t* lens,
                        uint8_t count, int16_t* mixBuf, size_t mixLen);
 
-
-// Rename this to describe the function better..? Also refactor because doesn't make any sense
-
-// ── loop() ───────────────────────────────────────────────────────────────────
-/**
- * Drains the WavStream into the I2S peripheral FRAME_SAMPLES at a time.
- *
- * For mono streams the same sample is copied to both the left and right
- * I2S slots (AudioOutputI2S always expects a stereo L/R pair per call).
- * For stereo streams the buffer is already interleaved [L0,R0,L1,R1,...].
- *
- * To loop playback instead of stopping, reset g_cursor = 0 rather than
- * calling freeWavStream().
- */
-void loop() {
-  if (!i2sOut || g_stream.samples == nullptr) {
-    delay(100);
-    return;
-  }
-
-  if (g_cursor >= g_stream.sampleCount) {
-    freeWavStream(g_stream);
-    i2sOut->stop();
-    Serial.println("[INFO]  Playback complete");
-    delay(1000);
-    return;
-  }
-
-  size_t remaining = g_stream.sampleCount - g_cursor;
-  size_t chunkLen  = min((size_t)FRAME_SAMPLES, remaining);
-
-  for (size_t i = 0; i < chunkLen; ) {
-    if (g_stream.channels == 2) {
-      // Stereo: buffer is interleaved [L, R, L, R, ...]
-      int16_t lr[2] = { g_stream.samples[g_cursor + i],
-                        g_stream.samples[g_cursor + i + 1] };
-      i2sOut->ConsumeSample(lr);
-      i += 2;
-    } else {
-      // Mono: duplicate sample to both channels
-      int16_t s = g_stream.samples[g_cursor + i];
-      int16_t lr[2] = { s, s };
-      i2sOut->ConsumeSample(lr);
-      i += 1;
-    }
-  }
-
-  g_cursor += chunkLen;
-}
-
 // ── synthesiseChord() ─────────────────────────────────────────────────────────────
 /**
  * synthesiseChord()
  *
- * @param mp3Paths   Array of null-terminated SD paths (e.g. "/c4.mp3")
+ * @param mp3Paths   Array of null-terminated SD paths (e.g. "c4.mp3")
  * @param fileCount  Number of entries in mp3Paths
  * @returns          WavStream with heap-allocated mixed PCM on success.
  *
@@ -147,11 +90,9 @@ void loop() {
 WavStream synthesiseChord(vector<Key> keys) {
   WavStream ws = { nullptr, 0, MIX_SAMPLE_RATE, MIX_CHANNELS, 0, nullptr };
 
-  for (auto i)
   uint8_t fileCount = keys.size();
 
   if (!keys) {
-    // Refactor to use logger
     ws.errorCode = 1;
     ws.errorMsg  = "No input files provided";
     return ws;
@@ -175,8 +116,6 @@ WavStream synthesiseChord(vector<Key> keys) {
 
     Serial.print("[INFO]  Decoding ");
     Serial.println(filepath);
-
-
 
     if (!decodeMp3ToPcm(filepath, &pcmBufs[i], &pcmLens[i])) {
       Serial.print("[WARN]  Skipping (decode failed): ");
