@@ -22,17 +22,6 @@
  *   - ESP8266Audio  by  earlephilhower
  */
 
-// ── Pin / hardware configuration ─────────────────────────────────────────────
-#define SD_CS_PIN       5    // SD card chip-select
-#define I2S_BCLK_PIN   25    // I2S bit clock   → amp BCLK
-#define I2S_LRCLK_PIN  26    // I2S word select  → amp LRC / WSEL
-#define I2S_DOUT_PIN   22    // I2S data out     → amp DIN / SD
-
-// ── Audio configuration ───────────────────────────────────────────────────────
-#define MIX_SAMPLE_RATE  44100
-#define MIX_CHANNELS         1   // 1 = mono, 2 = stereo
-#define FRAME_SAMPLES     1024   // samples pushed to I2S per loop() call
-
 // ── WavStream ─────────────────────────────────────────────────────────────────
 /**
  * WavStream
@@ -49,24 +38,7 @@
  *   errorCode   → non-zero
  *   errorMsg    → human-readable description
  */
-struct WavStream {
-  int16_t*    samples;
-  size_t      sampleCount;
-  size_t      cursor;
-  uint32_t    sampleRate;
-  uint8_t     channels;
-  int         errorCode;
-  const char* errorMsg;
-};
 
-// ── Forward declarations ──────────────────────────────────────────────────────
-WavStream   playChord(vector<Key> keys);
-void        freeWavStream(WavStream& ws);
-static bool decodeMp3ToPcm(const char* path, int16_t** outBuf, size_t* outLen);
-static void mixBuffers(int16_t** bufs, size_t* lens,
-                       uint8_t count, int16_t* mixBuf, size_t mixLen);
-
-// ── playChord() ─────────────────────────────────────────────────────────────
 /**
  * playChord()
  *

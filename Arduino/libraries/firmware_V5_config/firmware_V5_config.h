@@ -46,6 +46,17 @@
 #define LED_STRIP_PIN 19
 #define LED_BRIGHTNESS 50
 
+// ── SD & amp configuration ─────────────────────────────────────────────
+#define SD_CS_PIN       5    // SD card chip-select
+#define I2S_BCLK_PIN   25    // I2S bit clock   → amp BCLK
+#define I2S_LRCLK_PIN  26    // I2S word select  → amp LRC / WSEL
+#define I2S_DOUT_PIN   22    // I2S data out     → amp DIN / SD
+
+// ── Audio configuration ───────────────────────────────────────────────────────
+#define MIX_SAMPLE_RATE  44100
+#define MIX_CHANNELS         1   // 1 = mono, 2 = stereo
+#define FRAME_SAMPLES     1024   // samples pushed to I2S per loop() call
+
 // Pin assignments
 // STRICTLY AVOID On ESP32: IO6-IO11 (SPI flash), IO1/IO3 (UART), IO34-IO39 (input-only)
 // RESERVED On ESP32: IO21 (SDA) and IO22 (SCL) for I2C to PCA9685 and PCA9555
@@ -167,6 +178,17 @@ enum TestLogErrorCode : uint8_t {
   TESTLOG_OK = 0,
   TESTLOG_INVALID_STEP_INDEX = 1,
   TESTLOG_INVALID_KEY_INDEX = 2
+};
+
+// For chord synthesis
+struct WavStream {
+  int16_t*    samples;
+  size_t      sampleCount;
+  size_t      cursor;
+  uint32_t    sampleRate;
+  uint8_t     channels;
+  int         errorCode;
+  const char* errorMsg;
 };
 
 #endif

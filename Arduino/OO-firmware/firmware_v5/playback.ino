@@ -20,14 +20,17 @@
 // ── ampSetup() ──────────────────────────────────────────────────────────────────
 void ampSetup() {
   // SD card (DFR0229)
-  if (!initSD()) return;
+  if (!initSD()){
+    LOGLN("[ERROR] DFR0229 SD card cannot initialise");
+    return;
+  } 
 
   // Initialise the MAX98357A via DFRobot library (configures I2S peripheral)
   while (!amplifier.initI2S(AMP_BCLK_PIN, AMP_LRCLK_PIN, AMP_DIN_PIN)) {
-    Serial.println("[ERROR] MAX98357A init failed, retrying...");
-    delay(3000);
+    LOGLN("[ERROR] MAX98357A init failed, retrying...");
+    delay(1000); 
   }
-  Serial.println("[INFO]  MAX98357A ready");
+  LOGLN("[INFO]  MAX98357A ready");
 
   // Re-configure I2S port to match our sample rate / bit depth.
   // The DFRobot library sets up I2S_NUM_0 internally; we reconfigure
@@ -74,8 +77,8 @@ void streamToAmp(WavStream& ws) {
   );
 
   if (err != ESP_OK) {
-    Serial.print("[WARN]  i2s_write error: ");
-    Serial.println(esp_err_to_name(err));
+    LOG("[WARN]  i2s_write error: ");
+    LOGLN(esp_err_to_name(err));
   }
 
   ws.cursor += chunkSamples;
