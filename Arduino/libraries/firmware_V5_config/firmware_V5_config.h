@@ -146,7 +146,7 @@ struct Key {
   int buttonPin;
   int ledIndex;
   int servoChannel;
-  char* note_filepath;
+  char* fpath;
   bool isPressed;
 };
 

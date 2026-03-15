@@ -9,12 +9,8 @@
  * whose samples pointer and sampleCount describe the heap buffer, which
  * loop() drains into AudioOutputI2S. Call freeWavStream() when done.
  *
- * Hardware assumed:
- *   - ESP32
- *   - I2S amplifier wired to the pins defined in I2S_* below
- *   - SD card module for source MP3 files
- *
- * I2S amplifier wiring (MAX98357A example):
+ *   NEED TO CHECK/ CHANGE THIS WITH ELECTRONICS TESTING
+ *  DFRobot_MAX98367A amplifier wiring:
  *   ESP32 GPIO25  →  BCLK  (bit clock)
  *   ESP32 GPIO26  →  LRC   (word select / left-right clock)
  *   ESP32 GPIO22  →  DIN   (serial data)
@@ -24,17 +20,16 @@
  *
  * Dependencies (Arduino Library Manager):
  *   - ESP8266Audio  by  earlephilhower
- *   - ESP32 board package
  */
 
-#include <Arduino.h>
-#include <SD.h>
-#include <SPI.h>
 
-#include "AudioFileSourceSD.h"
-#include "AudioGeneratorMP3.h"
-#include "AudioOutputI2S.h"
-#include "AudioOutputNull.h"
+// TODO: refactor this so it correctly uses the headers we need
+
+#include <Arduino.h>
+#include <DFRobot_MAX98357A.h>
+#include <vector>
+
+using namespace std; 
 
 // ── Pin / hardware configuration ─────────────────────────────────────────────
 #define SD_CS_PIN       5    // SD card chip-select
@@ -78,51 +73,14 @@ static WavStream        g_stream = {};
 static size_t           g_cursor = 0;   // current playback position (samples)
 
 // ── Forward declarations ──────────────────────────────────────────────────────
-WavStream   synthesiseChord(const char** mp3Paths, uint8_t fileCount);
+WavStream   synthesiseChord(vector<Keys> keys);
 void        freeWavStream(WavStream& ws);
 static bool decodeMp3ToPcm(const char* path, int16_t** outBuf, size_t* outLen);
 static void mixBuffers(int16_t** bufs, size_t* lens,
                        uint8_t count, int16_t* mixBuf, size_t mixLen);
 
-// ── setup() ──────────────────────────────────────────────────────────────────
-void setup() {
-  Serial.begin(115200);
-  while (!Serial) delay(10);
 
-  if (!SD.begin(SD_CS_PIN)) {
-    Serial.println("[ERROR] SD init failed");
-    return;
-  }
-  Serial.println("[INFO]  SD ready");
-
-  // Initialise I2S output to amplifier
-  i2sOut = new AudioOutputI2S();
-  i2sOut->SetPinout(I2S_BCLK_PIN, I2S_LRCLK_PIN, I2S_DOUT_PIN);
-  i2sOut->SetRate(MIX_SAMPLE_RATE);
-  i2sOut->SetChannels(MIX_CHANNELS);
-  i2sOut->SetBitsPerSample(16);
-  i2sOut->begin();
-
-  // ── Synthesise a C-major chord (C4 + E4 + G4) ────────────────────────────
-  const char* notes[]   = { "/c4.mp3", "/e4.mp3", "/g4.mp3" };
-  uint8_t     noteCount = sizeof(notes) / sizeof(notes[0]);
-
-  g_stream = synthesiseChord(notes, noteCount);
-  g_cursor = 0;
-
-  if (g_stream.errorCode != 0) {
-    Serial.print("[ERROR] ");
-    Serial.print(g_stream.errorCode);
-    Serial.print(" — ");
-    Serial.println(g_stream.errorMsg);
-  } else {
-    Serial.print("[OK]    Streaming ");
-    Serial.print(g_stream.sampleCount);
-    Serial.println(" samples → I2S amplifier");
-  }
-}
-
-// Rename this to describe the function better..?
+// Rename this to describe the function better..? Also refactor because doesn't make any sense
 
 // ── loop() ───────────────────────────────────────────────────────────────────
 /**
@@ -186,10 +144,14 @@ void loop() {
  *   4. Free intermediate per-file buffers
  *   5. Return WavStream — the caller owns the buffer and must call freeWavStream()
  */
-WavStream synthesiseChord(const char** mp3Paths, uint8_t fileCount) {
+WavStream synthesiseChord(vector<Key> keys) {
   WavStream ws = { nullptr, 0, MIX_SAMPLE_RATE, MIX_CHANNELS, 0, nullptr };
 
-  if (!mp3Paths || fileCount == 0) {
+  for (auto i)
+  uint8_t fileCount = keys.size();
+
+  if (!keys) {
+    // Refactor to use logger
     ws.errorCode = 1;
     ws.errorMsg  = "No input files provided";
     return ws;
@@ -208,12 +170,17 @@ WavStream synthesiseChord(const char** mp3Paths, uint8_t fileCount) {
 
   size_t maxLen = 0;
   for (uint8_t i = 0; i < fileCount; i++) {
-    Serial.print("[INFO]  Decoding ");
-    Serial.println(mp3Paths[i]);
 
-    if (!decodeMp3ToPcm(mp3Paths[i], &pcmBufs[i], &pcmLens[i])) {
+    char* filepath = keys[i].fpath;
+
+    Serial.print("[INFO]  Decoding ");
+    Serial.println(filepath);
+
+
+
+    if (!decodeMp3ToPcm(filepath, &pcmBufs[i], &pcmLens[i])) {
       Serial.print("[WARN]  Skipping (decode failed): ");
-      Serial.println(mp3Paths[i]);
+      Serial.println(filepath);
     }
     if (pcmLens[i] > maxLen) maxLen = pcmLens[i];
   }
