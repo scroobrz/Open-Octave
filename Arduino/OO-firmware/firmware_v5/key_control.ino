@@ -1,3 +1,5 @@
+#include <vector>
+
 /*
 ===============================
    KEYBOARD CONTROL FUNCTIONS
@@ -61,6 +63,80 @@ void handleKeyPresses() {
     }
   }
 }
+
+void handleKeyPresses() {
+  // Read all 16 input pins in a single burst (2 I2C transactions total).
+  // stateOfPin() then reads from the cached value — no further I2C traffic per key.
+  ioport.pinStates();
+
+  // Keep resizeable array of notes pressed to feed into synthesiseChord
+  vector<Key> notes_pressed;
+
+  for (int i = 0; i < NUM_KEYS; i++) {
+    int globalKey = (moduleChainIndex * NUM_KEYS) + i;
+    bool buttonPressed = ioport.stateOfPin(keys[i].buttonPin) == HIGH;
+
+    if (buttonPressed && !keys[i].isPressed) {
+
+      // apply debouncing to avoid false triggers
+      if (millis() - globalKeyPressTime[globalKey] >= DEBOUNCE_DELAY) {
+        unsigned long pressDetectedMs = millis();
+
+        // use local keys array to detect button press edges, and global array
+        // for sequence handling.
+        keys[i].isPressed = true;
+        globalKeyIsPressed[globalKey] = true;
+        globalKeyPressTime[globalKey] = pressDetectedMs;
+        toneStartTime[i] = pressDetectedMs;  // Track when this tone started
+
+        if (!isMaster) {
+          chainSendCmd(UpstreamSerial, 'K', globalKey);
+        }
+
+        // Update array
+        notes_pressed.push_back(keys[i]);
+
+        LOGF("[KEY] Key %d PRESSED (pin %d, freq %dHz)\n", i, keys[i].buttonPin, keys[i].noteFreq);
+
+        if (isMaster) {
+          evaluateWrongKeyFeedback(globalKey, true);
+        }
+
+        unsigned long audioStartedMs = millis();
+        testLogLogManualPress(i, pressDetectedMs, audioStartedMs);
+      }
+
+    } else if (!buttonPressed && keys[i].isPressed) {
+      keys[i].isPressed = false;
+      globalKeyIsPressed[globalKey] = false;
+
+      if (!isMaster) {
+        chainSendCmd(UpstreamSerial, 'k', globalKey);
+      }
+      
+      // If in notes_pressed: remove
+      for (int i = 0; i < notes_pressed.size(); i++){
+        if (keys[i] == notes_pressed.at(i)){
+            notes_pressed.erase(i);
+            break;
+        }
+      }
+
+      LOGF("[KEY] Key %d RELEASED\n", i);
+
+      if (isMaster) {
+        evaluateWrongKeyFeedback(globalKey, false);
+      }
+    }
+  }
+  // Now create chord
+  WavStream tone = synthesiseChord(notes_pressed);
+
+  //TODO: Write WavStream to amplifier code.. use chord_synthesis loop function
+
+}
+
+/* TODO: REMOVE */
 
 // starts playing the tone for a specific key
 inline void startKeyTone(int keyIndex) {
