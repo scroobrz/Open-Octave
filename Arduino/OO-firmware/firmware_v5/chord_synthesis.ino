@@ -5,7 +5,7 @@
  * them into a mixed PCM stream, and feeds that stream directly to an I2S
  * amplifier module (e.g. MAX98357A, UDA1334A, PCM5102).
  *
- * No intermediate file is written. synthChord() returns a WavStream struct
+ * No intermediate file is written. synthesiseChord() returns a WavStream struct
  * whose samples pointer and sampleCount describe the heap buffer, which
  * loop() drains into AudioOutputI2S. Call freeWavStream() when done.
  *
@@ -51,7 +51,7 @@
 /**
  * WavStream
  *
- * Returned by synthChord(). On success:
+ * Returned by synthesiseChord(). On success:
  *   samples     → heap-allocated int16_t PCM buffer (caller must free via freeWavStream)
  *   sampleCount → total number of int16 samples
  *   sampleRate  → playback rate in Hz
@@ -78,7 +78,7 @@ static WavStream        g_stream = {};
 static size_t           g_cursor = 0;   // current playback position (samples)
 
 // ── Forward declarations ──────────────────────────────────────────────────────
-WavStream   synthChord(const char** mp3Paths, uint8_t fileCount);
+WavStream   synthesiseChord(const char** mp3Paths, uint8_t fileCount);
 void        freeWavStream(WavStream& ws);
 static bool decodeMp3ToPcm(const char* path, int16_t** outBuf, size_t* outLen);
 static void mixBuffers(int16_t** bufs, size_t* lens,
@@ -107,7 +107,7 @@ void setup() {
   const char* notes[]   = { "/c4.mp3", "/e4.mp3", "/g4.mp3" };
   uint8_t     noteCount = sizeof(notes) / sizeof(notes[0]);
 
-  g_stream = synthChord(notes, noteCount);
+  g_stream = synthesiseChord(notes, noteCount);
   g_cursor = 0;
 
   if (g_stream.errorCode != 0) {
@@ -121,6 +121,8 @@ void setup() {
     Serial.println(" samples → I2S amplifier");
   }
 }
+
+// Rename this to describe the function better..?
 
 // ── loop() ───────────────────────────────────────────────────────────────────
 /**
@@ -169,9 +171,9 @@ void loop() {
   g_cursor += chunkLen;
 }
 
-// ── synthChord() ─────────────────────────────────────────────────────────────
+// ── synthesiseChord() ─────────────────────────────────────────────────────────────
 /**
- * synthChord()
+ * synthesiseChord()
  *
  * @param mp3Paths   Array of null-terminated SD paths (e.g. "/c4.mp3")
  * @param fileCount  Number of entries in mp3Paths
@@ -184,7 +186,7 @@ void loop() {
  *   4. Free intermediate per-file buffers
  *   5. Return WavStream — the caller owns the buffer and must call freeWavStream()
  */
-WavStream synthChord(const char** mp3Paths, uint8_t fileCount) {
+WavStream synthesiseChord(const char** mp3Paths, uint8_t fileCount) {
   WavStream ws = { nullptr, 0, MIX_SAMPLE_RATE, MIX_CHANNELS, 0, nullptr };
 
   if (!mp3Paths || fileCount == 0) {

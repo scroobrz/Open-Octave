@@ -61,62 +61,62 @@
 #define KEY0_BUTTON_PIN 0
 #define KEY0_LED_INDEX 0
 #define KEY0_SERVO_CHANNEL 1
-#define KEY0_NOTE 262  // C4
+#define KEY0_FP "c4.mp3"  // C4
 
 #define KEY1_BUTTON_PIN 1
 #define KEY1_LED_INDEX 1
 #define KEY1_SERVO_CHANNEL 2
-#define KEY1_NOTE 277  // C#4
+#define KEY1_FP "c#4.mp3"  // C#4
 
 #define KEY2_BUTTON_PIN 2
 #define KEY2_LED_INDEX 2
 #define KEY2_SERVO_CHANNEL 3
-#define KEY2_NOTE 294  // D4
+#define KEY2_FP "d4.mp3"  // D4
 
 #define KEY3_BUTTON_PIN 3
 #define KEY3_LED_INDEX 3
 #define KEY3_SERVO_CHANNEL 4
-#define KEY3_NOTE 311  // D#4
+#define KEY3_FP "d#4.mp3"  // D#4
 
 #define KEY4_BUTTON_PIN 4
 #define KEY4_LED_INDEX 4
 #define KEY4_SERVO_CHANNEL 5
-#define KEY4_NOTE 330  // E4
+#define KEY4_FP "e4.mp3"  // E4
 
 #define KEY5_BUTTON_PIN 5
 #define KEY5_LED_INDEX 5
 #define KEY5_SERVO_CHANNEL 6
-#define KEY5_NOTE 349  // F4
+#define KEY5_FP "f4.mp3"  // F4
 
 #define KEY6_BUTTON_PIN 6
 #define KEY6_LED_INDEX 6
 #define KEY6_SERVO_CHANNEL 7
-#define KEY6_NOTE 370  // F#4
+#define KEY6_FP "f#4.mp3"  // F#4
 
 #define KEY7_BUTTON_PIN 7
 #define KEY7_LED_INDEX 7
 #define KEY7_SERVO_CHANNEL 8
-#define KEY7_NOTE 392  // G4
+#define KEY7_FP "g4.mp3"  // G4
 
 #define KEY8_BUTTON_PIN 8
 #define KEY8_LED_INDEX 8
 #define KEY8_SERVO_CHANNEL 9
-#define KEY8_NOTE 415  // G#4
+#define KEY8_FP "g#4.mp3"  // G#4
 
 #define KEY9_BUTTON_PIN 9
 #define KEY9_LED_INDEX 9
 #define KEY9_SERVO_CHANNEL 10
-#define KEY9_NOTE 440  // A4
+#define KEY9_FP "a4.mp3"  // A4
 
 #define KEY10_BUTTON_PIN 10
 #define KEY10_LED_INDEX 10
 #define KEY10_SERVO_CHANNEL 11
-#define KEY10_NOTE 466 // A#4
+#define KEY10_FP "a#4.mp3" // A#4
 
 #define KEY11_BUTTON_PIN 11
 #define KEY11_LED_INDEX 11
 #define KEY11_SERVO_CHANNEL 12
-#define KEY11_NOTE 494 // B4
+#define KEY11_FP "b4.mp3" // B4
 
 // ROYGBIV colour palette
 #define COLOR_RED     0xFF0000
@@ -146,7 +146,7 @@ struct Key {
   int buttonPin;
   int ledIndex;
   int servoChannel;
-  int noteFreq;
+  char* note_filepath;
   bool isPressed;
 };
 
