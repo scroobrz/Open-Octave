@@ -69,7 +69,7 @@ void handleKeyPresses() {
   // stateOfPin() then reads from the cached value — no further I2C traffic per key.
   ioport.pinStates();
 
-  // Keep resizeable array of notes pressed to feed into synthesiseChord
+  // Keep resizeable array of notes pressed to feed into playChord
   vector<Key> notes_pressed;
 
   for (int i = 0; i < NUM_KEYS; i++) {
@@ -130,10 +130,12 @@ void handleKeyPresses() {
     }
   }
   // Now create chord
-  WavStream tone = synthesiseChord(notes_pressed);
-
-  //TODO: Write WavStream to amplifier code.. use chord_synthesis loop function
-
+  WavStream stream = playChord(notes_pressed);
+  // Now stream to amp
+  streamToAmp(stream);
+  // Now free wav stream after playback.. might need to change if we loop or fade out
+  freeWavStream(stream);
+  
 }
 
 /* TODO: REMOVE */

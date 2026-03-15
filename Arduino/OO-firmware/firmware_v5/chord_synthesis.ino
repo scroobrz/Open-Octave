@@ -1,11 +1,11 @@
 /**
- * chord_synth.ino
+ * chord_synthesis.ino
  *
  * Decodes multiple MP3 files (e.g. c4.mp3, d4.mp3, e4.mp3), superimposes
  * them into a mixed PCM stream, and feeds that stream directly to an I2S
  * amplifier module (e.g. MAX98357A, UDA1334A, PCM5102).
  *
- * No intermediate file is written. synthesiseChord() returns a WavStream struct
+ * No intermediate file is written. playChord() returns a WavStream struct
  * whose samples pointer and sampleCount describe the heap buffer, which
  * loop() drains into AudioOutputI2S. Call freeWavStream() when done.
  *
@@ -22,8 +22,6 @@
  *   - ESP8266Audio  by  earlephilhower
  */
 
-using namespace std; 
-
 // ── Pin / hardware configuration ─────────────────────────────────────────────
 #define SD_CS_PIN       5    // SD card chip-select
 #define I2S_BCLK_PIN   25    // I2S bit clock   → amp BCLK
@@ -39,7 +37,7 @@ using namespace std;
 /**
  * WavStream
  *
- * Returned by synthesiseChord(). On success:
+ * Returned by playChord(). On success:
  *   samples     → heap-allocated int16_t PCM buffer (caller must free via freeWavStream)
  *   sampleCount → total number of int16 samples
  *   sampleRate  → playback rate in Hz
@@ -54,27 +52,23 @@ using namespace std;
 struct WavStream {
   int16_t*    samples;
   size_t      sampleCount;
+  size_t      cursor;
   uint32_t    sampleRate;
   uint8_t     channels;
   int         errorCode;
   const char* errorMsg;
 };
 
-// ── Module-level playback state ───────────────────────────────────────────────
-static AudioOutputI2S* i2sOut   = nullptr;
-static WavStream        g_stream = {};
-static size_t           g_cursor = 0;   // current playback position (samples)
-
 // ── Forward declarations ──────────────────────────────────────────────────────
-WavStream   synthesiseChord(vector<Keys> keys);
+WavStream   playChord(vector<Key> keys);
 void        freeWavStream(WavStream& ws);
 static bool decodeMp3ToPcm(const char* path, int16_t** outBuf, size_t* outLen);
 static void mixBuffers(int16_t** bufs, size_t* lens,
                        uint8_t count, int16_t* mixBuf, size_t mixLen);
 
-// ── synthesiseChord() ─────────────────────────────────────────────────────────────
+// ── playChord() ─────────────────────────────────────────────────────────────
 /**
- * synthesiseChord()
+ * playChord()
  *
  * @param mp3Paths   Array of null-terminated SD paths (e.g. "c4.mp3")
  * @param fileCount  Number of entries in mp3Paths
@@ -87,12 +81,12 @@ static void mixBuffers(int16_t** bufs, size_t* lens,
  *   4. Free intermediate per-file buffers
  *   5. Return WavStream — the caller owns the buffer and must call freeWavStream()
  */
-WavStream synthesiseChord(vector<Key> keys) {
-  WavStream ws = { nullptr, 0, MIX_SAMPLE_RATE, MIX_CHANNELS, 0, nullptr };
+WavStream playChord(vector<Key> keys) {
+  WavStream ws = { nullptr, 0, 0, MIX_SAMPLE_RATE, MIX_CHANNELS, 0, nullptr };
 
   uint8_t fileCount = keys.size();
 
-  if (!keys) {
+  if (keys.empty()) {
     ws.errorCode = 1;
     ws.errorMsg  = "No input files provided";
     return ws;
@@ -166,6 +160,7 @@ void freeWavStream(WavStream& ws) {
     free(ws.samples);
     ws.samples     = nullptr;
     ws.sampleCount = 0;
+    ws.cursor = 0;
   }
 }
 

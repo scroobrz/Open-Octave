@@ -161,10 +161,8 @@ void setup() {
   LOGF("OK (\"%s\", %d steps)\n", currentSequence.name, currentSequence.length);
 
   // ===== INITIALIZATION =====
-  LOG("[SETUP] Configuring speaker... ");
-  pinMode(SPEAKER_PIN, OUTPUT);
-  noTone(SPEAKER_PIN);
-  LOGF("OK (speaker_pin: %d)\n", SPEAKER_PIN);
+  LOG("[SETUP] Configuring amplifier... ");
+  ampSetup();
 
   LOG("[SETUP] Initializing I2C... ");
   Wire.begin(21, 22);
