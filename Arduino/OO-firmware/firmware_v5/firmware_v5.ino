@@ -213,6 +213,7 @@ void setup() {
   LOGLN("========================================");
   LOGLN("[SETUP] Complete!");
   LOGLN("========================================\n");
+  playStartupAnimation();
 }
 
 // runs repeatedly forever
