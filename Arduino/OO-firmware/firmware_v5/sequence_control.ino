@@ -4,6 +4,16 @@
 ===============================
 */
 
+void handleSequenceButtons(){
+  if (ioport.digitalRead(GUIDED_SEQ_BUTTON_PIN) == HIGH && millis() - lastSequenceButtonPressTime >= BUTTON_DEBOUNCE_DELAY){
+    startSequence(GUIDED);
+    lastSequenceButtonPressTime = millis();
+  } else if (ioport.digitalRead(TEACHING_SEQ_BUTTON_PIN) == HIGH && millis() - lastSequenceButtonPressTime >= BUTTON_DEBOUNCE_DELAY){
+    startSequence(TEACHING);
+    lastSequenceButtonPressTime = millis();
+  }
+}
+
 // handles automatic sequence playback
 void handleSequencePlayback() {
   if (!sequenceRunning)

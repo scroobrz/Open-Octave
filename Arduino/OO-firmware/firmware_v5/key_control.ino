@@ -7,9 +7,6 @@ These handle button detection, sound playback, and LED control for the keys.
 
 // checks all buttons and plays/stops tones based on their state
 void handleKeyPresses() {
-  // Read all 16 input pins in a single burst (2 I2C transactions total).
-  // stateOfPin() then reads from the cached value — no further I2C traffic per key.
-  ioport.pinStates();
   for (int i = 0; i < NUM_KEYS; i++) {
     int globalKey = (moduleChainIndex * NUM_KEYS) + i;
     bool buttonPressed = ioport.stateOfPin(keys[i].buttonPin) == HIGH;
@@ -17,7 +14,7 @@ void handleKeyPresses() {
     if (buttonPressed && !keys[i].isPressed) {
 
       // apply debouncing to avoid false triggers
-      if (millis() - globalKeyPressTime[globalKey] >= DEBOUNCE_DELAY) {
+      if (millis() - globalKeyPressTime[globalKey] >= BUTTON_DEBOUNCE_DELAY) {
         unsigned long pressDetectedMs = millis();
 
         // use local keys array to detect button press edges, and global array
