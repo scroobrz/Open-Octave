@@ -211,6 +211,7 @@ void setup() {
 
 // runs repeatedly forever
 void loop() {
+  ioport.pinStates();
   checkOnOff();
 
   if (on){
@@ -227,11 +228,10 @@ void loop() {
 }
 
 void checkOnOff(){
-  ioport.pinStates();
-  if (ioport.digitalRead(ON_OFF_PIN) == HIGH && millis() - lastOnOffSwitchTime >= BUTTON_DEBOUNCE_DELAY){
+  if (ioport.stateOfPin(ON_OFF_PIN) == HIGH && millis() - lastOnOffSwitchTime >= BUTTON_DEBOUNCE_DELAY){
     on = true;
     lastOnOffSwitchTime = millis();
-  } else if (ioport.digitalRead(ON_OFF_PIN) == LOW && millis() - lastOnOffSwitchTime >= BUTTON_DEBOUNCE_DELAY){
+  } else if (ioport.stateOfPin(ON_OFF_PIN) == LOW && millis() - lastOnOffSwitchTime >= BUTTON_DEBOUNCE_DELAY){
     on = false;
     stopSequence();
     lastOnOffSwitchTime = millis();
@@ -239,7 +239,6 @@ void checkOnOff(){
 }
 
 void handleButtonPresses(){
-  ioport.pinStates();
   handleSequenceButtons();
   handleKeyPresses();
 }
