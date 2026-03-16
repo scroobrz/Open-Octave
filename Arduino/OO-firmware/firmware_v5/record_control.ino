@@ -63,7 +63,7 @@ void stopRecording() {
 
 // Called when a key is pressed during recording.
 // Starts a new chord or adds to the current one if within the chord window.
-void recordKeyPress(uint8_t localKeyIndex) {
+void recordKeyPress(int globalKey) {
   if (recStepCount >= MAX_SEQUENCE_LENGTH) {
     LOGLN(F("[REC] Max sequence length reached, stopping recording"));
     stopRecording();
@@ -73,14 +73,14 @@ void recordKeyPress(uint8_t localKeyIndex) {
   // No chord in progress — start a new one
   if (recChordNumKeys == 0) {
     recChordStartTime = millis();
-    recChordKeys[0] = localKeyIndex;
+    recChordKeys[0] = globalKey;
     recChordNumKeys = 1;
     return;
   }
 
   // Within chord window and room for more keys — add to current chord
   if (millis() - recChordStartTime < CHORD_WINDOW_MS && recChordNumKeys < MAX_KEYS_PER_STEP) {
-    recChordKeys[recChordNumKeys] = localKeyIndex;
+    recChordKeys[recChordNumKeys] = globalKey;
     recChordNumKeys++;
     return;
   }
@@ -95,19 +95,19 @@ void recordKeyPress(uint8_t localKeyIndex) {
   }
 
   recChordStartTime = millis();
-  recChordKeys[0] = localKeyIndex;
+  recChordKeys[0] = globalKey;
   recChordNumKeys = 1;
 }
 
 // Called when a key is released during recording.
 // The first release in a chord commits the step (duration = press-to-first-release).
-void recordKeyRelease(uint8_t localKeyIndex) {
+void recordKeyRelease(int globalKey) {
   if (recChordNumKeys == 0) return;
 
   // Check if this key is part of the current chord
   bool isInChord = false;
   for (uint8_t i = 0; i < recChordNumKeys; i++) {
-    if (recChordKeys[i] == localKeyIndex) {
+    if (recChordKeys[i] == globalKey) {
       isInChord = true;
       break;
     }
@@ -142,15 +142,31 @@ void commitRecordedStep() {
   recChordNumKeys = 0;
 }
 
-// Brief white flash across all LEDs to signal recording start/stop.
+// Brief white flash across all LEDs across all modules to signal recording start/stop.
 void flashWhiteAnimation() {
+  // Flash master module
   for (int i = 0; i < NUM_KEYS; i++) {
     leds.setPixelColor(keys[i].ledIndex, COLOR_WHITE);
   }
   leds.show();
+  
+  // Flash downstream modules
+  for (int m = 1; m < numModulesInChain; m++) {
+    for (int i = 0; i < NUM_KEYS; i++) {
+      int targetGlobalKey = m * NUM_KEYS + i;
+      chainSendKeyCmdWithColor(DownstreamSerial, 'g', targetGlobalKey, COLOR_WHITE);
+    }
+  }
+
   delay(RECORD_FLASH_HOLD);
+  
+  // Turn off master module
   for (int i = 0; i < NUM_KEYS; i++) {
     leds.setPixelColor(keys[i].ledIndex, 0);
   }
   leds.show();
+
+  // Turn off downstream modules
+  DownstreamSerial.write("x\n", 2);
 }
+

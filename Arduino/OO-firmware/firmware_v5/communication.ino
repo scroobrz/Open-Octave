@@ -242,7 +242,15 @@ void handleCommandsFromDownstream(){
             }
 
             if (isMaster) {
-              evaluateWrongKeyFeedback(globalKey, isPressed);
+              if (recording) {
+                if (isPressed) {
+                  recordKeyPress(globalKey);
+                } else {
+                  recordKeyRelease(globalKey);
+                }
+              } else {
+                evaluateWrongKeyFeedback(globalKey, isPressed);
+              }
             }
           }
         }
