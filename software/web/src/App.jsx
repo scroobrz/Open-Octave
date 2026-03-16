@@ -1,4 +1,4 @@
-import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
+import { useEffect, useMemo, useRef, useState } from 'react';
 import COLORS from '../../shared/colors.json';
 import './App.css';
 
@@ -1044,7 +1044,7 @@ export default function App() {
               <div className="row">
                 <div className="pill-row">
                   <span className={isConnected ? 'pill pill-green' : 'pill pill-muted'}>
-                    WS Server: Port {health?.wsServerPort || WS_PORT || 81}
+                    WS Server: Port {health?.wsServerPort || 81}
                   </span>
                   <span className={connectedModuleCount > 0 ? 'pill pill-green' : 'pill pill-coral'}>
                     {connectedModuleCount} module{connectedModuleCount !== 1 ? 's' : ''} connected
