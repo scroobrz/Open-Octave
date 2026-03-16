@@ -228,13 +228,14 @@ void loop() {
 }
 
 void checkOnOff(){
-  if (ioport.stateOfPin(ON_OFF_PIN) == HIGH && millis() - lastOnOffSwitchTime >= BUTTON_DEBOUNCE_DELAY){
-    on = true;
-    lastOnOffSwitchTime = millis();
-  } else if (ioport.stateOfPin(ON_OFF_PIN) == LOW && millis() - lastOnOffSwitchTime >= BUTTON_DEBOUNCE_DELAY){
-    on = false;
-    stopSequence();
-    lastOnOffSwitchTime = millis();
+  if (millis() - lastOnOffSwitchTime >= BUTTON_DEBOUNCE_DELAY){
+    bool onSwitch = ioport.stateOfPin(ON_OFF_PIN);
+    
+    if (on != onSwitch){
+      on = onSwitch;
+      stopSequence();
+      lastOnOffSwitchTime = millis();
+    }
   }
 }
 
