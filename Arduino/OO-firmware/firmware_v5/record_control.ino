@@ -34,7 +34,7 @@ void startRecording() {
   recording = true;
   recStepCount = 0;
   recChordNumKeys = 0;
-  LOGLN(F("\n[REC] ======== RECORDING STARTED ========"));
+  LOGLN("\n[REC] ======== RECORDING STARTED ========");
   flashWhiteAnimation();
 }
 
@@ -54,10 +54,10 @@ void stopRecording() {
 
     LOGF("[REC] Recording saved: %d steps\n", recStepCount);
   } else {
-    LOGLN(F("[REC] No notes recorded, sequence unchanged"));
+    LOGLN("[REC] No notes recorded, sequence unchanged");
   }
 
-  LOGLN(F("[REC] ======== RECORDING STOPPED ========\n"));
+  LOGLN("[REC] ======== RECORDING STOPPED ========\n");
   flashWhiteAnimation();
 }
 
@@ -65,7 +65,7 @@ void stopRecording() {
 // Starts a new chord or adds to the current one if within the chord window.
 void recordKeyPress(int globalKey) {
   if (recStepCount >= MAX_SEQUENCE_LENGTH) {
-    LOGLN(F("[REC] Max sequence length reached, stopping recording"));
+    LOGLN("[REC] Max sequence length reached, stopping recording");
     stopRecording();
     return;
   }
@@ -89,7 +89,7 @@ void recordKeyPress(int globalKey) {
   commitRecordedStep();
 
   if (recStepCount >= MAX_SEQUENCE_LENGTH) {
-    LOGLN(F("[REC] Max sequence length reached, stopping recording"));
+    LOGLN("[REC] Max sequence length reached, stopping recording");
     stopRecording();
     return;
   }
