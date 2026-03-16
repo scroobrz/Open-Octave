@@ -1018,17 +1018,6 @@ export default function App() {
               {connectedModuleCount} module{connectedModuleCount !== 1 ? 's' : ''} connected
             </div>
           )}
-          <label className="cb-toggle" style={{ marginTop: 8 }}>
-            <span className="cb-toggle-label">Colourblind</span>
-            <input
-              type="checkbox"
-              checked={colorMode === 'colorblind'}
-              onChange={(e) => setColorMode(e.target.checked ? 'colorblind' : 'default')}
-            />
-            <span className="cb-toggle-track">
-              <span className="cb-toggle-knob" />
-            </span>
-          </label>
         </div>
       </aside>
 
@@ -1336,7 +1325,20 @@ export default function App() {
 
             {/* Finger colour reference */}
             <div className="card">
-              <h2>Finger Colours</h2>
+              <div className="row" style={{ marginBottom: 12 }}>
+                <h2 style={{ margin: 0 }}>Finger Colours</h2>
+                <label className="cb-toggle">
+                  <span className="cb-toggle-label">Colourblind</span>
+                  <input
+                    type="checkbox"
+                    checked={colorMode === 'colorblind'}
+                    onChange={(e) => setColorMode(e.target.checked ? 'colorblind' : 'default')}
+                  />
+                  <span className="cb-toggle-track">
+                    <span className="cb-toggle-knob" />
+                  </span>
+                </label>
+              </div>
               <div className="btn-row" style={{ gap: 12 }}>
                 {FINGER_OPTIONS.map(f => (
                   <div key={f.finger} className="step-color" style={{ gap: 6 }}>
