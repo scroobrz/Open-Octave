@@ -126,7 +126,7 @@
 
 // ============ ANIMATION DEFINITIONS ============
 
-#define SWEEP_DELAY_PER_KEY 50
+#define SWEEP_DELAY_PER_KEY 100
 #define STARTUP_WHITE_HOLD 500
 #define SHUTDOWN_WHITE_HOLD 250
 
