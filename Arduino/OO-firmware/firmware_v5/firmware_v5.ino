@@ -61,6 +61,9 @@ HardwareSerial DownstreamSerial(2);
 
 // ============ GLOBAL STATE ============
 
+bool on = true;
+unsigned long lastOnOffSwitchTime = 0;
+
 bool isMaster = true;
 uint8_t moduleChainIndex = 0;
 uint8_t numModulesInChain = 1;
@@ -78,6 +81,7 @@ Sequence currentSequence;
 bool sequenceRunning = false;
 int currentSequenceStepIndex = 0;
 unsigned long currentStepStartTime = 0;
+unsigned long lastSequenceButtonPressTime = 0;
 #define CURRENT_STEP currentSequence.steps[currentSequenceStepIndex]
 #define PREVIOUS_STEP currentSequence.steps[currentSequenceStepIndex - 1]
 
@@ -207,13 +211,37 @@ void setup() {
 
 // runs repeatedly forever
 void loop() {
-  handleChainCommunication();
+  ioport.pinStates();
+  checkOnOff();
 
-  if (isMaster){
-    handleControllerCommunication();
-    checkWifiStatus();
-    handleSequencePlayback();
+  if (on){
+    handleChainCommunication();
+
+    if (isMaster){
+      handleControllerCommunication();
+      checkWifiStatus();
+      handleSequencePlayback();
+      handleSequenceButtons();
+    }
+
+    handleKeyPresses();
   }
+}
 
-  handleKeyPresses();
+void checkOnOff(){
+  if (millis() - lastOnOffSwitchTime >= BUTTON_DEBOUNCE_DELAY){
+    bool onSwitch = ioport.stateOfPin(ON_OFF_PIN);
+
+    if (on != onSwitch){
+      if (onSwitch) {
+        on = true;
+        playStartupAnimation();
+      } else {
+        stopSequence();
+        playShutdownAnimation();
+        on = false;
+      }
+      lastOnOffSwitchTime = millis();
+    }
+  }
 }

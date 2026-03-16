@@ -31,7 +31,7 @@
 
 // ============ HARDWARE CONFIG ============
 
-#define DEBOUNCE_DELAY 50
+#define BUTTON_DEBOUNCE_DELAY 50
 #define SERVO_RELEASE_DELAY 120   // ms to wait for servo to physically release
 
 #define SERVO_FREQ 50
@@ -47,9 +47,10 @@
 #define LED_STRIP_PIN 19
 #define LED_BRIGHTNESS 50
 
-// Pin assignments
-// STRICTLY AVOID On ESP32: IO6-IO11 (SPI flash), IO1/IO3 (UART), IO34-IO39 (input-only)
-// RESERVED On ESP32: IO21 (SDA) and IO22 (SCL) for I2C to PCA9685 and PCA9555
+// ============ PIN ASSIGNMENTS ============
+// Button pins are on the IO expansion board
+// Servo channels are on the servo driver board
+// All other pins are on the ESP32
 
 #define RX1 16
 #define TX1 17
@@ -118,6 +119,18 @@
 #define KEY11_LED_INDEX 11
 #define KEY11_SERVO_CHANNEL 12
 #define KEY11_NOTE 494 // B4
+
+#define ON_OFF_PIN 12
+#define GUIDED_SEQ_BUTTON_PIN 13
+#define TEACHING_SEQ_BUTTON_PIN 14
+
+// ============ ANIMATION DEFINITIONS ============
+
+#define SWEEP_DELAY_PER_KEY 50
+#define STARTUP_WHITE_HOLD 500
+#define SHUTDOWN_WHITE_HOLD 250
+
+// ============ COLOR DEFINITIONS ============
 
 // ROYGBIV colour palette
 #define COLOR_RED     0xFF0000
