@@ -220,6 +220,7 @@ void setup() {
   LOGLN("========================================");
   LOGLN("[SETUP] Complete!");
   LOGLN("========================================\n");
+  playStartupAnimation();
 }
 
 // runs repeatedly forever
@@ -244,17 +245,16 @@ void loop() {
 
 void checkOnOff(){
   if (millis() - lastOnOffSwitchTime >= BUTTON_DEBOUNCE_DELAY){
-    bool onSwitch = ioport.stateOfPin(ON_OFF_PIN);
-
-    if (on != onSwitch){
-      if (onSwitch) {
-        on = true;
-        playStartupAnimation();
-      } else {
+    // if on/off button pressed
+    if (ioport.stateOfPin(ON_OFF_PIN) == HIGH){
+      if (on) {
+        on = false;
         if (recording) stopRecording();
         stopSequence();
         playShutdownAnimation();
-        on = false;
+      } else {
+        playStartupAnimation();
+        on = true;
       }
       lastOnOffSwitchTime = millis();
     }
