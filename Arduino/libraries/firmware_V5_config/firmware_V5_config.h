@@ -33,6 +33,7 @@
 
 #define BUTTON_DEBOUNCE_DELAY 50
 #define SERVO_RELEASE_DELAY 120   // ms to wait for servo to physically release
+#define CHORD_WINDOW_MS 40        // ms window for grouping simultaneous presses into a chord
 
 #define SERVO_FREQ 50
 #define SERVO_REST_ANGLE 0
@@ -123,12 +124,14 @@
 #define ON_OFF_PIN 12
 #define GUIDED_SEQ_BUTTON_PIN 13
 #define TEACHING_SEQ_BUTTON_PIN 14
+#define RECORD_BUTTON_PIN 15
 
 // ============ ANIMATION DEFINITIONS ============
 
 #define SWEEP_DELAY_PER_KEY 50
 #define STARTUP_WHITE_HOLD 500
 #define SHUTDOWN_WHITE_HOLD 250
+#define RECORD_FLASH_HOLD 200
 
 // ============ COLOR DEFINITIONS ============
 
@@ -148,6 +151,7 @@
 #define COLOR_GOLD    0xFFD700
 #define COLOR_CORAL   0xFF6B35
 #define COLOR_MAGENTA 0xE8368F
+#define COLOR_PINK    0xFF69B4
 
 // ============ TYPE DEFINITIONS ============
 

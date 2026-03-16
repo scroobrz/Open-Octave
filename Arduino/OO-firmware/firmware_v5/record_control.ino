@@ -1,0 +1,165 @@
+/*
+===============================
+      RECORDING CONTROL
+===============================
+Allows the user to record key presses into a sequence via a physical button
+(RECORD_BUTTON_PIN on the PCA9555 I/O expander). Pressing the button toggles
+recording on/off. While recording, key presses and their hold durations are
+captured as sequence steps. Keys pressed within CHORD_WINDOW_MS of each other
+are grouped into a single chord step (up to MAX_KEYS_PER_STEP keys).
+
+When recording stops, the captured steps replace currentSequence so the user
+can immediately play back what they recorded using the guided/teaching buttons.
+*/
+
+void handleRecordButton() {
+  if (sequenceRunning) return;
+
+  static bool lastRecordState = false;
+  bool recordState = (ioport.stateOfPin(RECORD_BUTTON_PIN) == HIGH);
+
+  if (recordState && !lastRecordState && millis() - lastSequenceButtonPressTime >= BUTTON_DEBOUNCE_DELAY) {
+    if (!recording) {
+      startRecording();
+    } else {
+      stopRecording();
+    }
+    lastSequenceButtonPressTime = millis();
+  }
+
+  lastRecordState = recordState;
+}
+
+void startRecording() {
+  recording = true;
+  recStepCount = 0;
+  recChordNumKeys = 0;
+  memset(recChordKeyHeld, false, sizeof(recChordKeyHeld));
+
+  LOGLN(F("\n[REC] ======== RECORDING STARTED ========"));
+  flashWhiteAnimation();
+}
+
+void stopRecording() {
+  // Commit any in-progress chord before finalizing
+  if (recChordNumKeys > 0) {
+    commitRecordedStep();
+  }
+
+  recording = false;
+
+  if (recStepCount > 0) {
+    currentSequence.id = 0;
+    strncpy(currentSequence.name, "Recorded", sizeof(currentSequence.name));
+    currentSequence.length = recStepCount;
+    // Steps were written directly into currentSequence.steps during recording
+
+    LOGF("[REC] Recording saved: %d steps\n", recStepCount);
+  } else {
+    LOGLN(F("[REC] No notes recorded, sequence unchanged"));
+  }
+
+  LOGLN(F("[REC] ======== RECORDING STOPPED ========\n"));
+  flashWhiteAnimation();
+}
+
+// Called when a key is pressed during recording.
+// Starts a new chord or adds to the current one if within the chord window.
+void recordKeyPress(uint8_t localKeyIndex) {
+  if (recStepCount >= MAX_SEQUENCE_LENGTH) {
+    LOGLN(F("[REC] Max sequence length reached, stopping recording"));
+    stopRecording();
+    return;
+  }
+
+  // No chord in progress — start a new one
+  if (recChordNumKeys == 0) {
+    recChordStartTime = millis();
+    recChordKeys[0] = localKeyIndex;
+    recChordNumKeys = 1;
+    recChordKeyHeld[localKeyIndex] = true;
+    return;
+  }
+
+  // Within chord window and room for more keys — add to current chord
+  if (millis() - recChordStartTime < CHORD_WINDOW_MS && recChordNumKeys < MAX_KEYS_PER_STEP) {
+    recChordKeys[recChordNumKeys] = localKeyIndex;
+    recChordNumKeys++;
+    recChordKeyHeld[localKeyIndex] = true;
+    return;
+  }
+
+  // Past chord window or max keys per step — commit current step, start new one
+  commitRecordedStep();
+
+  if (recStepCount >= MAX_SEQUENCE_LENGTH) {
+    LOGLN(F("[REC] Max sequence length reached, stopping recording"));
+    stopRecording();
+    return;
+  }
+
+  recChordStartTime = millis();
+  recChordKeys[0] = localKeyIndex;
+  recChordNumKeys = 1;
+  memset(recChordKeyHeld, false, sizeof(recChordKeyHeld));
+  recChordKeyHeld[localKeyIndex] = true;
+}
+
+// Called when a key is released during recording.
+// The first release in a chord commits the step (duration = press-to-first-release).
+void recordKeyRelease(uint8_t localKeyIndex) {
+  if (recChordNumKeys == 0) return;
+
+  // Check if this key is part of the current chord
+  bool isInChord = false;
+  for (uint8_t i = 0; i < recChordNumKeys; i++) {
+    if (recChordKeys[i] == localKeyIndex) {
+      isInChord = true;
+      break;
+    }
+  }
+
+  if (!isInChord) return;
+
+  recChordKeyHeld[localKeyIndex] = false;
+
+  // First release in the chord commits the step
+  commitRecordedStep();
+}
+
+// Writes the current chord into currentSequence.steps and resets chord state.
+void commitRecordedStep() {
+  if (recChordNumKeys == 0 || recStepCount >= MAX_SEQUENCE_LENGTH) return;
+
+  unsigned long duration = millis() - recChordStartTime;
+  if (duration < MIN_NOTE_DURATION) duration = MIN_NOTE_DURATION;
+  if (duration > MAX_NOTE_DURATION) duration = MAX_NOTE_DURATION;
+
+  SequenceStep* step = &currentSequence.steps[recStepCount];
+  step->numKeys = recChordNumKeys;
+  step->duration = (uint16_t)duration;
+
+  for (uint8_t i = 0; i < recChordNumKeys; i++) {
+    step->keys[i] = recChordKeys[i];
+    step->colors[i] = COLOR_PINK;
+  }
+
+  LOGF("[REC] Step %d: %d key(s), %dms\n", recStepCount + 1, recChordNumKeys, (int)duration);
+
+  recStepCount++;
+  recChordNumKeys = 0;
+  memset(recChordKeyHeld, false, sizeof(recChordKeyHeld));
+}
+
+// Brief white flash across all LEDs to signal recording start/stop.
+void flashWhiteAnimation() {
+  for (int i = 0; i < NUM_KEYS; i++) {
+    leds.setPixelColor(keys[i].ledIndex, COLOR_WHITE);
+  }
+  leds.show();
+  delay(RECORD_FLASH_HOLD);
+  for (int i = 0; i < NUM_KEYS; i++) {
+    leds.setPixelColor(keys[i].ledIndex, 0);
+  }
+  leds.show();
+}

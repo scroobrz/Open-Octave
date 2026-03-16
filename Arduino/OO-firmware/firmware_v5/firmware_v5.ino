@@ -94,6 +94,13 @@ unsigned long toneStartTime[MAX_TOTAL_KEYS] = {0};
 bool waitingForServoRelease = false;
 unsigned long servoReleaseStartTime = 0;
 
+bool recording = false;
+uint8_t recStepCount = 0;
+uint8_t recChordKeys[MAX_KEYS_PER_STEP];
+uint8_t recChordNumKeys = 0;
+unsigned long recChordStartTime = 0;
+bool recChordKeyHeld[NUM_KEYS];
+
 bool testLogEnabled = false;
 uint16_t testLogRunId = 0;
 uint16_t testLogEventId = 0;
@@ -222,6 +229,7 @@ void loop() {
       checkWifiStatus();
       handleSequencePlayback();
       handleSequenceButtons();
+      handleRecordButton();
     }
 
     handleKeyPresses();
@@ -237,6 +245,7 @@ void checkOnOff(){
         on = true;
         playStartupAnimation();
       } else {
+        if (recording) stopRecording();
         stopSequence();
         playShutdownAnimation();
         on = false;

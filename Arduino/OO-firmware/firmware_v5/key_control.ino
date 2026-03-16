@@ -32,7 +32,9 @@ void handleKeyPresses() {
 
         startKeyTone(i);
 
-        if (isMaster) {
+        if (isMaster && recording) {
+          recordKeyPress(i);
+        } else if (isMaster) {
           evaluateWrongKeyFeedback(globalKey, true);
         }
 
@@ -52,7 +54,9 @@ void handleKeyPresses() {
 
       stopKeyTone(i);
 
-      if (isMaster) {
+      if (isMaster && recording) {
+        recordKeyRelease(i);
+      } else if (isMaster) {
         evaluateWrongKeyFeedback(globalKey, false);
       }
     }
