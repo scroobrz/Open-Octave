@@ -406,11 +406,26 @@ void processSingleCharCommand(char cmd) {
       LOGF("  Name: %s\n", currentSequence.name);
       LOGF("  Length: %d steps\n", currentSequence.length);
       for (int i = 0; i < currentSequence.length; i++) {
-        LOGF("    Step %d: Key %d, Color %s, Duration %dms\n",
-             i,
-             currentSequence.steps[i].keyIndex,
-             getColorString(currentSequence.steps[i].color),
-             currentSequence.steps[i].duration);
+        const SequenceStep &s = currentSequence.steps[i];
+        // Build dot-separated key and color list strings
+        char keyStr[24];
+        uint8_t pos = 0;
+        for (uint8_t k = 0; k < s.numKeys && pos < sizeof(keyStr) - 4; k++) {
+          if (k > 0) keyStr[pos++] = '.';
+          pos += snprintf(&keyStr[pos], sizeof(keyStr) - pos, "%d", s.keys[k]);
+        }
+        keyStr[pos] = '\0';
+
+        char colorStr[80];
+        pos = 0;
+        for (uint8_t k = 0; k < s.numKeys && pos < sizeof(colorStr) - 12; k++) {
+          if (k > 0) { colorStr[pos++] = ','; colorStr[pos++] = ' '; }
+          pos += snprintf(&colorStr[pos], sizeof(colorStr) - pos, "%s", getColorString(s.colors[k]));
+        }
+        colorStr[pos] = '\0';
+
+        LOGF("    Step %d: Keys %s, Colors [%s], Duration %dms\n",
+             i, keyStr, colorStr, s.duration);
       }
       LOGLN("========================================\n");
       break;
@@ -607,8 +622,10 @@ bool processSequenceUploadCommand(char *cmd){
 }
 
 bool processSequenceStepCommand(uint8_t stepIndex, char *cmd){
-  uint8_t keyIndex = 0;
-  uint32_t color = 0;
+  uint8_t numKeys = 0;
+  uint8_t stepKeys[MAX_KEYS_PER_STEP] = {0};
+  uint8_t numColors = 0;
+  uint32_t stepColors[MAX_KEYS_PER_STEP] = {0};
   uint16_t duration = 0;
 
   bool valid = true;
@@ -623,34 +640,71 @@ bool processSequenceStepCommand(uint8_t stepIndex, char *cmd){
 
         toLowercase(cmd[i]);
         switch (cmd[i]){
-          // Key index
+          // Key indices — supports dot-separated multi-key format: k=1.3.4
           case 'k': {
-            // use endPtr to track how many characters were parsed
+            char *ptr = &cmd[i+2];
             char *endPtr;
-            int parsedKey = (int)strtol(&cmd[i+2], &endPtr, 10);
 
-            // if endPtr is not the same as the start pointer, then the value was parsed
-            if (endPtr != &cmd[i+2] && parsedKey >= 0 && parsedKey < MAX_TOTAL_KEYS) {
-              keyIndex = parsedKey;
-            } else {
-              LOGF("[SEQ] Step %d: invalid key index\n", stepIndex);
+            while (numKeys < MAX_KEYS_PER_STEP) {
+              int parsedKey = (int)strtol(ptr, &endPtr, 10);
+
+              if (endPtr == ptr) {
+                // No number parsed at all
+                LOGF("[SEQ] Step %d: invalid key index\n", stepIndex);
+                valid = false;
+                break;
+              }
+
+              if (parsedKey < 0 || parsedKey >= MAX_TOTAL_KEYS) {
+                LOGF("[SEQ] Step %d: key index %d out of range\n", stepIndex, parsedKey);
+                valid = false;
+                break;
+              }
+
+              stepKeys[numKeys++] = (uint8_t)parsedKey;
+
+              // If next char is '.', skip it and parse the next key
+              if (*endPtr == '.') {
+                ptr = endPtr + 1;
+              } else {
+                break;  // End of key list (space, null, or newline)
+              }
+            }
+
+            if (numKeys == 0) {
+              LOGF("[SEQ] Step %d: no keys provided\n", stepIndex);
               valid = false;
             }
 
             break;
           }
 
-          // LED Color
+          // LED Colors — supports dot-separated multi-color format: c=00B4D8.FFD700.E8368F
           case 'c': {
-            // use endptr to track how many characters were parsed
+            char *ptr = &cmd[i+2];
             char *endPtr;
-            uint32_t parsedColor = strtoul(&cmd[i+2], &endPtr, 16);
 
-            // if endptr is not the same as the start pointer, then the value was parsed
-            if (endPtr != &cmd[i+2]) {
-              color = parsedColor;
-            } else {
-              LOGF("[SEQ] Step %d: invalid color value\n", stepIndex);
+            while (numColors < MAX_KEYS_PER_STEP) {
+              uint32_t parsedColor = strtoul(ptr, &endPtr, 16);
+
+              if (endPtr == ptr) {
+                LOGF("[SEQ] Step %d: invalid color value\n", stepIndex);
+                valid = false;
+                break;
+              }
+
+              stepColors[numColors++] = parsedColor;
+
+              // If next char is '.', skip it and parse the next color
+              if (*endPtr == '.') {
+                ptr = endPtr + 1;
+              } else {
+                break;  // End of color list (space, null, or newline)
+              }
+            }
+
+            if (numColors == 0 && valid) {
+              LOGF("[SEQ] Step %d: no colors provided\n", stepIndex);
               valid = false;
             }
 
@@ -684,8 +738,34 @@ bool processSequenceStepCommand(uint8_t stepIndex, char *cmd){
     return false;
   }
 
-  LOGF("[SEQ] Uploaded step %d: key %d, color 0x%06X, duration %dms\n", stepIndex, keyIndex, color, duration);
-  uploadSequenceBuffer.steps[stepIndex] = SequenceStep{keyIndex, color, duration};
+  // Build the step — if fewer colors than keys, repeat the last color
+  SequenceStep step;
+  step.numKeys = numKeys;
+  step.duration = duration;
+  for (uint8_t k = 0; k < numKeys; k++) {
+    step.keys[k] = stepKeys[k];
+    step.colors[k] = (k < numColors) ? stepColors[k] : stepColors[numColors - 1];
+  }
+
+  // Log with dot-separated key and color lists for readability
+  char keyStr[24];
+  uint8_t pos = 0;
+  for (uint8_t k = 0; k < numKeys && pos < sizeof(keyStr) - 4; k++) {
+    if (k > 0) keyStr[pos++] = '.';
+    pos += snprintf(&keyStr[pos], sizeof(keyStr) - pos, "%d", stepKeys[k]);
+  }
+  keyStr[pos] = '\0';
+
+  char colorStr[56];  // e.g. "00B4D8.FFD700.E8368F"
+  pos = 0;
+  for (uint8_t k = 0; k < numColors && pos < sizeof(colorStr) - 8; k++) {
+    if (k > 0) colorStr[pos++] = '.';
+    pos += snprintf(&colorStr[pos], sizeof(colorStr) - pos, "%06X", stepColors[k]);
+  }
+  colorStr[pos] = '\0';
+
+  LOGF("[SEQ] Uploaded step %d: keys=%s, colors=%s, duration=%dms\n", stepIndex, keyStr, colorStr, duration);
+  uploadSequenceBuffer.steps[stepIndex] = step;
   return true;
 }
 
@@ -733,4 +813,16 @@ bool processSequenceEndCommand(char *cmd){
   currentSequence = uploadSequenceBuffer;
   uploadStepCount = 0;
   return true;
+}
+
+void chainSendKeyCmd(HardwareSerial &serialPort, char cmd, int key) {
+  char buf[8];
+  uint8_t len = snprintf(buf, sizeof(buf), "%c%d\n", cmd, key);
+  serialPort.write(buf, len);
+}
+
+void chainSendKeyCmdWithColor(HardwareSerial &serialPort, char cmd, int key, uint32_t color) {
+  char buf[16];
+  uint8_t len = snprintf(buf, sizeof(buf), "%c%d.%lX\n", cmd, key, (unsigned long)color);
+  serialPort.write(buf, len);
 }

@@ -28,7 +28,7 @@ void handleKeyPresses() {
         toneStartTime[i] = pressDetectedMs;  // Track when this tone started
 
         if (!isMaster) {
-          chainSendCmd(UpstreamSerial, 'K', globalKey);
+          chainSendKeyCmd(UpstreamSerial, 'K', globalKey);
         }
 
         LOGF("[KEY] Key %d PRESSED (pin %d, freq %dHz)\n", i, keys[i].buttonPin, keys[i].noteFreq);
@@ -48,7 +48,7 @@ void handleKeyPresses() {
       globalKeyIsPressed[globalKey] = false;
 
       if (!isMaster) {
-        chainSendCmd(UpstreamSerial, 'k', globalKey);
+        chainSendKeyCmd(UpstreamSerial, 'k', globalKey);
       }
       
       LOGF("[KEY] Key %d RELEASED\n", i);
