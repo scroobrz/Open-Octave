@@ -203,6 +203,12 @@ void setup() {
   }
   LOGF("OK (%d keys initialized)\n", NUM_KEYS);
 
+  LOGF("[SETUP] Configuring external button pins... ");
+  ioport.pinMode(ON_OFF_PIN, INPUT);
+  ioport.pinMode(GUIDED_SEQ_BUTTON_PIN, INPUT);
+  ioport.pinMode(TEACHING_SEQ_BUTTON_PIN, INPUT);
+  LOGLN("OK");
+
   if (!hasUpstream){
     LOGLN("[SETUP] Connecting to WiFi...");
     connectToWifi();
