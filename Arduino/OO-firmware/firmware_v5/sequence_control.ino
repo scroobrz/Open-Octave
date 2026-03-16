@@ -4,14 +4,25 @@
 ===============================
 */
 
-void handleSequenceButtons(){
-  if (ioport.stateOfPin(GUIDED_SEQ_BUTTON_PIN) == HIGH && millis() - lastSequenceButtonPressTime >= BUTTON_DEBOUNCE_DELAY){
+void handleSequenceButtons() {
+  if (sequenceRunning) return;
+
+  static bool lastGuidedState = false;
+  static bool lastTeachingState = false;
+
+  bool guidedState = (ioport.stateOfPin(GUIDED_SEQ_BUTTON_PIN) == HIGH);
+  bool teachingState = (ioport.stateOfPin(TEACHING_SEQ_BUTTON_PIN) == HIGH);
+
+  if (guidedState && !lastGuidedState && millis() - lastSequenceButtonPressTime >= BUTTON_DEBOUNCE_DELAY) {
     startSequence(GUIDED);
     lastSequenceButtonPressTime = millis();
-  } else if (ioport.stateOfPin(TEACHING_SEQ_BUTTON_PIN) == HIGH && millis() - lastSequenceButtonPressTime >= BUTTON_DEBOUNCE_DELAY){
+  } else if (teachingState && !lastTeachingState && millis() - lastSequenceButtonPressTime >= BUTTON_DEBOUNCE_DELAY) {
     startSequence(TEACHING);
     lastSequenceButtonPressTime = millis();
   }
+
+  lastGuidedState = guidedState;
+  lastTeachingState = teachingState;
 }
 
 // handles automatic sequence playback

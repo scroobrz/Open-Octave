@@ -221,9 +221,10 @@ void loop() {
       handleControllerCommunication();
       checkWifiStatus();
       handleSequencePlayback();
+      handleSequenceButtons();
     }
 
-    handleButtonPresses();
+    handleKeyPresses();
   }
 }
 
@@ -243,9 +244,4 @@ void checkOnOff(){
       lastOnOffSwitchTime = millis();
     }
   }
-}
-
-void handleButtonPresses(){
-  handleSequenceButtons();
-  handleKeyPresses();
 }
