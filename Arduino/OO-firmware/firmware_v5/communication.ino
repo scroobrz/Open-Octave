@@ -496,6 +496,10 @@ void handleSequenceCommand(char *cmd){
         LOGLN("[SEQ] Upload rejected: another upload already in progress");
         break;
       }
+      if (recording) {
+        LOGLN("[SEQ] Upload rejected: currently recording");
+        break;
+      }
 
       // Reset old upload buffer
       uploadingSequence = true;

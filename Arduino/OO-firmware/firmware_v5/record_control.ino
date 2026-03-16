@@ -13,7 +13,7 @@ can immediately play back what they recorded using the guided/teaching buttons.
 */
 
 void handleRecordButton() {
-  if (sequenceRunning) return;
+  if (sequenceRunning || uploadingSequence) return;
 
   static bool lastRecordState = false;
   bool recordState = (ioport.stateOfPin(RECORD_BUTTON_PIN) == HIGH);
