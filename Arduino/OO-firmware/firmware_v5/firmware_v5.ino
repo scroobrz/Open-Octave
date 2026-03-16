@@ -207,6 +207,7 @@ void setup() {
   ioport.pinMode(ON_OFF_PIN, INPUT);
   ioport.pinMode(GUIDED_SEQ_BUTTON_PIN, INPUT);
   ioport.pinMode(TEACHING_SEQ_BUTTON_PIN, INPUT);
+  ioport.pinMode(RECORD_BUTTON_PIN, INPUT);
   LOGLN("OK");
 
   if (!hasUpstream){
