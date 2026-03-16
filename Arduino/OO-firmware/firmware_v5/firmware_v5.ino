@@ -230,10 +230,16 @@ void loop() {
 void checkOnOff(){
   if (millis() - lastOnOffSwitchTime >= BUTTON_DEBOUNCE_DELAY){
     bool onSwitch = ioport.stateOfPin(ON_OFF_PIN);
-    
+
     if (on != onSwitch){
-      on = onSwitch;
-      stopSequence();
+      if (onSwitch) {
+        on = true;
+        playStartupAnimation();
+      } else {
+        stopSequence();
+        playShutdownAnimation();
+        on = false;
+      }
       lastOnOffSwitchTime = millis();
     }
   }

@@ -116,11 +116,6 @@ void lightDownKey(int keyIndex) {
 // resets a key to its default state (LED off, servo at rest)
 // NOTE: We do NOT clear isPressed here. handleKeyPresses() tracks the physical
 // button state and will detect the actual release when the servo lets go.
-// Clearing it prematurely caused phantom PRESSED events because the servo
-// hadn't physically released yet, so handleKeyPresses() would see the button
-// still HIGH with isPressed==false and register a ghost "new press".
-// For consecutive same-key steps, the SERVO_RELEASE_DELAY provides enough
-// time for the physical release + handleKeyPresses() to detect it.
 void resetKey(int keyIndex) {
   if (!isValidLocalKeyIndex(keyIndex)) {
     LOGF("[ERROR] Invalid keyIndex: %d encountered while resetting key\n", keyIndex);
@@ -129,4 +124,91 @@ void resetKey(int keyIndex) {
 
   lightDownKey(keyIndex);
   autoReleaseKey(keyIndex);
+}
+
+// ============ STARTUP / SHUTDOWN ANIMATION ============
+
+// Compute a smoothly interpolated brand-gradient color for a given key position.
+// Blends across five stops: CYAN → GREEN → GOLD → CORAL → MAGENTA.
+// Uses integer-only math (no floats) to keep it efficient on ESP32.
+static uint32_t getBrandGradientColor(uint8_t keyIndex) {
+  static const uint32_t stops[] = {
+    COLOR_CYAN,     // 0x00B4D8
+    COLOR_GREEN,    // 0x00FF00
+    COLOR_GOLD,     // 0xFFD700
+    COLOR_CORAL,    // 0xFF6B35
+    COLOR_MAGENTA   // 0xE8368F
+  };
+  static const uint8_t NUM_STOPS = 5;
+  static const uint8_t NUM_SEGMENTS = NUM_STOPS - 1;  // 4
+
+  // Map keyIndex (0 to NUM_KEYS-1) into a fixed-point position across segments.
+  // pos ranges from 0 to (NUM_SEGMENTS * 255).
+  uint16_t pos = (uint16_t)keyIndex * NUM_SEGMENTS * 255 / (NUM_KEYS - 1);
+  uint8_t segment = pos / 255;
+  uint8_t blend = pos % 255;  // 0-254 blend factor within segment
+
+  if (segment >= NUM_SEGMENTS) {
+    segment = NUM_SEGMENTS - 1;
+    blend = 255;
+  }
+
+  uint32_t c1 = stops[segment];
+  uint32_t c2 = stops[segment + 1];
+
+  uint8_t r1 = (c1 >> 16) & 0xFF, g1 = (c1 >> 8) & 0xFF, b1 = c1 & 0xFF;
+  uint8_t r2 = (c2 >> 16) & 0xFF, g2 = (c2 >> 8) & 0xFF, b2 = c2 & 0xFF;
+
+  uint8_t r = ((uint32_t)r1 * (255 - blend) + (uint32_t)r2 * blend) / 255;
+  uint8_t g = ((uint32_t)g1 * (255 - blend) + (uint32_t)g2 * blend) / 255;
+  uint8_t b = ((uint32_t)b1 * (255 - blend) + (uint32_t)b2 * blend) / 255;
+
+  return ((uint32_t)r << 16) | ((uint32_t)g << 8) | b;
+}
+
+// Plays a rainbow sweep from left to right when the keyboard powers on.
+// Each key briefly shows its brand gradient color, then turns white.
+// Once all keys are white, holds for STARTUP_WHITE_HOLD ms, then all LEDs off.
+void playStartupAnimation() {
+  LOGLN(F("[ANIM] Playing startup animation"));
+
+  for (int i = 0; i < NUM_KEYS; i++) {
+    leds.setPixelColor(keys[i].ledIndex, getBrandGradientColor(i));
+    leds.show();
+    delay(SWEEP_DELAY_PER_KEY);
+    leds.setPixelColor(keys[i].ledIndex, COLOR_WHITE);
+    leds.show();
+  }
+
+  delay(STARTUP_WHITE_HOLD);
+
+  for (int i = 0; i < NUM_KEYS; i++) {
+    leds.setPixelColor(keys[i].ledIndex, 0);
+  }
+  leds.show();
+
+  LOGLN(F("[ANIM] Startup animation complete"));
+}
+
+// Plays a rainbow sweep from right to left when the keyboard powers off.
+// All keys flash white briefly, then each key shows its brand gradient color
+// before turning off, sweeping from right to left.
+void playShutdownAnimation() {
+  LOGLN(F("[ANIM] Playing shutdown animation"));
+
+  for (int i = 0; i < NUM_KEYS; i++) {
+    leds.setPixelColor(keys[i].ledIndex, COLOR_WHITE);
+  }
+  leds.show();
+  delay(SHUTDOWN_WHITE_HOLD);
+
+  for (int i = NUM_KEYS - 1; i >= 0; i--) {
+    leds.setPixelColor(keys[i].ledIndex, getBrandGradientColor(i));
+    leds.show();
+    delay(SWEEP_DELAY_PER_KEY);
+    leds.setPixelColor(keys[i].ledIndex, 0);
+    leds.show();
+  }
+
+  LOGLN(F("[ANIM] Shutdown animation complete"));
 }

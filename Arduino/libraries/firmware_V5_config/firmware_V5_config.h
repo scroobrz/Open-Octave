@@ -124,6 +124,12 @@
 #define GUIDED_SEQ_BUTTON_PIN 13
 #define TEACHING_SEQ_BUTTON_PIN 14
 
+// ============ ANIMATION DEFINITIONS ============
+
+#define SWEEP_DELAY_PER_KEY 50
+#define STARTUP_WHITE_HOLD 500
+#define SHUTDOWN_WHITE_HOLD 250
+
 // ============ COLOR DEFINITIONS ============
 
 // ROYGBIV colour palette
