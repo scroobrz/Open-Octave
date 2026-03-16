@@ -192,6 +192,7 @@ void stopSequence() {
   LOGLN("EVT sequence_complete");
   emitStatus();
 
+  noTone(SPEAKER_PIN);
   for (int i = 0; i < NUM_KEYS; i++) {
     resetKey(i);
   }
