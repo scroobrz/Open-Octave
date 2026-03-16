@@ -34,8 +34,6 @@ void startRecording() {
   recording = true;
   recStepCount = 0;
   recChordNumKeys = 0;
-  memset(recChordKeyHeld, false, sizeof(recChordKeyHeld));
-
   LOGLN(F("\n[REC] ======== RECORDING STARTED ========"));
   flashWhiteAnimation();
 }
@@ -77,7 +75,6 @@ void recordKeyPress(uint8_t localKeyIndex) {
     recChordStartTime = millis();
     recChordKeys[0] = localKeyIndex;
     recChordNumKeys = 1;
-    recChordKeyHeld[localKeyIndex] = true;
     return;
   }
 
@@ -85,7 +82,6 @@ void recordKeyPress(uint8_t localKeyIndex) {
   if (millis() - recChordStartTime < CHORD_WINDOW_MS && recChordNumKeys < MAX_KEYS_PER_STEP) {
     recChordKeys[recChordNumKeys] = localKeyIndex;
     recChordNumKeys++;
-    recChordKeyHeld[localKeyIndex] = true;
     return;
   }
 
@@ -101,8 +97,6 @@ void recordKeyPress(uint8_t localKeyIndex) {
   recChordStartTime = millis();
   recChordKeys[0] = localKeyIndex;
   recChordNumKeys = 1;
-  memset(recChordKeyHeld, false, sizeof(recChordKeyHeld));
-  recChordKeyHeld[localKeyIndex] = true;
 }
 
 // Called when a key is released during recording.
@@ -120,8 +114,6 @@ void recordKeyRelease(uint8_t localKeyIndex) {
   }
 
   if (!isInChord) return;
-
-  recChordKeyHeld[localKeyIndex] = false;
 
   // First release in the chord commits the step
   commitRecordedStep();
@@ -148,7 +140,6 @@ void commitRecordedStep() {
 
   recStepCount++;
   recChordNumKeys = 0;
-  memset(recChordKeyHeld, false, sizeof(recChordKeyHeld));
 }
 
 // Brief white flash across all LEDs to signal recording start/stop.
