@@ -240,6 +240,7 @@ void checkOnOff(){
     if (ioport.stateOfPin(ON_OFF_PIN) == HIGH){
       if (on) {
         on = false;
+        stopSequence();
         playShutdownAnimation();
       } else {
         playStartupAnimation();
