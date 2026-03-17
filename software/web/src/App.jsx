@@ -750,22 +750,26 @@ export default function App() {
   useEffect(() => {
     refreshHealth();
     refreshModules();
-    refreshLogs();
-    refreshControllerState();
     refreshDbSequences();
-    startAutoLogs();
-    startAutoState();
     startAutoModules();
-    return () => { stopAutoLogs(); stopAutoState(); stopAutoModules(); };
+    return () => { stopAutoModules(); };
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, []);
 
+  // Only poll logs and controller state in developer mode
   useEffect(() => {
-    if (autoLogs) startAutoLogs();
-    else stopAutoLogs();
-    return () => {};
+    if (uiMode === 'developer') {
+      refreshLogs();
+      refreshControllerState();
+      if (autoLogs) startAutoLogs();
+      startAutoState();
+    } else {
+      stopAutoLogs();
+      stopAutoState();
+    }
+    return () => { stopAutoLogs(); stopAutoState(); };
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [autoLogs, tail]);
+  }, [uiMode, autoLogs, tail]);
 
   // ============ RENDER HELPERS ============
 
