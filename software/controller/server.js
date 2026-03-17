@@ -26,9 +26,8 @@ const WS_PORT = process.env.WS_PORT || 81;
 const SERIAL_PATH = process.env.SERIAL_PORT;
 const BAUD_RATE = 115200;
 
-// Parse module config from .env
-const MODULE_IPS = (process.env.MODULE_IPS || '').split(',').map(s => s.trim()).filter(Boolean);
-const MODULE_LABELS = (process.env.MODULE_LABELS || '').split(',').map(s => s.trim());
+// Module counter — assigns labels (Module A, Module B, ...) in connect order
+let moduleCounter = 0;
 
 app.use(cors());
 app.use(express.json());
@@ -55,9 +54,14 @@ function pushLog(source, message) {
 const modules = new Map();
 
 function getModuleLabel(ip) {
-    const idx = MODULE_IPS.indexOf(ip);
-    if (idx >= 0 && MODULE_LABELS[idx]) return MODULE_LABELS[idx];
-    return `Module ${ip}`;
+    // Reuse existing label if module has connected before
+    const existing = modules.get(ip);
+    if (existing && existing.label) return existing.label;
+
+    // Assign next letter (Module A, Module B, ...)
+    const letter = String.fromCharCode(65 + moduleCounter);
+    moduleCounter++;
+    return `Module ${letter}`;
 }
 
 function registerModule(ip, ws) {
@@ -1275,7 +1279,7 @@ const httpServer = app.listen(PORT, () => {
     console.log(`\nOPEN OCTAVE CONTROLLER`);
     console.log(`HTTP server running at: http://localhost:${PORT}`);
     console.log(`WebSocket server listening on port ${WS_PORT}`);
-    console.log(`Known module IPs: ${MODULE_IPS.join(', ') || '(none configured)'}\n`);
+    console.log(`Modules connect automatically via WebSocket\n`);
 });
 
 const wss = new WebSocket.Server({ port: Number(WS_PORT) }, () => {
@@ -1285,10 +1289,6 @@ const wss = new WebSocket.Server({ port: Number(WS_PORT) }, () => {
 wss.on('connection', (socket, req) => {
     const clientIp = req.socket.remoteAddress?.replace('::ffff:', '') || 'unknown';
     console.log(`[WS] Incoming connection from ${clientIp}`);
-
-    if (!MODULE_IPS.includes(clientIp)) {
-        console.log(`[WS] Warning: ${clientIp} is not in MODULE_IPS — accepting anyway`);
-    }
 
     const entry = registerModule(clientIp, socket);
 
