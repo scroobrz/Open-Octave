@@ -741,6 +741,27 @@ details.diagnostics[open] summary {
   vertical-align: middle;
 }
 
+.steps-table tr[draggable="true"] {
+  transition: opacity 0.15s;
+}
+
+.steps-table tr.dragging {
+  opacity: 0.4;
+}
+
+.steps-table tr.drag-insert-before td {
+  box-shadow: 0 -2px 0 0 var(--accent, #6366f1);
+}
+
+.steps-table tr.drag-insert-after td {
+  box-shadow: 0 2px 0 0 var(--accent, #6366f1);
+}
+
+.drag-handle {
+  width: 28px;
+  font-size: 16px;
+}
+
 .step-color {
   display: inline-flex;
   align-items: center;

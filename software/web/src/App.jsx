@@ -189,6 +189,8 @@ export default function App() {
   const [editorErrors, setEditorErrors] = useState({});
   const [editorSaving, setEditorSaving] = useState(false);
   const [editorEditingStep, setEditorEditingStep] = useState(null); // index or null
+  const dragStepRef = useRef(null);
+  const dragOverStepRef = useRef(null);
   const [editStepKeys, setEditStepKeys] = useState([0]);
   const [editStepColors, setEditStepColors] = useState([COLORS.fingerColors.thumb]);
   const [editStepDuration, setEditStepDuration] = useState(300);
@@ -601,15 +603,6 @@ export default function App() {
     setEditorSteps(prev => prev.filter((_, i) => i !== idx));
   }
 
-  function moveStep(idx, dir) {
-    const newIdx = idx + dir;
-    if (newIdx < 0 || newIdx >= editorSteps.length) return;
-    setEditorSteps(prev => {
-      const arr = [...prev];
-      [arr[idx], arr[newIdx]] = [arr[newIdx], arr[idx]];
-      return arr;
-    });
-  }
 
   async function saveEditorSequence() {
     // Validate
@@ -1483,7 +1476,7 @@ export default function App() {
 
             <div className="card" style={{ marginBottom: 12 }}>
               <div className="row">
-                <h2 style={{ margin: 0 }}>Steps ({editorSteps.length} / 64)</h2>
+                <h2 style={{ margin: 0 }}>Steps</h2>
                 <button
                   className="btn btn-sm btn-green"
                   disabled={editorSteps.length >= 64 || editorEditingStep !== null}
@@ -1497,10 +1490,11 @@ export default function App() {
               <table className="steps-table" style={{ marginTop: 8 }}>
                 <thead>
                   <tr>
+                    <th></th>
                     <th>#</th>
-                    <th>Keys</th>
-                    <th>Notes</th>
-                    <th>Fingers/Colors</th>
+                    <th>Key</th>
+                    <th>Note</th>
+                    <th>Finger</th>
                     <th>Duration</th>
                     <th>Actions</th>
                   </tr>
@@ -1512,7 +1506,57 @@ export default function App() {
                     }
 
                     return (
-                      <tr key={idx}>
+                      <tr
+                        key={idx}
+                        draggable={editorEditingStep === null}
+                        onDragStart={(e) => {
+                          dragStepRef.current = idx;
+                          e.dataTransfer.effectAllowed = 'move';
+                          e.currentTarget.classList.add('dragging');
+                        }}
+                        onDragEnd={(e) => {
+                          dragStepRef.current = null;
+                          dragOverStepRef.current = null;
+                          e.currentTarget.classList.remove('dragging');
+                          document.querySelectorAll('.steps-table tr.drag-insert-before, .steps-table tr.drag-insert-after').forEach(el => {
+                            el.classList.remove('drag-insert-before', 'drag-insert-after');
+                          });
+                        }}
+                        onDragOver={(e) => {
+                          e.preventDefault();
+                          e.dataTransfer.dropEffect = 'move';
+                          const rect = e.currentTarget.getBoundingClientRect();
+                          const midY = rect.top + rect.height / 2;
+                          const isAbove = e.clientY < midY;
+                          const key = isAbove ? `${idx}-before` : `${idx}-after`;
+                          if (dragOverStepRef.current !== key) {
+                            document.querySelectorAll('.steps-table tr.drag-insert-before, .steps-table tr.drag-insert-after').forEach(el => {
+                              el.classList.remove('drag-insert-before', 'drag-insert-after');
+                            });
+                            dragOverStepRef.current = key;
+                            e.currentTarget.classList.add(isAbove ? 'drag-insert-before' : 'drag-insert-after');
+                          }
+                        }}
+                        onDrop={(e) => {
+                          e.preventDefault();
+                          const rect = e.currentTarget.getBoundingClientRect();
+                          const isAbove = e.clientY < rect.top + rect.height / 2;
+                          e.currentTarget.classList.remove('drag-insert-before', 'drag-insert-after');
+                          const from = dragStepRef.current;
+                          if (from === null) return;
+                          let to = isAbove ? idx : idx + 1;
+                          if (from < to) to--;
+                          if (from !== to) {
+                            setEditorSteps(prev => {
+                              const arr = [...prev];
+                              const [moved] = arr.splice(from, 1);
+                              arr.splice(to, 0, moved);
+                              return arr;
+                            });
+                          }
+                        }}
+                      >
+                        <td className="drag-handle" style={{ cursor: 'grab', textAlign: 'center', color: 'var(--muted-foreground)', userSelect: 'none' }}>⠿</td>
                         <td>{idx + 1}</td>
                         <td>{step.keys.join(', ')}</td>
                         <td>{step.keys.map(k => keyToNote(k)).join(', ')}</td>
@@ -1530,9 +1574,7 @@ export default function App() {
                         <td>
                           <div className="btn-row">
                             <button className="btn btn-sm btn-secondary" onClick={() => startEditStep(idx)} disabled={editorEditingStep !== null}>Edit</button>
-                            <button className="btn btn-sm btn-coral" onClick={() => deleteEditorStep(idx)} disabled={editorEditingStep !== null}>Del</button>
-                            <button className="btn btn-sm btn-secondary" onClick={() => moveStep(idx, -1)} disabled={idx === 0 || editorEditingStep !== null}>Up</button>
-                            <button className="btn btn-sm btn-secondary" onClick={() => moveStep(idx, 1)} disabled={idx === editorSteps.length - 1 || editorEditingStep !== null}>Dn</button>
+                            <button className="btn btn-sm btn-coral" onClick={() => deleteEditorStep(idx)} disabled={editorEditingStep !== null}>Delete</button>
                           </div>
                           {editorErrors[`step_${idx}`] && <div className="error-text">{editorErrors[`step_${idx}`]}</div>}
                         </td>
@@ -1544,36 +1586,6 @@ export default function App() {
               </table>
             </div>
 
-            {/* Key reference helper */}
-            <details className="diagnostics">
-              <summary>Key-to-Note Reference</summary>
-              <div className="card" style={{ marginBottom: 0 }}>
-                <table className="seq-table">
-                  <thead>
-                    <tr>
-                      <th>Key</th>
-                      <th>Note</th>
-                      <th>Module</th>
-                      <th>Key</th>
-                      <th>Note</th>
-                      <th>Module</th>
-                    </tr>
-                  </thead>
-                  <tbody>
-                    {Array.from({ length: 24 }, (_, i) => (
-                      <tr key={i}>
-                        <td>{i}</td>
-                        <td>{keyToNote(i)}</td>
-                        <td>{Math.floor(i / 12) + 1}</td>
-                        <td>{i + 24}</td>
-                        <td>{keyToNote(i + 24)}</td>
-                        <td>{Math.floor((i + 24) / 12) + 1}</td>
-                      </tr>
-                    ))}
-                  </tbody>
-                </table>
-              </div>
-            </details>
           </div>
         </div>
       )}
