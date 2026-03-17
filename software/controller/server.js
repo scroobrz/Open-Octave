@@ -692,12 +692,12 @@ app.post('/api/modules/all/upload', (req, res) => {
     }
 });
 
-// POST /api/modules/:ip/control — start/stop sequence on specific module
+// POST /api/modules/:ip/control — start/stop sequence or run hardware tests on a specific module
 app.post('/api/modules/:ip/control', (req, res) => {
     try {
         const ip = req.params.ip;
         const body = req.body || {};
-        const cmd = body.cmd; // 'start' | 'stop'
+        const cmd = body.cmd; // 'start' | 'stop' | 'led_test' | 'servo_test'
         const mode = body.mode; // 'guided' | 'teaching'
 
         let serialCmd;
@@ -705,8 +705,12 @@ app.post('/api/modules/:ip/control', (req, res) => {
             serialCmd = mode === 'teaching' ? 't' : 'g';
         } else if (cmd === 'stop') {
             serialCmd = 'x';
+        } else if (cmd === 'led_test') {
+            serialCmd = 'l';
+        } else if (cmd === 'servo_test') {
+            serialCmd = 's';
         } else {
-            res.status(400).json({ ok: false, error: 'cmd must be start or stop' });
+            res.status(400).json({ ok: false, error: 'cmd must be start, stop, led_test, or servo_test' });
             return;
         }
 
@@ -717,7 +721,7 @@ app.post('/api/modules/:ip/control', (req, res) => {
     }
 });
 
-// POST /api/modules/all/control — start/stop on ALL connected modules
+// POST /api/modules/all/control — start/stop or test on ALL connected modules
 app.post('/api/modules/all/control', (req, res) => {
     try {
         const body = req.body || {};
@@ -729,8 +733,12 @@ app.post('/api/modules/all/control', (req, res) => {
             serialCmd = mode === 'teaching' ? 't' : 'g';
         } else if (cmd === 'stop') {
             serialCmd = 'x';
+        } else if (cmd === 'led_test') {
+            serialCmd = 'l';
+        } else if (cmd === 'servo_test') {
+            serialCmd = 's';
         } else {
-            res.status(400).json({ ok: false, error: 'cmd must be start or stop' });
+            res.status(400).json({ ok: false, error: 'cmd must be start, stop, led_test, or servo_test' });
             return;
         }
 
