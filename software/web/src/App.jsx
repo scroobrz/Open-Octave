@@ -94,7 +94,6 @@ export default function App() {
   const [tab, setTab] = useState('connect');
   const [uiMode, setUiMode] = useState(() => localStorage.getItem('oo-ui-mode') || 'user');
   const [colorMode, setColorMode] = useState(() => localStorage.getItem('oo-color-mode') || 'default');
-
   // Persist developer mode toggle across page reloads.
   useEffect(() => {
     localStorage.setItem('oo-ui-mode', uiMode);
@@ -307,7 +306,7 @@ export default function App() {
     try {
       const data = await apiGet('/api/modules');
       setModulesList(Array.isArray(data?.modules) ? data.modules : []);
-    } catch (e) {
+    } catch {
       setModulesList([]);
     }
   }
@@ -317,7 +316,7 @@ export default function App() {
     try {
       const data = await apiGet(`/api/logs?tail=${safeTail}`);
       setLogs(data.items || []);
-    } catch (e) {
+    } catch {
       setLogs([]);
     }
   }
@@ -681,7 +680,7 @@ export default function App() {
     const out = { ...item };
     let steps = out.steps;
     if (!steps && out.data && Array.isArray(out.data.steps)) steps = out.data.steps;
-    if (typeof steps === 'string') { try { steps = JSON.parse(steps); } catch {} }
+    if (typeof steps === 'string') { try { steps = JSON.parse(steps); } catch { /* invalid JSON, keep as-is */ } }
     out.steps = Array.isArray(steps) ? steps : [];
     return out;
   }
@@ -1648,32 +1647,6 @@ export default function App() {
             ) : (
               <div className="hint mt">No steps found.</div>
             )}
-          </div>
-        </div>
-      )}
-
-      {/* ============ FINGER HELP MODAL ============ */}
-      {fingerHelpOpen && (
-        <div className="modal-overlay" onClick={() => setFingerHelpOpen(false)}>
-          <div className="modal" onClick={(e) => e.stopPropagation()}>
-            <div className="modal-header">
-              <div>
-                <div className="modal-title">Finger colour guide (right hand)</div>
-                <div className="modal-subtitle">Match the LED colour to the finger to press.</div>
-              </div>
-              <button className="btn btn-secondary" type="button" onClick={() => setFingerHelpOpen(false)}>Close</button>
-            </div>
-            <div className="card" style={{ marginBottom: 0 }}>
-              <div className="finger-map-wrap">
-                <svg className="finger-map" viewBox="0 0 520 260" xmlns="http://www.w3.org/2000/svg" role="img" aria-label="Right hand finger colour map">
-                  <circle cx="130" cy="185" r="18" fill={`#${activeFingerColors.thumb}`} />
-                  <circle cx="175" cy="60" r="18" fill={`#${activeFingerColors.index}`} />
-                  <circle cx="235" cy="48" r="18" fill={`#${activeFingerColors.middle}`} />
-                  <circle cx="295" cy="60" r="18" fill={`#${activeFingerColors.ring}`} />
-                  <circle cx="345" cy="78" r="18" fill={`#${activeFingerColors.pinky}`} />
-                </svg>
-              </div>
-            </div>
           </div>
         </div>
       )}
