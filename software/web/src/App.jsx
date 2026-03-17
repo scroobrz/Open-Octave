@@ -95,9 +95,6 @@ export default function App() {
   const [uiMode, setUiMode] = useState(() => localStorage.getItem('oo-ui-mode') || 'user');
   const [colorMode, setColorMode] = useState(() => localStorage.getItem('oo-color-mode') || 'default');
 
-  // User help modal: finger colour map (right hand)
-  const [fingerHelpOpen, setFingerHelpOpen] = useState(false);
-
   // Persist developer mode toggle across page reloads.
   useEffect(() => {
     localStorage.setItem('oo-ui-mode', uiMode);
@@ -181,6 +178,8 @@ export default function App() {
 
   // Per-chain selected sequence (moduleIp -> sequenceId)
   const [chainSequences, setChainSequences] = useState({});
+  // Per-chain cached full sequence data (moduleIp -> { steps: [...] })
+  const [chainSeqData, setChainSeqData] = useState({});
 
   // ============ SEQUENCE EDITOR STATE ============
   const [editorOpen, setEditorOpen] = useState(false);
@@ -194,9 +193,6 @@ export default function App() {
   const [editStepKeys, setEditStepKeys] = useState([0]);
   const [editStepColors, setEditStepColors] = useState([COLORS.fingerColors.thumb]);
   const [editStepDuration, setEditStepDuration] = useState(300);
-
-  // Key reference helper collapsed state
-  const [keyRefOpen, setKeyRefOpen] = useState(false);
 
   // ============ SEQUENCE DETAILS MODAL (user mode) ============
   const [seqModalOpen, setSeqModalOpen] = useState(false);
@@ -363,6 +359,16 @@ export default function App() {
 
   // ============ MODULE ACTIONS ============
 
+  async function fetchAndCacheSeqData(moduleIp, sequenceId) {
+    try {
+      const data = await apiGet(`/api/db/sequences/${encodeURIComponent(sequenceId)}`);
+      const steps = data?.item?.data?.steps || [];
+      setChainSeqData(prev => ({ ...prev, [moduleIp]: { steps } }));
+    } catch {
+      // Non-critical — keyboard just won't highlight
+    }
+  }
+
   async function uploadSequenceToModule(moduleIp, sequenceId) {
     try {
       setDbActionBusy(true);
@@ -371,6 +377,7 @@ export default function App() {
         colorMode
       });
       setChainSequences(prev => ({ ...prev, [moduleIp]: sequenceId }));
+      await fetchAndCacheSeqData(moduleIp, sequenceId);
       await refreshModules();
     } catch (e) {
       setDbSeqError(`Upload failed: ${e.message}`);
@@ -391,6 +398,16 @@ export default function App() {
         if (m.connected) newChains[m.ip] = sequenceId;
       }
       setChainSequences(prev => ({ ...prev, ...newChains }));
+      // Fetch full sequence data once, cache for all modules
+      try {
+        const data = await apiGet(`/api/db/sequences/${encodeURIComponent(sequenceId)}`);
+        const steps = data?.item?.data?.steps || [];
+        const newSeqData = {};
+        for (const m of modulesList) {
+          if (m.connected) newSeqData[m.ip] = { steps };
+        }
+        setChainSeqData(prev => ({ ...prev, ...newSeqData }));
+      } catch { /* Non-critical */ }
       await refreshModules();
     } catch (e) {
       setDbSeqError(`Upload to all failed: ${e.message}`);
@@ -757,19 +774,24 @@ export default function App() {
     const totalKeys = mod.totalKeys || 12;
     const modules12 = Math.ceil(totalKeys / 12);
 
-    // Find the sequence for this module
-    const seqId = chainSequences[mod.ip] || mod.currentSequenceId;
-    const seq = seqId ? dbSeqItems.find(s => s.id === Number(seqId)) : null;
-
-    // Build key usage map from full sequence data
+    // Build per-key hit counts and first-seen colors from cached sequence data
+    const cachedSeq = chainSeqData[mod.ip];
+    const steps = cachedSeq?.steps || [];
     const keyHits = {};
     const keyColors = {};
-
-    // We need the full sequence — try to get it from a cached fetch
-    // For now, use the module's current sequence info
-    if (seqId && seq) {
-      // We'll fetch sequence details lazily. For now, mark as "has sequence"
+    for (const s of steps) {
+      const keys = Array.isArray(s.keys) ? s.keys : (s.k !== undefined ? [s.k] : []);
+      const colors = Array.isArray(s.colors) ? s.colors : (s.c !== undefined ? [s.c] : []);
+      for (let ki = 0; ki < keys.length; ki++) {
+        const k = keys[ki];
+        if (k >= 0 && k < totalKeys) {
+          keyHits[k] = (keyHits[k] || 0) + 1;
+          if (!keyColors[k] && colors[ki]) keyColors[k] = colors[ki];
+        }
+      }
     }
+    const maxHits = Math.max(...Object.values(keyHits), 1);
+    const activeKeyCount = Object.keys(keyHits).length;
 
     const octaveGroups = [];
     for (let m = 0; m < modules12; m++) {
@@ -813,23 +835,42 @@ export default function App() {
             <div className="octave-group" key={gi}>
               <div className="octave-label">Module {group.moduleNum}</div>
               <div className="keyboard-vis">
-                {group.keys.filter(k => !k.isBlack).map(k => (
-                  <div key={k.globalIdx} className="kb-key kb-white">
-                    <span className="kb-note">{k.note}</span>
-                    <span className="kb-idx">{k.globalIdx}</span>
-                  </div>
-                ))}
+                {group.keys.filter(k => !k.isBlack).map(k => {
+                  const active = keyHits[k.globalIdx] > 0;
+                  const color = keyColors[k.globalIdx] ? `#${displayColor(keyColors[k.globalIdx])}` : null;
+                  const intensity = (keyHits[k.globalIdx] || 0) / maxHits;
+                  return (
+                    <div
+                      key={k.globalIdx}
+                      className={`kb-key kb-white${active ? ' kb-active' : ''}`}
+                      style={active ? { '--kb-glow': color, '--kb-intensity': intensity } : undefined}
+                    >
+                      {active && <span className="kb-led" style={{ backgroundColor: color }} />}
+                      <span className="kb-note">{k.note}</span>
+                      <span className="kb-idx">{k.globalIdx}</span>
+                      {active && <span className="kb-hits">{keyHits[k.globalIdx]}x</span>}
+                    </div>
+                  );
+                })}
                 {group.keys.filter(k => k.isBlack).map(k => {
+                  const active = keyHits[k.globalIdx] > 0;
+                  const color = keyColors[k.globalIdx] ? `#${displayColor(keyColors[k.globalIdx])}` : null;
+                  const intensity = (keyHits[k.globalIdx] || 0) / maxHits;
                   const BLACK_OFFSETS = { 1: 0.5, 3: 1.5, 6: 3.5, 8: 4.5, 10: 5.5 };
                   const offset = BLACK_OFFSETS[k.localIdx];
                   const leftPercent = ((offset + 0.5) / 7) * 100;
                   return (
                     <div
                       key={k.globalIdx}
-                      className="kb-key kb-black"
-                      style={{ left: `${leftPercent}%` }}
+                      className={`kb-key kb-black${active ? ' kb-active' : ''}`}
+                      style={{
+                        left: `${leftPercent}%`,
+                        ...(active ? { '--kb-glow': color, '--kb-intensity': intensity } : {})
+                      }}
                     >
+                      {active && <span className="kb-led" style={{ backgroundColor: color }} />}
                       <span className="kb-note">{k.note}</span>
+                      {active && <span className="kb-hits">{keyHits[k.globalIdx]}x</span>}
                     </div>
                   );
                 })}
@@ -837,6 +878,14 @@ export default function App() {
             </div>
           ))}
         </div>
+
+        {steps.length > 0 ? (
+          <div className="hint">
+            <b>{steps.length}</b> steps across <b>{activeKeyCount}</b> keys
+          </div>
+        ) : (
+          <div className="hint">Select a sequence to see which keys are used.</div>
+        )}
 
         {/* Per-chain controls */}
         <div className="chain-controls">
