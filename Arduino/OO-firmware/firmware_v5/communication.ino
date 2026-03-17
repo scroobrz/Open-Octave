@@ -243,7 +243,16 @@ void handleCommandsFromDownstream(){
             }
 
             if (isMaster) {
-              evaluateWrongKeyFeedback(globalKey, isPressed);
+              if (recording) {
+                if (isPressed) {
+                  recordKeyPress(globalKey);
+                } else {
+                  recordKeyRelease(globalKey);
+                }
+              } else {
+                // for guided mode
+                evaluateWrongKeyFeedback(globalKey, isPressed);
+              }
             }
           }
         }
@@ -496,6 +505,9 @@ void handleSequenceCommand(char *cmd){
     case 'U':
       if (uploadingSequence) {
         LOGLN("[SEQ] Upload rejected: another upload already in progress");
+        break;
+      } else if (recording) {
+        LOGLN("[SEQ] Upload rejected: currently recording a sequence");
         break;
       }
 

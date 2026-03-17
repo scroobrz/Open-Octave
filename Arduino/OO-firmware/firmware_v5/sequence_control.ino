@@ -5,7 +5,7 @@
 */
 
 void handleSequenceButtons() {
-  if (sequenceRunning) return;
+  if (sequenceRunning || recording) return;
 
   static bool lastGuidedState = false;
   static bool lastTeachingState = false;

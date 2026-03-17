@@ -94,6 +94,12 @@ unsigned long toneStartTime[MAX_TOTAL_KEYS] = {0};
 bool waitingForServoRelease = false;
 unsigned long servoReleaseStartTime = 0;
 
+bool recording = false;
+uint8_t recStepCount = 0;
+uint8_t recChordKeys[MAX_KEYS_PER_STEP];
+uint8_t recChordNumKeys = 0;
+unsigned long recChordStartTime = 0;
+
 bool testLogEnabled = false;
 uint16_t testLogRunId = 0;
 uint16_t testLogEventId = 0;
@@ -201,6 +207,7 @@ void setup() {
   ioport.pinMode(ON_OFF_PIN, INPUT);
   ioport.pinMode(GUIDED_SEQ_BUTTON_PIN, INPUT);
   ioport.pinMode(TEACHING_SEQ_BUTTON_PIN, INPUT);
+  ioport.pinMode(RECORD_BUTTON_PIN, INPUT);
   LOGLN("OK");
 
   if (!hasUpstream){
@@ -229,6 +236,7 @@ void loop() {
       checkWifiStatus();
       handleSequencePlayback();
       handleSequenceButtons();
+      handleRecordButton();
     }
 
     handleKeyPresses();
@@ -241,6 +249,7 @@ void checkOnOff(){
     if (ioport.stateOfPin(ON_OFF_PIN) == HIGH){
       if (on) {
         on = false;
+        if (recording) stopRecording();
         stopSequence();
         playShutdownAnimation();
       } else {
