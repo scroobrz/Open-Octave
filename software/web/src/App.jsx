@@ -195,6 +195,12 @@ export default function App() {
   const [editStepColors, setEditStepColors] = useState([COLORS.fingerColors.thumb]);
   const [editStepDuration, setEditStepDuration] = useState(300);
 
+  // ============ MIDI IMPORT STATE ============
+  const [midiFile, setMidiFile] = useState(null);
+  const [midiImportBusy, setMidiImportBusy] = useState(false);
+  const [midiImportError, setMidiImportError] = useState('');
+  const [midiImportResult, setMidiImportResult] = useState(null);
+
   // ============ SEQUENCE DETAILS MODAL (user mode) ============
   const [seqModalOpen, setSeqModalOpen] = useState(false);
   const [seqModalLoading, setSeqModalLoading] = useState(false);
@@ -307,9 +313,33 @@ export default function App() {
   async function refreshModules() {
     try {
       const data = await apiGet('/api/modules');
-      setModulesList(Array.isArray(data?.modules) ? data.modules : []);
+      const nextModules = Array.isArray(data?.modules) ? data.modules : [];
+      setModulesList(nextModules);
+
+      // module visualisation cache should only keep connected modules that still exist
+      // in the current controller snapshot. This prevents stale mock/local state from
+      // reusing cached sequence data for an old connection.
+      const activeIps = new Set(nextModules.filter(m => m.connected).map(m => m.ip));
+
+      setChainSequences(prev => {
+        const next = {};
+        for (const [ip, sequenceId] of Object.entries(prev)) {
+          if (activeIps.has(ip)) next[ip] = sequenceId;
+        }
+        return next;
+      });
+
+      setChainSeqData(prev => {
+        const next = {};
+        for (const [ip, value] of Object.entries(prev)) {
+          if (activeIps.has(ip)) next[ip] = value;
+        }
+        return next;
+      });
     } catch {
       setModulesList([]);
+      setChainSequences({});
+      setChainSeqData({});
     }
   }
 
@@ -364,7 +394,13 @@ export default function App() {
     try {
       const data = await apiGet(`/api/db/sequences/${encodeURIComponent(sequenceId)}`);
       const steps = data?.item?.data?.steps || [];
-      setChainSeqData(prev => ({ ...prev, [moduleIp]: { steps } }));
+      setChainSeqData(prev => ({
+        ...prev,
+        [moduleIp]: {
+          sequenceId: String(sequenceId),
+          steps
+        }
+      }));
     } catch {
       // Non-critical — keyboard just won't highlight
     }
@@ -405,7 +441,12 @@ export default function App() {
         const steps = data?.item?.data?.steps || [];
         const newSeqData = {};
         for (const m of modulesList) {
-          if (m.connected) newSeqData[m.ip] = { steps };
+          if (m.connected) {
+            newSeqData[m.ip] = {
+              sequenceId: String(sequenceId),
+              steps
+            };
+          }
         }
         setChainSeqData(prev => ({ ...prev, ...newSeqData }));
       } catch { /* Non-critical */ }
@@ -523,6 +564,42 @@ export default function App() {
     }
   }
 
+  // ============ MIDI IMPORT ============
+  async function importMidiFile() {
+    if (!midiFile) {
+      setMidiImportError('Please choose a MIDI file first.');
+      return;
+    }
+
+    try {
+      setMidiImportBusy(true);
+      setMidiImportError('');
+      setMidiImportResult(null);
+
+      const formData = new FormData();
+      formData.append('file', midiFile);
+
+      const res = await fetch('/api/midi/import', {
+        method: 'POST',
+        body: formData
+      });
+
+      const data = await res.json();
+
+      if (!res.ok || !data?.ok) {
+        throw new Error(data?.error || `MIDI import failed: ${res.status}`);
+      }
+
+      setMidiImportResult(data);
+      setMidiFile(null);
+      await refreshDbSequences();
+    } catch (e) {
+      setMidiImportError(e.message);
+    } finally {
+      setMidiImportBusy(false);
+    }
+  }
+
   // ============ SEQUENCE EDITOR ============
 
   function openEditor(seqId) {
@@ -611,7 +688,7 @@ export default function App() {
     if (editorName.length > 31) errors.name = 'Max 31 characters';
     if (editorName.includes(',')) errors.name = 'Commas not allowed';
     if (editorSteps.length === 0) errors.steps = 'At least 1 step required';
-    if (editorSteps.length > 64) errors.steps = 'Max 64 steps';
+    if (editorSteps.length > 128) errors.steps = 'Max 128 steps';
 
     for (let i = 0; i < editorSteps.length; i++) {
       const s = editorSteps[i];
@@ -763,6 +840,19 @@ export default function App() {
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [uiMode, autoLogs, tail]);
 
+  useEffect(() => {
+    // When module state refreshes, make sure the keyboard visualisation cache follows
+    // the controller's current selected sequence for each connected module.
+    for (const mod of modulesList) {
+      if (!mod.connected || !mod.currentSequenceId) continue;
+      const cached = chainSeqData[mod.ip];
+      if (!cached || cached.sequenceId !== String(mod.currentSequenceId)) {
+        fetchAndCacheSeqData(mod.ip, mod.currentSequenceId);
+      }
+    }
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [modulesList]);
+
   // ============ RENDER HELPERS ============
 
   // Render a chain of piano keys for module visualization
@@ -817,6 +907,10 @@ export default function App() {
             </span>
           </div>
           <div className="chain-header-right">
+            {/* laptop hosting / module power control */}
+            <span className={mod.connected ? 'pill pill-green' : 'pill pill-coral'}>
+              {mod.connected ? 'Powered' : 'Off'}
+            </span>
             {mod.currentSequenceName && (
               <span className="pill pill-teal">{mod.currentSequenceName}</span>
             )}
@@ -914,6 +1008,9 @@ export default function App() {
             </button>
             <button className="btn btn-sm btn-coral" disabled={!mod.connected} onClick={() => sendModuleControl(mod.ip, 'stop')}>
               Stop
+            </button>
+            <button className="btn btn-sm btn-secondary" disabled={!mod.connected} onClick={() => sendModuleControl(mod.ip, 'power_toggle')}>
+              Power
             </button>
           </div>
         </div>
@@ -1206,6 +1303,9 @@ export default function App() {
                   <button className="btn btn-coral" disabled={!isConnected} onClick={() => sendAllControl('stop')}>
                     Stop All
                   </button>
+                  <button className="btn btn-secondary" disabled={!isConnected} onClick={() => sendAllControl('power_toggle')}>
+                    On/Off All
+                  </button>
                 </div>
               </div>
 
@@ -1284,6 +1384,117 @@ export default function App() {
                   </>
                 )}
               </div>
+            </div>
+
+            {/* midi import */}
+            <div className="card card-accent-teal">
+              <h2>Import MIDI</h2>
+              <div className="row" style={{ alignItems: 'flex-end', gap: 12, flexWrap: 'wrap' }}>
+                <div style={{ flex: 1, minWidth: 260 }}>
+                  <label className="label">Choose a .mid or .midi file</label>
+                  <input
+                    className="input"
+                    type="file"
+                    accept=".mid,.midi"
+                    onChange={(e) => {
+                      const file = e.target.files && e.target.files[0] ? e.target.files[0] : null;
+                      setMidiFile(file);
+                      setMidiImportError('');
+                      setMidiImportResult(null);
+                    }}
+                  />
+                  <div className="hint">
+                    Best with melody-only MIDI. Supports up to 2 modules and auto-transposes by octave when possible. Dense full arrangements may fail.
+                  </div>
+                </div>
+
+                <div className="btn-row">
+                  <button
+                    className="btn btn-green"
+                    type="button"
+                    onClick={importMidiFile}
+                    disabled={midiImportBusy || !midiFile}
+                  >
+                    {midiImportBusy ? 'Importing...' : 'Import MIDI'}
+                  </button>
+                </div>
+              </div>
+
+              {midiFile && (
+                <div className="hint">
+                  Selected file: <b>{midiFile.name}</b>
+                </div>
+              )}
+
+              {midiImportError && <pre className="pre">{midiImportError}</pre>}
+
+              {midiImportResult?.ok && (
+                <div className="card" style={{ marginTop: 12, marginBottom: 0 }}>
+                  <h2>Import Result</h2>
+                  <div className="hint" style={{ marginTop: 0 }}>
+                    <b>{midiImportResult.item?.name}</b> imported successfully.
+                  </div>
+
+                  <table className="seq-table" style={{ marginTop: 10 }}>
+                    <tbody>
+                      <tr>
+                        <td><b>Sequence ID</b></td>
+                        <td>{midiImportResult.item?.id ?? '--'}</td>
+                      </tr>
+                      <tr>
+                        <td><b>Required modules</b></td>
+                        <td>{midiImportResult.meta?.requiredModules ?? '--'}</td>
+                      </tr>
+                      <tr>
+                        <td><b>Steps</b></td>
+                        <td>{midiImportResult.meta?.stepCount ?? '--'}</td>
+                      </tr>
+                      <tr>
+                        <td><b>Notes imported</b></td>
+                        <td>{midiImportResult.meta?.noteCount ?? '--'}</td>
+                      </tr>
+                      <tr>
+                        <td><b>Key range</b></td>
+                        <td>
+                          {typeof midiImportResult.meta?.minKey === 'number' &&
+                           typeof midiImportResult.meta?.maxKey === 'number'
+                            ? `${keyToNote(midiImportResult.meta.minKey)} - ${keyToNote(midiImportResult.meta.maxKey)}`
+                            : '--'}
+                        </td>
+                      </tr>
+                      <tr>
+                        <td><b>Transpose</b></td>
+                        <td>
+                          {typeof midiImportResult.meta?.transposeSemitones === 'number'
+                            ? midiImportResult.meta.transposeSemitones === 0
+                              ? 'None'
+                              : `${midiImportResult.meta.transposeSemitones > 0 ? '+' : ''}${midiImportResult.meta.transposeSemitones} semitones`
+                            : '--'}
+                        </td>
+                      </tr>
+                    </tbody>
+                  </table>
+
+                  {Array.isArray(midiImportResult.warnings) && midiImportResult.warnings.length > 0 && (
+                    <div style={{ marginTop: 12 }}>
+                      <div className="label" style={{ marginBottom: 6 }}>Import warnings</div>
+                      <pre className="pre" style={{ marginTop: 0 }}>
+{midiImportResult.warnings.join('\n')}
+                      </pre>
+                    </div>
+                  )}
+
+                  <div className="btn-row" style={{ marginTop: 12 }}>
+                    <button
+                      className="btn btn-secondary"
+                      type="button"
+                      onClick={() => openEditor(midiImportResult.item?.id)}
+                    >
+                      Open in Editor
+                    </button>
+                  </div>
+                </div>
+              )}
             </div>
 
             {dbSeqError && <pre className="pre">{dbSeqError}</pre>}
@@ -1479,7 +1690,7 @@ export default function App() {
                 <h2 style={{ margin: 0 }}>Steps</h2>
                 <button
                   className="btn btn-sm btn-green"
-                  disabled={editorSteps.length >= 64 || editorEditingStep !== null}
+                  disabled={editorSteps.length >= 128 || editorEditingStep !== null}
                   onClick={startAddStep}
                 >
                   Add Step

@@ -34,7 +34,7 @@ if (COLORS.alternativePalettes?.colorblind) {
 }
 
 // Firmware v5 hard-limits uploads to MAX_SEQUENCE_LENGTH (see firmware_V5_config.h).
-const FIRMWARE_MAX_SEQUENCE_LENGTH = 64;
+const FIRMWARE_MAX_SEQUENCE_LENGTH = 128;
 
 // Firmware v5 parses `i=` (sequence id) using atoi(), so it must be numeric.
 const FIRMWARE_SEQUENCE_ID_REGEX = /^\d+$/;

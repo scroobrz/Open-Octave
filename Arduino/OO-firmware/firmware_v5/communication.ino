@@ -410,6 +410,25 @@ void processSingleCharCommand(char cmd) {
       emitStatus();
       break;
 
+    // laptop hosting / module power control
+    case 'o': // Toggle module on/off
+      LOGLN("\n[CMD] Received: Toggle module power");
+
+      if (on) {
+        if (recording) stopRecording();
+        stopSequence();
+        playShutdownAnimation();
+        on = false;
+        LOGLN("ACK cmd=o power=off ok=1");
+      } else {
+        playStartupAnimation();
+        on = true;
+        LOGLN("ACK cmd=o power=on ok=1");
+      }
+
+      emitStatus();
+      break;
+
     case 'c': // Print current sequence
       LOGLN("\n========================================");
       LOGLN("         CURRENT SEQUENCE");
@@ -480,6 +499,8 @@ void processSingleCharCommand(char cmd) {
       LOGLN("    l - Test LEDs");
       LOGLN("    s - Test servos");
       LOGLN("    q - Enter/Exit test log mode");
+      LOGLN("  POWER:");
+      LOGLN("    o - Toggle module on/off");
       LOGLN("  HELP:");
       LOGLN("    h/? - Show this help");
       LOGLN("========================================\n");

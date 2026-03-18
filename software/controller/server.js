@@ -1,9 +1,12 @@
 require('dotenv').config();
 const express = require('express');
 const cors = require('cors');
+const multer = require('multer');
+const { importMidiBufferToSequence } = require('./services/midi_import');
 const { SerialPort } = require('serialport');
 const { ReadlineParser } = require('@serialport/parser-readline');
 const WebSocket = require('ws');
+
 
 // SQLite sequence library (software-side)
 const {
@@ -22,7 +25,11 @@ const COLORS = require('../shared/colors.json');
 const app = express();
 
 const PORT = process.env.APP_PORT || 3000;
-const WS_PORT = process.env.WS_PORT || 81;
+// const WS_PORT = process.env.WS_PORT || 81;
+// laptop hosting
+// Use a non-privileged default WebSocket port so the controller can run on
+// macOS/Windows/Linux laptops without requiring sudo/admin privileges.
+const WS_PORT = Number(process.env.WS_PORT || 8081);
 const SERIAL_PATH = process.env.SERIAL_PORT;
 const BAUD_RATE = 115200;
 
@@ -31,6 +38,15 @@ let moduleCounter = 0;
 
 app.use(cors());
 app.use(express.json());
+
+// midi import
+// In-memory upload for teacher MIDI imports.
+const upload = multer({
+    storage: multer.memoryStorage(),
+    limits: {
+        fileSize: 2 * 1024 * 1024 // 2 MB is plenty for teacher-uploaded MIDI files
+    }
+});
 
 // ============ LOG BUFFER (UI SUPPORT) ============
 const LOG_BUFFER_MAX = 500;
@@ -582,6 +598,94 @@ app.post('/api/state/reset', (req, res) => {
 
 // ============ MODULE ENDPOINTS ============
 
+// laptop hosting
+// IMPORTANT: keep the explicit /all routes above the parameterised /:ip routes.
+// Otherwise Express matches "/all/..." as if "all" were a module IP.
+
+// POST /api/modules/all/upload — upload sequence to ALL connected modules
+app.post('/api/modules/all/upload', (req, res) => {
+    try {
+        const body = req.body || {};
+        const sequenceId = body.sequenceId;
+        const colorMode = String(body.colorMode || req.query.colorMode || 'default');
+
+        if (!sequenceId) {
+            res.status(400).json({ ok: false, error: 'Missing sequenceId in body' });
+            return;
+        }
+
+        const seq = getSequence(sequenceId);
+        if (!seq) {
+            res.status(404).json({ ok: false, error: 'Sequence not found' });
+            return;
+        }
+
+        const gen = generateUploadLinesFromData(seq.id, seq.name, seq.data, colorMode);
+        if (!gen.ok) {
+            res.status(400).json({ ok: false, error: gen.error });
+            return;
+        }
+
+        const moduleResults = [];
+        for (const [ip, entry] of modules) {
+            if (!entry.connected || !entry.ws || entry.ws.readyState !== WebSocket.OPEN) continue;
+
+            const sent = [];
+            let failed = false;
+            for (const line of gen.lines) {
+                const r = sendToModule(ip, String(line));
+                sent.push({ line, result: r });
+                if (r && r.error) {
+                    failed = true;
+                    break;
+                }
+            }
+
+            if (!failed) {
+                entry.currentSequenceId = seq.id;
+                entry.currentSequenceName = seq.name;
+            }
+
+            moduleResults.push({ module: ip, sentCount: sent.length, failed });
+        }
+
+        res.json({ ok: true, uploaded: seq.id, modules: moduleResults });
+    } catch (e) {
+        res.status(500).json({ ok: false, error: e.message });
+    }
+});
+
+// POST /api/modules/all/control — start/stop or test on ALL connected modules
+app.post('/api/modules/all/control', (req, res) => {
+    try {
+        const body = req.body || {};
+        const cmd = body.cmd;
+        const mode = body.mode;
+
+        // laptop hosting / module power control
+        let serialCmd;
+        if (cmd === 'start') {
+            serialCmd = mode === 'teaching' ? 't' : 'g';
+        } else if (cmd === 'stop') {
+            serialCmd = 'x';
+        } else if (cmd === 'led_test') {
+            serialCmd = 'l';
+        } else if (cmd === 'servo_test') {
+            serialCmd = 's';
+        } else if (cmd === 'power_toggle') {
+            serialCmd = 'o';
+        } else {
+            res.status(400).json({ ok: false, error: 'cmd must be start, stop, led_test, servo_test, or power_toggle' });
+            return;
+        }
+
+        const results = broadcastToAll(serialCmd);
+        res.json({ ok: true, cmd: serialCmd, results });
+    } catch (e) {
+        res.status(500).json({ ok: false, error: e.message });
+    }
+});
+
 // GET /api/modules — full module registry
 app.get('/api/modules', (req, res) => {
     const all = [];
@@ -642,55 +746,6 @@ app.post('/api/modules/:ip/upload', (req, res) => {
     }
 });
 
-// POST /api/modules/all/upload — upload sequence to ALL connected modules
-app.post('/api/modules/all/upload', (req, res) => {
-    try {
-        const body = req.body || {};
-        const sequenceId = body.sequenceId;
-        const colorMode = String(body.colorMode || req.query.colorMode || 'default');
-
-        if (!sequenceId) {
-            res.status(400).json({ ok: false, error: 'Missing sequenceId in body' });
-            return;
-        }
-
-        const seq = getSequence(sequenceId);
-        if (!seq) {
-            res.status(404).json({ ok: false, error: 'Sequence not found' });
-            return;
-        }
-
-        const gen = generateUploadLinesFromData(seq.id, seq.name, seq.data, colorMode);
-        if (!gen.ok) {
-            res.status(400).json({ ok: false, error: gen.error });
-            return;
-        }
-
-        const moduleResults = [];
-        for (const [ip, entry] of modules) {
-            if (!entry.connected || !entry.ws || entry.ws.readyState !== WebSocket.OPEN) continue;
-
-            const sent = [];
-            let failed = false;
-            for (const line of gen.lines) {
-                const r = sendToModule(ip, String(line));
-                sent.push({ line, result: r });
-                if (r && r.error) { failed = true; break; }
-            }
-
-            if (!failed) {
-                entry.currentSequenceId = seq.id;
-                entry.currentSequenceName = seq.name;
-            }
-
-            moduleResults.push({ module: ip, sentCount: sent.length, failed });
-        }
-
-        res.json({ ok: true, uploaded: seq.id, modules: moduleResults });
-    } catch (e) {
-        res.status(500).json({ ok: false, error: e.message });
-    }
-});
 
 // POST /api/modules/:ip/control — start/stop sequence or run hardware tests on a specific module
 app.post('/api/modules/:ip/control', (req, res) => {
@@ -700,6 +755,7 @@ app.post('/api/modules/:ip/control', (req, res) => {
         const cmd = body.cmd; // 'start' | 'stop' | 'led_test' | 'servo_test'
         const mode = body.mode; // 'guided' | 'teaching'
 
+        // laptop hosting / module power control
         let serialCmd;
         if (cmd === 'start') {
             serialCmd = mode === 'teaching' ? 't' : 'g';
@@ -709,8 +765,10 @@ app.post('/api/modules/:ip/control', (req, res) => {
             serialCmd = 'l';
         } else if (cmd === 'servo_test') {
             serialCmd = 's';
+        } else if (cmd === 'power_toggle') {
+            serialCmd = 'o';
         } else {
-            res.status(400).json({ ok: false, error: 'cmd must be start, stop, led_test, or servo_test' });
+            res.status(400).json({ ok: false, error: 'cmd must be start, stop, led_test, servo_test, or power_toggle' });
             return;
         }
 
@@ -721,33 +779,55 @@ app.post('/api/modules/:ip/control', (req, res) => {
     }
 });
 
-// POST /api/modules/all/control — start/stop or test on ALL connected modules
-app.post('/api/modules/all/control', (req, res) => {
+// midi import
+// POST /api/midi/import — upload a MIDI file, convert it into an Open Octave
+// sequence, save it into SQLite, and return the created item + metadata.
+app.post('/api/midi/import', upload.single('file'), (req, res) => {
     try {
-        const body = req.body || {};
-        const cmd = body.cmd;
-        const mode = body.mode;
-
-        let serialCmd;
-        if (cmd === 'start') {
-            serialCmd = mode === 'teaching' ? 't' : 'g';
-        } else if (cmd === 'stop') {
-            serialCmd = 'x';
-        } else if (cmd === 'led_test') {
-            serialCmd = 'l';
-        } else if (cmd === 'servo_test') {
-            serialCmd = 's';
-        } else {
-            res.status(400).json({ ok: false, error: 'cmd must be start, stop, led_test, or servo_test' });
+        if (!req.file) {
+            res.status(400).json({ ok: false, error: 'No MIDI file uploaded.' });
             return;
         }
 
-        const results = broadcastToAll(serialCmd);
-        res.json({ ok: true, cmd: serialCmd, results });
+        const originalName = String(req.file.originalname || '').trim();
+        const lowerName = originalName.toLowerCase();
+
+        if (!(lowerName.endsWith('.mid') || lowerName.endsWith('.midi'))) {
+            res.status(400).json({ ok: false, error: 'Only .mid or .midi files are supported.' });
+            return;
+        }
+
+        const nameOverride = req.body?.name ? String(req.body.name).trim() : undefined;
+
+        const result = importMidiBufferToSequence(req.file.buffer, {
+            filename: originalName,
+            nameOverride
+        });
+
+        if (!result.ok) {
+            res.status(400).json({
+                ok: false,
+                error: result.error,
+                warnings: result.warnings || []
+            });
+            return;
+        }
+
+        const savedId = upsertSequence(result.sequence);
+        const item = getSequence(savedId);
+
+        res.json({
+            ok: true,
+            message: 'MIDI imported successfully.',
+            item,
+            meta: result.meta,
+            warnings: result.warnings || []
+        });
     } catch (e) {
         res.status(500).json({ ok: false, error: e.message });
     }
 });
+
 
 // ============ DB API (SOFTWARE SEQUENCE LIBRARY) ============
 
@@ -1290,7 +1370,12 @@ const httpServer = app.listen(PORT, () => {
     console.log(`Modules connect automatically via WebSocket\n`);
 });
 
-const wss = new WebSocket.Server({ port: Number(WS_PORT) }, () => {
+// const wss = new WebSocket.Server({ port: Number(WS_PORT) }, () => {
+//     console.log(`[WS] WebSocket server listening on 0.0.0.0:${WS_PORT}`);
+// });
+
+// laptop hosting
+const wss = new WebSocket.Server({ host: '0.0.0.0', port: WS_PORT }, () => {
     console.log(`[WS] WebSocket server listening on 0.0.0.0:${WS_PORT}`);
 });
 

@@ -10,12 +10,15 @@
 #define WIFI_SSID "Open Octave"
 #define WIFI_PASSWORD "oop321321"
 
-#define ESP32_IP      IPAddress(192, 168, 4, 100)
-#define ESP32_GATEWAY IPAddress(192, 168, 4, 1)
-#define ESP32_SUBNET  IPAddress(255, 255, 255, 0)
+// #define ESP32_IP      IPAddress(192, 168, 4, 100)
+// #define ESP32_GATEWAY IPAddress(192, 168, 4, 1)
+// #define ESP32_SUBNET  IPAddress(255, 255, 255, 0)
 
-#define CONTROLLER_IP "192.168.4.2" // replace with real IP
-#define CONTROLLER_PORT 81
+// #define CONTROLLER_IP "192.168.4.2" // replace with real IP
+// #define CONTROLLER_PORT 81
+
+// laptop hosting
+#define CONTROLLER_PORT 8081
 
 #define WIFI_CHECK_INTERVAL 20000
 
@@ -23,7 +26,7 @@
 #define HEARTBEAT_TIMEOUT 2000
 #define CHAIN_HEARTBEAT_BYTE 0xFE
 
-#define MAX_SEQUENCE_LENGTH 64
+#define MAX_SEQUENCE_LENGTH 128
 #define MAX_KEYS_PER_STEP 4
 
 #define MIN_NOTE_DURATION 100
