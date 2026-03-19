@@ -59,7 +59,29 @@ void checkWifiStatus() {
   // report connection status periodically
   if (millis() - lastWifiCheckTime >= WIFI_CHECK_INTERVAL) {
     lastWifiCheckTime = millis();
-    LOGF("[WIFI] Status: %d, IP: %s\n", WiFi.status(), WiFi.localIP().toString().c_str());
+
+    wl_status_t status = WiFi.status();
+    LOGF("[WIFI] Status: %d, IP: %s\n", status, WiFi.localIP().toString().c_str());
+
+    // laptop hosting / wifi recovery
+    // If WiFi comes up after boot, start the WebSocket client then.
+    if (status == WL_CONNECTED) {
+      if (!isWifiConnected) {
+        isWifiConnected = true;
+        LOGF("[WIFI] Reconnected. Gateway IP (host laptop): %s\n", WiFi.gatewayIP().toString().c_str());
+      }
+
+      if (!wsReady) {
+        LOGLN("[WS] WiFi is connected and WebSocket is not active. Starting WebSocket client...");
+        connectToWebsocket();
+      }
+    } else {
+      if (isWifiConnected) {
+        LOGLN("[WIFI] Lost connection");
+      }
+      isWifiConnected = false;
+      wsReady = false;
+    }
   }
 }
 
@@ -120,10 +142,12 @@ void webSocketEvent(WStype_t type, uint8_t * payload, size_t length) {
   switch (type) {
 
     case WStype_DISCONNECTED:
+      wsReady = false;
       LOGLN("[WS] Disconnected from server");
       break;
 
     case WStype_CONNECTED:
+      wsReady = true;
       LOGLN("[WS] Connected to server");
       sendHelloToController();
       break;

@@ -179,6 +179,14 @@ void setup() {
   }
   LOGLN("OK");
 
+  // // just to bypass hardware setup for now
+  // LOG("[SETUP] Initializing expansion board... ");
+  // if (!ioport.begin()) {
+  //   LOGLN("[WARNING] PCA9555 not detected — continuing without button hardware (wifi test mode)");
+  // } else {
+  //   LOGLN("OK");
+  // }
+
   LOG("[SETUP] Initializing servo driver... ");
   servoDriver.init();
   servoDriver.setFrequency(SERVO_FREQ);
