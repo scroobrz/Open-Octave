@@ -10,7 +10,7 @@ void connectToWifi() {
   WiFi.config(ESP32_IP, ESP32_GATEWAY, ESP32_SUBNET);
 
   WiFi.begin(WIFI_SSID, WIFI_PASSWORD);
-  LOGF("[WIFI] Connecting to %s...\n", WIFI_SSID);
+  LOGF("[WIFI] Connecting to %s...", WIFI_SSID);
 
   unsigned long wifiStart = millis();
   // Try repeatedly for 10 seconds
