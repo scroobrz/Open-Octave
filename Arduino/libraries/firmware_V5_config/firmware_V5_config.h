@@ -59,7 +59,10 @@
 #define RX2 4
 #define TX2 15
 
-#define AMP_PIN 25          // D2 (IO25) — DAC-capable, good for audio
+#define SD_CS_PIN        5    // SD card chip select
+#define AMP_BCLK_PIN     27   // I2S bit clock
+#define AMP_LRCLK_PIN    26   // I2S word select / LR clock
+#define AMP_DIN_PIN      25   // I2S data in (to amp)
 
 #define KEY0_BUTTON_PIN 0
 #define KEY0_LED_INDEX 0
