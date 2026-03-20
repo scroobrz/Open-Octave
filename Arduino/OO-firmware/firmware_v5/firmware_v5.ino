@@ -90,6 +90,8 @@ unsigned long lastSequenceButtonPressTime = 0;
 bool globalKeyIsPressed[MAX_TOTAL_KEYS] = {false};
 unsigned long globalKeyPressTime[MAX_TOTAL_KEYS] = {0};
 unsigned long toneStartTime[MAX_TOTAL_KEYS] = {0};
+int toneSustainKey = -1;              // key index whose tone is being held past release (-1 = none)
+unsigned long toneSustainUntil = 0;   // millis() time at which the sustained tone should stop
 
 bool waitingForServoRelease = false;
 unsigned long servoReleaseStartTime = 0;
@@ -240,6 +242,7 @@ void loop() {
     }
 
     handleKeyPresses();
+    handleToneSustain();
   }
 }
 

@@ -727,7 +727,7 @@ bool processSequenceStepCommand(uint8_t stepIndex, char *cmd){
           case 'd': {
             int parsedDuration = atoi(&cmd[i+2]);
 
-            if (parsedDuration >= MIN_NOTE_DURATION && parsedDuration <= MAX_NOTE_DURATION) {
+            if (parsedDuration >= MIN_STEP_DURATION && parsedDuration <= MAX_STEP_DURATION) {
               duration = parsedDuration;
             } else {
               LOGF("[SEQ] Step %d: invalid duration\n", stepIndex);
