@@ -33,6 +33,12 @@ public:
     return true;
   }
 
+  bool SetBitsPerSample(int bps) {
+  this->bps = bps;
+  return true;
+  
+ }
+
   // Hand ownership of the buffer to the caller — buffer is no longer ours
   int16_t* take(size_t* outFilled) {
     int16_t* ret = _buf;

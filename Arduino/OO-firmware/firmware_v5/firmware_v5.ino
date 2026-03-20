@@ -33,6 +33,9 @@
 #include <cstdint>
 #include "driver/i2s_std.h"
 #include <SD.h>
+#include <AudioFileSourceSD.h>
+#include <AudioGeneratorMP3.h>
+#include "AudioOutputBuffer.h"
 
 
 // ============ HARDWARE DEFINITIONS ============
@@ -168,9 +171,13 @@ void setup() {
   LOG("[SETUP] Configuring amp... ");
   ampSetup();
 
-  LOGF("OK (amp_pin: %d)\n", AMP_PIN);
+  LOGF("OK (amp_pin: %d)\n", AMP_DIN_PIN);
 
   LOG("[SETUP] Initializing I2S... ");
+
+  LOG("[SETUP] Configuring notes... ");
+  noteSetup();
+  LOGLN("OK");
   
   LOG("[SETUP] Initializing I2C... ");
   Wire.begin(21, 22);

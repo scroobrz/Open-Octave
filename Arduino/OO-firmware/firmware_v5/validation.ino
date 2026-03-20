@@ -25,8 +25,8 @@ bool validateHardwareInit() {
     return false;
   }
 
-  if (SPEAKER_PIN < 0 || SPEAKER_PIN > 33) {
-    LOGF("[ERROR] Invalid SPEAKER_PIN: %d", SPEAKER_PIN);
+  if (AMP_PIN < 0 || AMP_PIN > 33) {
+    LOGF("[ERROR] Invalid AMP_PIN: %d", AMP_PIN);
     return false;
   }
 

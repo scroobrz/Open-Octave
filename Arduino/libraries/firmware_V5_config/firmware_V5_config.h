@@ -64,7 +64,10 @@
 #define AMP_LRCLK_PIN    26   // I2S word select / LR clock
 #define AMP_DIN_PIN      25   // I2S data in (to amp)
 
-#define MIX_SAMPLE_RATE  44100  // Hz — match your audio files
+#define MIX_SAMPLE_RATE      44100
+#define MIX_CHANNELS         2
+#define FRAME_SAMPLES        512
+#define I2S_WRITE_TIMEOUT_MS 100
 
 #define KEY0_BUTTON_PIN 0
 #define KEY0_LED_INDEX 0
@@ -189,14 +192,6 @@ enum SequenceMode {
   TEACHING        // LEDs + servos play automatically
 };
 
-struct Key {
-  int buttonPin;
-  int ledIndex;
-  int servoChannel;
-  int noteFreq;
-  bool isPressed;
-};
-
 // For chord synthesis
 struct WavStream {
   int16_t*    samples;
@@ -206,6 +201,16 @@ struct WavStream {
   uint8_t     channels;
   int         errorCode;
   const char* errorMsg;
+};
+
+struct Key {
+  int buttonPin;
+  int ledIndex;
+  int servoChannel;
+  int noteFreq;
+  const char* fpath;
+  WavStream* pcm;
+  bool isPressed;
 };
 
 struct SequenceStep {
