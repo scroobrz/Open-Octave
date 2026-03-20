@@ -74,7 +74,7 @@ inline void startKeyTone(int keyIndex) {
 // PROBLEM: it falls back to the pressed key with the lowest index rather than
 // the one that was pressed last, could use a stack to solve this
 void stopKeyTone(int keyIndex) {
-  // Ensure minimum note duration (50ms) so every note is audible
+  // Ensure minimum note duration so every note is audible
   unsigned long elapsed = millis() - toneStartTime[keyIndex];
   if (elapsed < MIN_NOTE_DURATION) {
     delay(MIN_NOTE_DURATION - elapsed);
