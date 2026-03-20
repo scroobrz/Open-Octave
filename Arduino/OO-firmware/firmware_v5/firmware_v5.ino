@@ -32,6 +32,7 @@
 #include <WebSocketsClient.h>
 #include <cstdint>
 #include "driver/i2s_std.h"
+#include <SD.h>
 
 
 // ============ HARDWARE DEFINITIONS ============
@@ -165,14 +166,12 @@ void setup() {
 
   // ===== INITIALIZATION =====
   LOG("[SETUP] Configuring amp... ");
-  amp_setup()
+  ampSetup();
 
   LOGF("OK (amp_pin: %d)\n", AMP_PIN);
 
   LOG("[SETUP] Initializing I2S... ");
   
-
-
   LOG("[SETUP] Initializing I2C... ");
   Wire.begin(21, 22);
   LOGLN("OK");

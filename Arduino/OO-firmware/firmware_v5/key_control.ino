@@ -30,8 +30,6 @@ void handleKeyPresses() {
 
         LOGF("[KEY] Key %d PRESSED (pin %d, freq %dHz)\n", i, keys[i].buttonPin, keys[i].noteFreq);
 
-        startKeyTone(i);
-
         if (isMaster && recording) {
           recordKeyPress(globalKey);
         } else if (isMaster) {
@@ -52,8 +50,6 @@ void handleKeyPresses() {
       
       LOGF("[KEY] Key %d RELEASED\n", i);
 
-      stopKeyTone(i);
-
       if (isMaster && recording) {
         recordKeyRelease(globalKey);
       } else if (isMaster) {
@@ -61,36 +57,6 @@ void handleKeyPresses() {
       }
     }
   }
-}
-
-// starts playing the tone for a specific key
-inline void startKeyTone(int keyIndex) {
-  tone(SPEAKER_PIN, keys[keyIndex].noteFreq);
-}
-
-// stops playing the tone for a specific key
-// if another key is still pressed, switches to playing that key's tone instead
-// (this handles the case where you have multiple keys held down)
-// PROBLEM: it falls back to the pressed key with the lowest index rather than
-// the one that was pressed last, could use a stack to solve this
-void stopKeyTone(int keyIndex) {
-  // Ensure minimum note duration (50ms) so every note is audible
-  unsigned long elapsed = millis() - toneStartTime[keyIndex];
-  if (elapsed < MIN_NOTE_DURATION) {
-    delay(MIN_NOTE_DURATION - elapsed);
-  }
-
-  // check if any other key is still being pressed
-  for (int i = 0; i < NUM_KEYS; i++) {
-    if (keys[i].isPressed) {
-      // found another pressed key, play its tone instead
-      startKeyTone(i);
-      return;
-    }
-  }
-
-  // no other keys pressed, silence the speaker
-  noTone(SPEAKER_PIN);
 }
 
 // lights up all LEDs on a key's LED strip with the specified color
