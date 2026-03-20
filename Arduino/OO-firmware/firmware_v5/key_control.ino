@@ -7,9 +7,6 @@ These handle button detection, sound playback, and LED control for the keys.
 
 // checks all buttons and plays/stops tones based on their state
 void handleKeyPresses() {
-  // Read all 16 input pins in a single burst (2 I2C transactions total).
-  // stateOfPin() then reads from the cached value — no further I2C traffic per key.
-  ioport.pinStates();
   for (int i = 0; i < NUM_KEYS; i++) {
     int globalKey = (moduleChainIndex * NUM_KEYS) + i;
     bool buttonPressed = ioport.stateOfPin(keys[i].buttonPin) == HIGH;
@@ -17,7 +14,7 @@ void handleKeyPresses() {
     if (buttonPressed && !keys[i].isPressed) {
 
       // apply debouncing to avoid false triggers
-      if (millis() - globalKeyPressTime[globalKey] >= DEBOUNCE_DELAY) {
+      if (millis() - globalKeyPressTime[globalKey] >= BUTTON_DEBOUNCE_DELAY) {
         unsigned long pressDetectedMs = millis();
 
         // use local keys array to detect button press edges, and global array
@@ -28,14 +25,16 @@ void handleKeyPresses() {
         toneStartTime[i] = pressDetectedMs;  // Track when this tone started
 
         if (!isMaster) {
-          chainSendCmd(UpstreamSerial, 'K', globalKey);
+          chainSendKeyCmd(UpstreamSerial, 'K', globalKey);
         }
 
         LOGF("[KEY] Key %d PRESSED (pin %d, freq %dHz)\n", i, keys[i].buttonPin, keys[i].noteFreq);
 
         startKeyTone(i);
 
-        if (isMaster) {
+        if (isMaster && recording) {
+          recordKeyPress(globalKey);
+        } else if (isMaster) {
           evaluateWrongKeyFeedback(globalKey, true);
         }
 
@@ -48,14 +47,16 @@ void handleKeyPresses() {
       globalKeyIsPressed[globalKey] = false;
 
       if (!isMaster) {
-        chainSendCmd(UpstreamSerial, 'k', globalKey);
+        chainSendKeyCmd(UpstreamSerial, 'k', globalKey);
       }
       
       LOGF("[KEY] Key %d RELEASED\n", i);
 
       stopKeyTone(i);
 
-      if (isMaster) {
+      if (isMaster && recording) {
+        recordKeyRelease(globalKey);
+      } else if (isMaster) {
         evaluateWrongKeyFeedback(globalKey, false);
       }
     }
@@ -73,7 +74,7 @@ inline void startKeyTone(int keyIndex) {
 // PROBLEM: it falls back to the pressed key with the lowest index rather than
 // the one that was pressed last, could use a stack to solve this
 void stopKeyTone(int keyIndex) {
-  // Ensure minimum note duration (50ms) so every note is audible
+  // Ensure minimum note duration so every note is audible
   unsigned long elapsed = millis() - toneStartTime[keyIndex];
   if (elapsed < MIN_NOTE_DURATION) {
     delay(MIN_NOTE_DURATION - elapsed);
@@ -99,13 +100,9 @@ void lightUpKey(int keyIndex, uint32_t color) {
     return;
   }
 
+  leds.setPixelColor(keys[keyIndex].ledIndex, color);
+  leds.show();
   LOGF("[LED] Key %d LED ON: color=%s\n", keyIndex, getColorString(color));
-
-  for (int i = 0; i < LEDS_PER_KEY; i++) {
-    keys[keyIndex].led->setPixelColor(i, color);
-  }
-
-  keys[keyIndex].led->show();
 }
 
 // turns off all LEDs on a key's LED strip
@@ -115,23 +112,14 @@ void lightDownKey(int keyIndex) {
     return;
   }
 
+  leds.setPixelColor(keys[keyIndex].ledIndex, 0);
+  leds.show();
   LOGF("[LED] Key %d OFF\n", keyIndex);
-
-  for (int i = 0; i < LEDS_PER_KEY; i++) {
-    keys[keyIndex].led->setPixelColor(i, 0);
-  }
-
-  keys[keyIndex].led->show();
 }
 
 // resets a key to its default state (LED off, servo at rest)
 // NOTE: We do NOT clear isPressed here. handleKeyPresses() tracks the physical
 // button state and will detect the actual release when the servo lets go.
-// Clearing it prematurely caused phantom PRESSED events because the servo
-// hadn't physically released yet, so handleKeyPresses() would see the button
-// still HIGH with isPressed==false and register a ghost "new press".
-// For consecutive same-key steps, the SERVO_RELEASE_DELAY provides enough
-// time for the physical release + handleKeyPresses() to detect it.
 void resetKey(int keyIndex) {
   if (!isValidLocalKeyIndex(keyIndex)) {
     LOGF("[ERROR] Invalid keyIndex: %d encountered while resetting key\n", keyIndex);
@@ -140,4 +128,91 @@ void resetKey(int keyIndex) {
 
   lightDownKey(keyIndex);
   autoReleaseKey(keyIndex);
+}
+
+// ============ STARTUP / SHUTDOWN ANIMATION ============
+
+// Compute a smoothly interpolated brand-gradient color for a given key position.
+// Blends across five stops: CYAN → GREEN → GOLD → CORAL → MAGENTA.
+// Uses integer-only math (no floats) to keep it efficient on ESP32.
+static uint32_t getBrandGradientColor(uint8_t keyIndex) {
+  static const uint32_t stops[] = {
+    COLOR_CYAN,     // 0x00B4D8
+    COLOR_GREEN,    // 0x00FF00
+    COLOR_GOLD,     // 0xFFD700
+    COLOR_CORAL,    // 0xFF6B35
+    COLOR_MAGENTA   // 0xE8368F
+  };
+  static const uint8_t NUM_STOPS = 5;
+  static const uint8_t NUM_SEGMENTS = NUM_STOPS - 1;  // 4
+
+  // Map keyIndex (0 to NUM_KEYS-1) into a fixed-point position across segments.
+  // pos ranges from 0 to (NUM_SEGMENTS * 255).
+  uint16_t pos = (uint16_t)keyIndex * NUM_SEGMENTS * 255 / (NUM_KEYS - 1);
+  uint8_t segment = pos / 255;
+  uint8_t blend = pos % 255;  // 0-254 blend factor within segment
+
+  if (segment >= NUM_SEGMENTS) {
+    segment = NUM_SEGMENTS - 1;
+    blend = 255;
+  }
+
+  uint32_t c1 = stops[segment];
+  uint32_t c2 = stops[segment + 1];
+
+  uint8_t r1 = (c1 >> 16) & 0xFF, g1 = (c1 >> 8) & 0xFF, b1 = c1 & 0xFF;
+  uint8_t r2 = (c2 >> 16) & 0xFF, g2 = (c2 >> 8) & 0xFF, b2 = c2 & 0xFF;
+
+  uint8_t r = ((uint32_t)r1 * (255 - blend) + (uint32_t)r2 * blend) / 255;
+  uint8_t g = ((uint32_t)g1 * (255 - blend) + (uint32_t)g2 * blend) / 255;
+  uint8_t b = ((uint32_t)b1 * (255 - blend) + (uint32_t)b2 * blend) / 255;
+
+  return ((uint32_t)r << 16) | ((uint32_t)g << 8) | b;
+}
+
+// Plays a rainbow sweep from left to right when the keyboard powers on.
+// Each key briefly shows its brand gradient color, then turns white.
+// Once all keys are white, holds for STARTUP_WHITE_HOLD ms, then all LEDs off.
+void playStartupAnimation() {
+  LOGLN("[ANIM] Playing startup animation");
+
+  for (int i = 0; i < NUM_KEYS; i++) {
+    leds.setPixelColor(keys[i].ledIndex, getBrandGradientColor(i));
+    leds.show();
+    delay(SWEEP_DELAY_PER_KEY);
+    leds.setPixelColor(keys[i].ledIndex, COLOR_WHITE);
+    leds.show();
+  }
+
+  delay(STARTUP_WHITE_HOLD);
+
+  for (int i = 0; i < NUM_KEYS; i++) {
+    leds.setPixelColor(keys[i].ledIndex, 0);
+  }
+  leds.show();
+
+  LOGLN("[ANIM] Startup animation complete");
+}
+
+// Plays a rainbow sweep from right to left when the keyboard powers off.
+// All keys flash white briefly, then each key shows its brand gradient color
+// before turning off, sweeping from right to left.
+void playShutdownAnimation() {
+  LOGLN("[ANIM] Playing shutdown animation");
+
+  for (int i = 0; i < NUM_KEYS; i++) {
+    leds.setPixelColor(keys[i].ledIndex, COLOR_WHITE);
+  }
+  leds.show();
+  delay(SHUTDOWN_WHITE_HOLD);
+
+  for (int i = NUM_KEYS - 1; i >= 0; i--) {
+    leds.setPixelColor(keys[i].ledIndex, getBrandGradientColor(i));
+    leds.show();
+    delay(SWEEP_DELAY_PER_KEY);
+    leds.setPixelColor(keys[i].ledIndex, 0);
+    leds.show();
+  }
+
+  LOGLN("[ANIM] Shutdown animation complete");
 }
