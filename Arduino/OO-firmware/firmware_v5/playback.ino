@@ -13,9 +13,58 @@
 
 static i2s_chan_handle_t i2s_tx_handle = NULL;
 
-void handlePlayback(){
-  // This looks at the global is_pressed array then calls streamToAmp() for active keys
-  playChord();
+void playChord() {
+  // ── 1. Collect pressed keys ───────────────────────────────────────────────
+  WavStream** streams = (WavStream**)alloca(NUM_KEYS * sizeof(WavStream*));
+  uint8_t count = 0;
+
+  for (uint8_t i = 0; i < NUM_KEYS; i++) {
+    if (keys[i].isPressed && keys[i].pcm != nullptr) {
+      streams[count++] = keys[i].pcm;
+    }
+  }
+
+  if (count == 0) {
+    LOGLN("[WARN]  playChord: no keys pressed or no buffers loaded");
+    return;
+  }
+
+  // ── 2. Build flat pcm/len arrays for mixBuffers ───────────────────────────
+  int16_t** pcmBufs = (int16_t**)alloca(count * sizeof(int16_t*));
+  size_t*   pcmLens = (size_t*)  alloca(count * sizeof(size_t));
+  size_t    maxLen  = 0;
+
+  for (uint8_t i = 0; i < count; i++) {
+    pcmBufs[i] = streams[i]->samples;
+    pcmLens[i] = streams[i]->sampleCount;
+    if (pcmLens[i] > maxLen) maxLen = pcmLens[i];
+  }
+
+  // ── 3. Allocate mix buffer ────────────────────────────────────────────────
+  int16_t* mixBuf = (int16_t*)calloc(maxLen, sizeof(int16_t));
+  if (!mixBuf) {
+    LOGLN("[ERROR] playChord: out of memory (mix buffer)");
+    return;
+  }
+
+  // ── 4. Mix ────────────────────────────────────────────────────────────────
+  mixBuf(pcmBufs, pcmLens, count, mixBuf, maxLen);
+
+  // ── 5. Wrap in a WavStream and stream to amp ──────────────────────────────
+  WavStream mixed = {
+    mixBuf,
+    maxLen,
+    0,
+    MIX_SAMPLE_RATE,
+    MIX_CHANNELS,
+    0,
+    nullptr
+  };
+
+  streamToAmp(mixed);
+
+  // ── 6. Free the mix buffer (streamToAmp is done with it) ──────────────────
+  free(mixBuf);
 }
 
 // ── ampSetup() ───────────────────────────────────────────────────────────────
@@ -88,4 +137,9 @@ void streamToAmp(WavStream& ws) {
   }
 
   ws.cursor += chunkSamples;
+}
+
+void handlePlayback(){
+  // This looks at the global is_pressed array then calls streamToAmp() for active keys
+  playChord();
 }
