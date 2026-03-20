@@ -64,6 +64,8 @@
 #define AMP_LRCLK_PIN    26   // I2S word select / LR clock
 #define AMP_DIN_PIN      25   // I2S data in (to amp)
 
+#define MIX_SAMPLE_RATE  44100  // Hz — match your audio files
+
 #define KEY0_BUTTON_PIN 0
 #define KEY0_LED_INDEX 0
 #define KEY0_SERVO_CHANNEL 1
