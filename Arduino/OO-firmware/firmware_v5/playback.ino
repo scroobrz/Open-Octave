@@ -13,6 +13,21 @@
 
 static i2s_chan_handle_t i2s_tx_handle = NULL;
 
+static void mixBuffers(int16_t** bufs, size_t* lens,
+                        uint8_t count, int16_t* mixBuf, size_t mixLen) {
+  memset(mixBuf, 0, mixLen * sizeof(int16_t));
+  for (size_t s = 0; s < mixLen; s++) {
+    int32_t sum = 0;
+    for (uint8_t c = 0; c < count; c++) {
+      sum += (s < lens[c]) ? (int32_t)bufs[c][s] : 0;
+    }
+    int32_t avg = sum / count;
+    if      (avg >  32767) avg =  32767;
+    else if (avg < -32768) avg = -32768;
+    mixBuf[s] = (int16_t)avg;
+  }
+}
+
 void playChord() {
   // ── 1. Collect pressed keys ───────────────────────────────────────────────
   WavStream** streams = (WavStream**)alloca(NUM_KEYS * sizeof(WavStream*));
