@@ -22,7 +22,7 @@ REM Give frontend a moment to start
 timeout /t 4 /nobreak >nul
 
 REM Open the UI
-start "" "http://localhost:5173"
+start "" "http://192.168.137.1:5173"
 
 echo Open Octave launched.
 echo.
