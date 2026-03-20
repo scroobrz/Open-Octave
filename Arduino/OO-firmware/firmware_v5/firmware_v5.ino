@@ -2,7 +2,7 @@
  * FIRMWARE V5
  *
  * Each module is a 12-key octave with servo actuators, per-key LEDs, and a
- * speaker. Modules daisy-chain together via serial to form larger keyboards,
+ * AMP. Modules daisy-chain together via serial to form larger keyboards,
  * with automatic master/slave role assignment through a heartbeat protocol.
  *
  * Sequence playback operates in one of two modes:
@@ -31,6 +31,8 @@
 #include <WiFi.h>
 #include <WebSocketsClient.h>
 #include <cstdint>
+#include "driver/i2s_std.h"
+
 
 // ============ HARDWARE DEFINITIONS ============
 
@@ -162,10 +164,14 @@ void setup() {
   LOGF("OK (\"%s\", %d steps)\n", currentSequence.name, currentSequence.length);
 
   // ===== INITIALIZATION =====
-  LOG("[SETUP] Configuring speaker... ");
-  pinMode(SPEAKER_PIN, OUTPUT);
-  noTone(SPEAKER_PIN);
-  LOGF("OK (speaker_pin: %d)\n", SPEAKER_PIN);
+  LOG("[SETUP] Configuring amp... ");
+  amp_setup()
+
+  LOGF("OK (amp_pin: %d)\n", AMP_PIN);
+
+  LOG("[SETUP] Initializing I2S... ");
+  
+
 
   LOG("[SETUP] Initializing I2C... ");
   Wire.begin(21, 22);
@@ -240,6 +246,7 @@ void loop() {
     }
 
     handleKeyPresses();
+    handlePlayback();
   }
 }
 
