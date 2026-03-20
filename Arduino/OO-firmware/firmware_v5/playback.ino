@@ -63,7 +63,7 @@ void playChord() {
   }
 
   // ── 4. Mix ────────────────────────────────────────────────────────────────
-  mixBuf(pcmBufs, pcmLens, count, mixBuf, maxLen);
+  mixBuffers(pcmBufs, pcmLens, count, mixBuf, maxLen);
 
   // ── 5. Wrap in a WavStream and stream to amp ──────────────────────────────
   WavStream mixed = {
