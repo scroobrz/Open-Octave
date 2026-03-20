@@ -1363,7 +1363,7 @@ app.post('/api/db/sequences/:id/upload', async (req, res) => {
 
 // ============ WEBSOCKET SERVER ============
 
-const httpServer = app.listen(PORT, () => {
+const httpServer = app.listen(PORT, '0.0.0.0', () => {
     console.log(`\nOPEN OCTAVE CONTROLLER`);
     console.log(`HTTP server running at: http://localhost:${PORT}`);
     console.log(`WebSocket server listening on port ${WS_PORT}`);

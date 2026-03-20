@@ -16,7 +16,7 @@ REM Give backend a moment to start
 timeout /t 2 /nobreak >nul
 
 REM Start frontend
-start "Open Octave Frontend" cmd /k "cd /d "%PROJECT_ROOT%software\web" && npm run dev"
+start "Open Octave Frontend" cmd /k "cd /d "%PROJECT_ROOT%software\web" && npm run dev:laptop"
 
 REM Give frontend a moment to start
 timeout /t 4 /nobreak >nul
