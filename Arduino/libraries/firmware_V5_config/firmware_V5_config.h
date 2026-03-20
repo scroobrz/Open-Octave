@@ -197,6 +197,17 @@ struct Key {
   bool isPressed;
 };
 
+// For chord synthesis
+struct WavStream {
+  int16_t*    samples;
+  size_t      sampleCount;
+  size_t      cursor;
+  uint32_t    sampleRate;
+  uint8_t     channels;
+  int         errorCode;
+  const char* errorMsg;
+};
+
 struct SequenceStep {
   uint8_t numKeys;                       // Number of keys to activate
   uint8_t keys[MAX_KEYS_PER_STEP];       // Which keys to activate
