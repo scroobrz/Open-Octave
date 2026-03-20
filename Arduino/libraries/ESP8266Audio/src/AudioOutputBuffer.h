@@ -4,7 +4,7 @@
 class AudioOutputBuffer : public AudioOutput {
 public:
   AudioOutputBuffer()
-    : _buf(nullptr), _filled(0), _capacity(0) {}
+    : _buf(nullptr), _filled(0), _capacity(0), _bps(16) {}
 
   ~AudioOutputBuffer() {
     free(_buf);
@@ -34,9 +34,9 @@ public:
   }
 
   bool SetBitsPerSample(int bps) {
-  this->bps = bps;
+  this->_bps = bps;
   return true;
-  
+
  }
 
   // Hand ownership of the buffer to the caller — buffer is no longer ours
@@ -53,5 +53,6 @@ private:
   int16_t* _buf;
   size_t   _filled;
   size_t   _capacity;
+  size_t   _bps;
 };
 

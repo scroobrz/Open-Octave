@@ -25,8 +25,8 @@ bool validateHardwareInit() {
     return false;
   }
 
-  if (AMP_PIN < 0 || AMP_PIN > 33) {
-    LOGF("[ERROR] Invalid AMP_PIN: %d", AMP_PIN);
+  if (AMP_DIN_PIN < 0 || AMP_DIN_PIN > 33) {
+    LOGF("[ERROR] Invalid AMP_DIN_PIN: %d", AMP_DIN_PIN);
     return false;
   }
 

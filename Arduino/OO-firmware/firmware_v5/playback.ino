@@ -57,7 +57,7 @@ void streamToAmp(WavStream& ws) {
   if (ws.samples == nullptr) return;
 
   if (ws.cursor >= ws.sampleCount) {
-    freeWavStream(ws);
+    freeWavStream(&ws);
     return;
   }
 

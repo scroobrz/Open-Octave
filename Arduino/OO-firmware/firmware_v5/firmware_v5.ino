@@ -171,7 +171,7 @@ void setup() {
   LOG("[SETUP] Configuring amp... ");
   ampSetup();
 
-  LOGF("OK (amp_pin: %d)\n", AMP_DIN_PIN);
+  LOGF("OK (AMP_DIN_PIN: %d)\n", AMP_DIN_PIN);
 
   LOG("[SETUP] Initializing I2S... ");
 

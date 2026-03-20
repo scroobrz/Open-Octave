@@ -76,8 +76,8 @@ static bool decodeMp3ToPcm(const char* path, WavStream** wsOut) {
   return true;
 }
 
-static void freeWavStream(WavStream** ws) {
-  if (*ws) {
+static void freeWavStream(WavStream* ws) {
+  if (ws) {
     free(ws->samples);
     free(ws);
   }
