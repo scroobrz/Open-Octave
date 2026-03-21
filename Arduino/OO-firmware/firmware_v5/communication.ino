@@ -49,12 +49,16 @@ void sendHeartbeat() {
     DownstreamSerial.write(CHAIN_HEARTBEAT_BYTE);
     DownstreamSerial.write(moduleChainIndex + 1);
     timeLastHeartbeatSent = millis();
+    LOGF("[DEBUG] Sent heartbeat downstream (index=%d, t=%lu)\n",
+         moduleChainIndex + 1, timeLastHeartbeatSent);
   }
 }
 
 // Slaves check for upstream heartbeats and promote themselves if lost
 void checkHeartbeat() {
   if (!isMaster && millis() - timeLastHeartbeatReceived >= HEARTBEAT_TIMEOUT){
+    LOGF("[DEBUG] Heartbeat timeout — last received %lums ago, upstream bytes available: %d\n",
+         millis() - timeLastHeartbeatReceived, UpstreamSerial.available());
     promoteToMaster();
   }
 }
@@ -168,13 +172,15 @@ void handleCommandsFromUpstream(){
 }
 
 void handleHeartbeatFromUpstream(uint8_t num){
+  LOGF("[DEBUG] Received heartbeat from upstream (index=%d, isMaster=%d, t=%lu)\n",
+       num, isMaster, millis());
   timeLastHeartbeatReceived = millis();
-  
+
   if (moduleChainIndex != num) {
     moduleChainIndex = num;
     configureNotes();
   }
-  
+
   numModulesInChain = num + 1;
 
   if (isMaster){
