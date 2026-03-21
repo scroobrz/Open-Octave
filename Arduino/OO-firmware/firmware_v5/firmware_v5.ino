@@ -112,6 +112,7 @@ uint8_t testLogAutoRepeatStreak = 0;
 
 unsigned long lastWifiCheckTime = 0;
 bool isWifiConnected = false;
+bool isConnectingWifi = false;
 bool wsReady = false;  // Prevents wsSendLog() from running before webSocket.begin()
 
 char serialBuf[SERIAL_BUF_SIZE];
@@ -175,7 +176,6 @@ void setup() {
   if (!ioport.begin()) {
     LOGLN("[ERROR] PCA9555 I/O expander not responding at address 0x20!");
     LOGLN("Check I2C wiring (SDA=21, SCL=22) and verify the chip is powered.");
-    while (true) { delay(1000); }  // Halt - buttons won't work without it
   }
   LOGLN("OK");
 
@@ -212,7 +212,7 @@ void setup() {
 
   if (!hasUpstream){
     LOGLN("[SETUP] Connecting to WiFi...");
-    connectToWifi();
+    connectToWifiBlocking();
     connectToWebsocket();
     LOGLN("[SETUP] WiFi & WebSocket Active!");
   }
@@ -232,6 +232,7 @@ void loop() {
     handleChainCommunication();
 
     if (isMaster){
+      handleWifiConnection();
       handleControllerCommunication();
       checkWifiStatus();
       handleSequencePlayback();

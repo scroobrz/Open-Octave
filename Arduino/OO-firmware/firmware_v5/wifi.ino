@@ -6,29 +6,50 @@ WiFi Access Point setup, connection status reporting,
 and WebSocket event handling.
 */
 
+// Non-blocking: kicks off WiFi.begin() and returns immediately.
+// Call handleWifiConnection() in loop() to poll for completion.
 void connectToWifi() {
   WiFi.config(ESP32_IP, ESP32_GATEWAY, ESP32_SUBNET);
-
   WiFi.begin(WIFI_SSID, WIFI_PASSWORD);
-  LOGF("[WIFI] Connecting to %s...", WIFI_SSID);
+  isConnectingWifi = true;
+  LOGF("[WIFI] Connecting to %s...\n", WIFI_SSID);
+}
+
+// Blocking version used only during initial setup(), where there are
+// no heartbeats to miss yet.
+void connectToWifiBlocking() {
+  connectToWifi();
 
   unsigned long wifiStart = millis();
-  // Try repeatedly for 10 seconds
   while (WiFi.status() != WL_CONNECTED && millis() - wifiStart < 10000) {
     delay(250);
-    LOG(".");
   }
-  LOGLN("");
 
   if (WiFi.status() == WL_CONNECTED) {
     LOGF("[WIFI] Connected! IP: %s\n", WiFi.localIP().toString().c_str());
+    isConnectingWifi = false;
   } else {
     LOGF("[WIFI] Connection FAILED (status: %d)\n", WiFi.status());
+    isConnectingWifi = false;
+  }
+}
+
+// Called every loop() iteration while isMaster.
+// Once WiFi connects, automatically starts the WebSocket.
+void handleWifiConnection() {
+  if (!isConnectingWifi) return;
+
+  if (WiFi.status() == WL_CONNECTED) {
+    LOGF("[WIFI] Connected! IP: %s\n", WiFi.localIP().toString().c_str());
+    isConnectingWifi = false;
+    connectToWebsocket();
+    LOGLN("[SETUP] WiFi & WebSocket Active!");
   }
 }
 
 void disconnectWifi() {
   WiFi.disconnect();
+  isConnectingWifi = false;
   LOGLN("[WIFI] Disconnected");
 }
 
