@@ -65,6 +65,7 @@ void checkHeartbeatReply() {
       millis() - timeLastHeartbeatReplyReceived >= HEARTBEAT_TIMEOUT) {
     numModulesInChain = moduleChainIndex + 1;  // Only count up to self
     LOGF("[CHAIN] Downstream lost — chain count reset to %d\n", numModulesInChain);
+    if (isMaster) sendHelloToController();
   }
 }
 
@@ -292,6 +293,7 @@ void handleHeartbeatFromDownstream(uint8_t num){
   uint8_t reportedCount = num + 1;
   if (reportedCount > numModulesInChain) {
     numModulesInChain = reportedCount;
+    if (isMaster) sendHelloToController();
   }
 
   // slaves forward replies upstream
@@ -305,6 +307,17 @@ void handleHeartbeatFromDownstream(uint8_t num){
 void handleUsbSerialCommands() {
   // NOTE: Serial monitor must be set to "Newline" or "Both NL and CR" for
   // commands to be properly processed by this function
+
+  if (!on){
+    if(Serial.available() && Serial.peek() == 'o'){
+      Serial.read(); // consume
+      powerOn();
+      LOGLN("ACK cmd=o power=on ok=1");
+      emitStatus();
+    } else {
+      return;
+    }
+  }
 
   while (Serial.available()) {
     char c = (char)Serial.read();
@@ -350,11 +363,53 @@ void handleUsbSerialCommands() {
   }
 }
 
+// Called by the WebSocketsClient library whenever a WebSocket event occurs.
+// WStype_t tells us what kind of event it is (connect, disconnect, message, etc).
+// Notice that 'num' (client ID) is not present because we are the client.
+void webSocketEvent(WStype_t type, uint8_t * payload, size_t length) {
+  switch (type) {
+
+    case WStype_DISCONNECTED:
+      wsReady = false;
+      LOGLN("[WS] Disconnected from server");
+      break;
+
+    case WStype_CONNECTED:
+      wsReady = true;
+      LOGLN("[WS] Connected to server");
+      sendHelloToController();
+      break;
+
+    case WStype_TEXT:
+      if (length > 0) {
+        LOGF("[WS] Received payload from server (%d bytes)\n", (int)length);
+        handleWebSocketCommand((char*)payload, length);
+      }
+      break;
+
+    default:
+      break;
+  }
+}
+
 void handleWebSocketCommand(char *cmd, size_t length){
+  if (!on){
+    if (cmd[0] == 'o'){
+      powerOn();
+      LOGLN("ACK cmd=o power=on ok=1");
+      emitStatus();
+
+      cmd++;
+      length--;
+    } else {
+      return;
+    }
+  }
+    
   if (length == 1){
     // regular single-character command
     processSingleCharCommand(cmd[0]);
-  } else {
+  } else if (length > 1){
     // sequence command; string of characters
     handleSequenceCommand(cmd);
   }
@@ -403,6 +458,20 @@ void processSingleCharCommand(char cmd) {
       } else {
         stopSequence();
         LOGLN("ACK cmd=x ok=1");
+      }
+
+      emitStatus();
+      break;
+
+    case 'o': // Toggle module on/off
+      LOGLN("\n[CMD] Received: Toggle module power");
+
+      if (on) {
+        powerOff();
+        LOGLN("ACK cmd=o power=off ok=1");
+      } else {
+        powerOn();
+        LOGLN("ACK cmd=o power=on ok=1");
       }
 
       emitStatus();
@@ -478,6 +547,8 @@ void processSingleCharCommand(char cmd) {
       LOGLN("    l - Test LEDs");
       LOGLN("    s - Test servos");
       LOGLN("    q - Enter/Exit test log mode");
+      LOGLN("  POWER:");
+      LOGLN("    o - Toggle module on/off");
       LOGLN("  HELP:");
       LOGLN("    h/? - Show this help");
       LOGLN("========================================\n");
@@ -825,6 +896,17 @@ bool processSequenceEndCommand(char *cmd){
   currentSequence = uploadSequenceBuffer;
   uploadStepCount = 0;
   return true;
+}
+
+// Sends the HELLO registration message to the controller.
+// Called on initial WS connect and whenever the chain length changes.
+void sendHelloToController() {
+  if (!wsReady) return;
+
+  char buf[24];
+  snprintf(buf, sizeof(buf), "HELLO modules=%d", numModulesInChain);
+  webSocket.sendTXT(buf);
+  LOGF("[WS] Sent: %s\n", buf);
 }
 
 void chainSendKeyCmd(HardwareSerial &serialPort, char cmd, int key) {

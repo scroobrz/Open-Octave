@@ -1,9 +1,12 @@
 require('dotenv').config();
 const express = require('express');
 const cors = require('cors');
+const multer = require('multer');
+const { importMidiBufferToSequence } = require('./services/midi_import');
 const { SerialPort } = require('serialport');
 const { ReadlineParser } = require('@serialport/parser-readline');
 const WebSocket = require('ws');
+
 
 // SQLite sequence library (software-side)
 const {
@@ -11,7 +14,9 @@ const {
     listSequences,
     getSequence,
     upsertSequence,
-    generateUploadLinesFromData
+    deleteSequence,
+    generateUploadLinesFromData,
+    computeMaxKey
 } = require('./database/sqlite');
 
 // Shared colour definitions (single source of truth for controller + frontend)
@@ -20,33 +25,37 @@ const COLORS = require('../shared/colors.json');
 const app = express();
 
 const PORT = process.env.APP_PORT || 3000;
-const COMM_MODE = process.env.COMM_MODE || 'WIFI';
-const ESP32_IP = process.env.ESP32_IP || '192.168.4.1';
-const WS_PORT = process.env.WS_PORT || 81;
+// const WS_PORT = process.env.WS_PORT || 81;
+// laptop hosting
+// Use a non-privileged default WebSocket port so the controller can run on
+// macOS/Windows/Linux laptops without requiring sudo/admin privileges.
+const WS_PORT = Number(process.env.WS_PORT || 8081);
 const SERIAL_PATH = process.env.SERIAL_PORT;
 const BAUD_RATE = 115200;
 
-// runtime-configurable connection settings.
-// We keep COMM_MODE as the startup default, but allow the UI to switch transport
-// via /api/connect and /api/disconnect without restarting Node.
-let activeTransport = COMM_MODE; // 'WIFI' | 'SERIAL'
-let currentEsp32Ip = ESP32_IP;
-let currentWsPort = WS_PORT;
-let currentSerialPath = SERIAL_PATH;
+// Module counter — assigns labels (Module A, Module B, ...) in connect order
+let moduleCounter = 0;
 
 app.use(cors());
 app.use(express.json());
 
+// midi import
+// In-memory upload for teacher MIDI imports.
+const upload = multer({
+    storage: multer.memoryStorage(),
+    limits: {
+        fileSize: 2 * 1024 * 1024 // 2 MB is plenty for teacher-uploaded MIDI files
+    }
+});
+
 // ============ LOG BUFFER (UI SUPPORT) ============
-// The UI needs to display recent logs (Logs tab + Sync panel). We keep a small,
-// in-memory ring buffer of the most recent lines. only records what we already print.
 const LOG_BUFFER_MAX = 500;
 const logBuffer = [];
 
 function pushLog(source, message) {
     const line = {
         ts: new Date().toISOString(),
-        source: source, // e.g. 'ESP32', 'CTRL', 'WS', 'SERIAL'
+        source: source,
         message: message
     };
 
@@ -56,117 +65,197 @@ function pushLog(source, message) {
     }
 }
 
-// ============ CONTROLLER STATE (UI MIRROR) ============
-// The UI needs to show the latest status from the ESP32 (Status tab) and also
-const controllerState = {
-    transport: activeTransport,    // 'WIFI' | 'SERIAL'
-    connected: false,
-    wsTarget: `ws://${currentEsp32Ip}:${currentWsPort}`,
-    serialPort: currentSerialPath || null,
+// ============ MODULE REGISTRY ============
+// In-memory registry of connected ESP32 modules, keyed by IP address.
+const modules = new Map();
 
-    lastCommand: null,             // { ts, transport, cmd }
-    lastAck: null,                 // { ts, raw, fields }
-    lastStatus: null,              // { ts, raw, fields }
-    lastEvent: null,               // { ts, raw }
-    lastError: null,               // { ts, raw }
+function getModuleLabel(ip) {
+    // Reuse existing label if module has connected before
+    const existing = modules.get(ip);
+    if (existing && existing.label) return existing.label;
 
-    counters: {
-        lines: 0,
-        ack: 0,
-        status: 0,
-        evt: 0,
-        err: 0
-    }
-};
-
-function snapshotControllerState() {
-    // Safe copy for API responses
-    return JSON.parse(JSON.stringify(controllerState));
+    // Assign next letter (Module A, Module B, ...)
+    const letter = String.fromCharCode(65 + moduleCounter);
+    moduleCounter++;
+    return `Module ${letter}`;
 }
 
+function registerModule(ip, ws) {
+    const existing = modules.get(ip);
+    const entry = {
+        ip,
+        ws,
+        connected: true,
+        connectedAt: new Date().toISOString(),
+        chainLength: existing?.chainLength || 1,
+        totalKeys: existing?.totalKeys || 12,
+        currentSequenceId: existing?.currentSequenceId || null,
+        currentSequenceName: existing?.currentSequenceName || null,
+        lastStatus: existing?.lastStatus || null,
+        label: getModuleLabel(ip)
+    };
+    modules.set(ip, entry);
+    pushLog('WS', `Module registered: ${entry.label} (${ip}), chain=${entry.chainLength}`);
+    console.log(`[WS] Module registered: ${entry.label} (${ip})`);
+    return entry;
+}
+
+function unregisterModule(ip) {
+    const entry = modules.get(ip);
+    if (entry) {
+        entry.ws = null;
+        entry.connected = false;
+        pushLog('WS', `Module disconnected: ${entry.label} (${ip})`);
+        console.log(`[WS] Module disconnected: ${entry.label} (${ip})`);
+    }
+}
+
+function getModuleSnapshot(entry) {
+    return {
+        ip: entry.ip,
+        label: entry.label,
+        connected: entry.connected,
+        connectedAt: entry.connectedAt,
+        chainLength: entry.chainLength,
+        totalKeys: entry.totalKeys,
+        currentSequenceId: entry.currentSequenceId,
+        currentSequenceName: entry.currentSequenceName,
+        lastStatus: entry.lastStatus
+    };
+}
+
+function getAllModuleSnapshots() {
+    const result = [];
+    for (const entry of modules.values()) {
+        if (entry.connected) {
+            result.push(getModuleSnapshot(entry));
+        }
+    }
+    return result;
+}
+
+// ============ MESSAGE PARSING ============
+
 function parseKeyValuePairs(line) {
-    // Example: "STATUS running=0 seq=1 step=-1 mode=N/A"
     const parts = String(line).split(' ').slice(1);
     const out = {};
-
     for (const p of parts) {
         const eq = p.indexOf('=');
         if (eq === -1) continue;
-
         const k = p.slice(0, eq).trim();
         const v = p.slice(eq + 1).trim();
-
         if (!k) continue;
         out[k] = v;
     }
-
     return out;
 }
 
-function ingestEsp32Line(msg) {
-    controllerState.counters.lines += 1;
-
-    // The mock server may prefix lines like:
-    //   "[MOCK-ESP32] ACK cmd=m"
-    // Real firmware might also prefix logs in the future.
-    // We normalize by stripping a single leading "[... ] " prefix if present.
+function ingestEsp32Line(msg, moduleIp) {
     let normalized = String(msg);
     const m = normalized.match(/^\[[^\]]+\]\s+(.*)$/);
     if (m && m[1]) {
         normalized = m[1];
     }
 
+    // Handle HELLO protocol
+    if (normalized.startsWith('HELLO ')) {
+        const fields = parseKeyValuePairs(normalized);
+        const chainLength = parseInt(fields.modules, 10) || 1;
+        const entry = modules.get(moduleIp);
+        if (entry) {
+            entry.chainLength = chainLength;
+            entry.totalKeys = chainLength * 12;
+            pushLog('WS', `${entry.label} (${moduleIp}): HELLO modules=${chainLength}`);
+            console.log(`[WS] ${entry.label}: HELLO modules=${chainLength}, totalKeys=${entry.totalKeys}`);
+        }
+        return;
+    }
+
+    const entry = modules.get(moduleIp);
+
     if (normalized.startsWith('ACK ')) {
-        controllerState.counters.ack += 1;
-        controllerState.lastAck = {
-            ts: new Date().toISOString(),
-            raw: msg,
-            fields: parseKeyValuePairs(normalized)
-        };
+        if (entry) {
+            entry.lastAck = {
+                ts: new Date().toISOString(),
+                raw: msg,
+                fields: parseKeyValuePairs(normalized)
+            };
+        }
         return;
     }
 
     if (normalized.startsWith('STATUS ')) {
-        controllerState.counters.status += 1;
-        controllerState.lastStatus = {
-            ts: new Date().toISOString(),
-            raw: msg,
-            fields: parseKeyValuePairs(normalized)
-        };
-        return;
-    }
-
-    if (normalized.startsWith('EVT ')) {
-        controllerState.counters.evt += 1;
-        controllerState.lastEvent = {
-            ts: new Date().toISOString(),
-            raw: msg
-        };
+        const fields = parseKeyValuePairs(normalized);
+        if (entry) {
+            entry.lastStatus = {
+                ts: new Date().toISOString(),
+                running: fields.running === '1',
+                seq: parseInt(fields.seq, 10) || -1,
+                step: parseInt(fields.step, 10) || -1,
+                mode: fields.mode || 'N/A'
+            };
+        }
         return;
     }
 
     if (normalized.startsWith('ERR ')) {
-        controllerState.counters.err += 1;
-        controllerState.lastError = {
-            ts: new Date().toISOString(),
-            raw: msg
-        };
+        if (entry) {
+            entry.lastError = {
+                ts: new Date().toISOString(),
+                raw: msg
+            };
+        }
         return;
     }
 }
 
-function refreshConnectionState() {
-    // Keep the mirror in sync with the actual transport connections.
-    const wsOpen = !!(ws && ws.readyState === WebSocket.OPEN);
-    const serialOpen = !!(port && port.isOpen);
+// ============ COMMAND ROUTING ============
 
-    controllerState.transport = activeTransport;
-    controllerState.connected = wsOpen || serialOpen;
-    controllerState.wsTarget = `ws://${currentEsp32Ip}:${currentWsPort}`;
-    controllerState.serialPort = currentSerialPath || null;
+function sendToModule(ip, command) {
+    const entry = modules.get(ip);
+    if (!entry || !entry.ws || entry.ws.readyState !== WebSocket.OPEN) {
+        return { error: `Module ${ip} not connected` };
+    }
+
+    const payload = frameForWebSocket(command);
+    entry.ws.send(payload);
+    pushLog('CTRL', `-> ${entry.label} (${ip}): ${command}`);
+    return { success: true, module: ip, cmd: command };
 }
 
-// ============ SERIAL MODE SETUP ============
+function broadcastToAll(command) {
+    const results = [];
+    for (const [ip, entry] of modules) {
+        if (entry.connected && entry.ws && entry.ws.readyState === WebSocket.OPEN) {
+            const payload = frameForWebSocket(command);
+            entry.ws.send(payload);
+            pushLog('CTRL', `-> ${entry.label} (${ip}): ${command}`);
+            results.push({ module: ip, success: true });
+        }
+    }
+    return results;
+}
+
+// ============ TRANSPORT FRAMING ============
+
+function trimLineEndings(s) {
+    return s.replace(/[\r\n]+$/g, '');
+}
+
+function frameForWebSocket(cmd) {
+    const clean = trimLineEndings(String(cmd));
+    if (clean.length === 1) {
+        return clean;
+    }
+    return clean.endsWith('\n') ? clean : `${clean}\n`;
+}
+
+function frameForSerial(cmd) {
+    const clean = trimLineEndings(String(cmd));
+    return `${clean}\n`;
+}
+
+// ============ SERIAL MODE SETUP (legacy fallback) ============
 
 let port;
 let parser;
@@ -177,7 +266,6 @@ function closeSerialPortAsync() {
             resolve({ closed: true, alreadyClosed: true });
             return;
         }
-
         console.log('[SERIAL] Closing port...');
         port.close((err) => {
             if (err) {
@@ -191,37 +279,30 @@ function closeSerialPortAsync() {
 }
 
 async function connectSerial(pathOverride) {
-    const pathToUse = pathOverride || currentSerialPath;
+    const pathToUse = pathOverride || SERIAL_PATH;
 
     if (!pathToUse) {
         console.error('[SERIAL] SERIAL_PORT is not set');
         return { error: 'SERIAL_PORT not set' };
     }
 
-    // If already open on the requested port, do nothing.
     if (port && port.isOpen) {
-        const existingPath = port.path || currentSerialPath;
+        const existingPath = port.path || SERIAL_PATH;
         if (existingPath === pathToUse) {
             return { success: true, mode: 'serial', alreadyOpen: true, port: pathToUse };
         }
-
-        // Port is open on a different path; close it before reopening.
         console.log(`[SERIAL] Port already open on ${existingPath}; switching to ${pathToUse}...`);
         await closeSerialPortAsync();
-
-        // Clear references so we don't keep old listeners around.
         port = undefined;
         parser = undefined;
     }
 
-    console.log(`[INIT] Starting in SERIAL mode on ${pathToUse}...`);
+    console.log(`[INIT] Starting SERIAL mode on ${pathToUse}...`);
 
     try {
-        currentSerialPath = pathToUse;
-        port = new SerialPort({ path: currentSerialPath, baudRate: BAUD_RATE });
+        port = new SerialPort({ path: pathToUse, baudRate: BAUD_RATE });
         parser = port.pipe(new ReadlineParser({ delimiter: '\n' }));
 
-        // Wait for the port to actually open before returning.
         await new Promise((resolve, reject) => {
             port.on('open', () => {
                 console.log('[SERIAL] Port Open');
@@ -233,18 +314,15 @@ async function connectSerial(pathOverride) {
             });
         });
 
-        // Print incoming serial data from the ESP32
         parser.on('data', (data) => {
             const msg = data.toString().trim();
             if (msg.length === 0) return;
-
-            console.log(`[ESP32] ${msg}`);
-            // keep a copy for the UI Logs tab.
+            console.log(`[ESP32-SERIAL] ${msg}`);
             pushLog('ESP32', msg);
-            ingestEsp32Line(msg);
+            ingestEsp32Line(msg, 'serial');
         });
 
-        return { success: true, mode: 'serial', port: currentSerialPath };
+        return { success: true, mode: 'serial', port: pathToUse };
     } catch (err) {
         console.error(`[FATAL] Could not open serial port: ${err.message}`);
         return { error: `Could not open serial port: ${err.message}` };
@@ -252,204 +330,117 @@ async function connectSerial(pathOverride) {
 }
 
 function disconnectSerial() {
-    // Nothing to do
     if (!port) {
         return { success: true, mode: 'serial', alreadyClosed: true };
     }
-
-    // If open, close it.
     if (port.isOpen) {
         console.log('[SERIAL] Closing port...');
         try {
             port.close((err) => {
-                if (err) {
-                    console.error('[SERIAL] Close error:', err.message);
-                }
+                if (err) console.error('[SERIAL] Close error:', err.message);
             });
         } catch (e) {
             console.error('[SERIAL] Close error:', e.message);
         }
     }
-
     port = undefined;
     parser = undefined;
-
     return { success: true, mode: 'serial', closed: true };
 }
 
-// Startup behavior preserved: open serial immediately if COMM_MODE=SERIAL.
-if (COMM_MODE === 'SERIAL') {
-    connectSerial().catch((e) => console.error('[SERIAL] Startup connect error:', e.message));
+function sendSerialCommand(cmd) {
+    if (!port || !port.isOpen) {
+        console.error('[SERIAL] Port closed');
+        return { error: 'Serial port closed' };
+    }
+    const serialPayload = frameForSerial(cmd);
+    console.log(`[SERIAL] Sending: '${cmd}'`);
+    pushLog('CTRL', `SERIAL send: ${cmd}`);
+    port.write(serialPayload);
+    return { success: true, mode: 'serial', cmd: cmd };
 }
 
-// ============ WEBSOCKET MODE SETUP ============
-
-let ws;                         // WebSocket client instance
-let wsConnected = false;        // Connection state
-let wsReconnectTimer = null;    // Reconnect timer reference
-let wsReconnectDelay = 1000;    // Initial reconnect delay (ms)
-const WS_MAX_RECONNECT_DELAY = 10000;  // Cap at 10 seconds
-
-// Connects (or reconnects) the WebSocket client to the ESP32.
-// Uses exponential backoff: 1s -> 2s -> 4s -> 8s -> 10s (capped).
-function connectWebSocket(ipOverride, portOverride) {
-    if (activeTransport !== 'WIFI') return Promise.resolve(false);
-
-    if (ipOverride) currentEsp32Ip = ipOverride;
-    if (portOverride) currentWsPort = portOverride;
-
-    const wsUrl = `ws://${currentEsp32Ip}:${currentWsPort}`;
-
-    // If already connected to the same target, skip reconnect.
-    if (ws && ws.readyState === WebSocket.OPEN) {
-        const currentUrl = `ws://${currentEsp32Ip}:${currentWsPort}`;
-        if (currentUrl === wsUrl) {
-            console.log(`[WS] Already connected to ${wsUrl}`);
-            return Promise.resolve(true);
-        }
-        // Different target — close old connection first.
-        try { ws.close(); } catch (_) {}
-        wsConnected = false;
+// Helper: send a raw line to a specific module or via serial fallback
+function sendRawLine(line, moduleIp) {
+    if (typeof line !== 'string' || line.trim().length === 0) {
+        return { error: 'Empty upload line' };
     }
 
-    // Cancel any pending reconnect.
-    if (wsReconnectTimer) {
-        clearTimeout(wsReconnectTimer);
-        wsReconnectTimer = null;
+    if (moduleIp && moduleIp !== 'serial') {
+        return sendToModule(moduleIp, line);
     }
 
-    console.log(`[WS] Connecting to ${wsUrl}...`);
+    // Serial fallback
+    if (port && port.isOpen) {
+        return sendSerialCommand(line);
+    }
 
-    ws = new WebSocket(wsUrl);
-
-    const connectPromise = new Promise((resolve) => {
-        const timeout = setTimeout(() => resolve(false), 5000);
-
-        ws.once('open', () => {
-            clearTimeout(timeout);
-            resolve(true);
-        });
-
-        ws.once('error', () => {
-            clearTimeout(timeout);
-            resolve(false);
-        });
-    });
-
-    ws.on('open', () => {
-        wsConnected = true;
-        wsReconnectDelay = 1000;  // Reset backoff on successful connect
-        console.log(`[WS] Connected to ESP32 at ${wsUrl}`);
-    });
-
-    // Incoming messages are the ESP32's log output — print them like serial
-    ws.on('message', (data) => {
-        // data arrives as a Buffer; convert to string and print
-        const msg = data.toString().trim();
-        if (msg.length > 0) {
-            console.log(`[ESP32] ${msg}`);
-            // keep a copy for the UI Logs tab.
-            pushLog('ESP32', msg);
-            ingestEsp32Line(msg);
-        }
-    });
-
-    // Capture a reference so the close/error handlers only act on the
-    // current connection.  If the user presses Connect again (creating a
-    // new ws), the old socket's close event must NOT trigger a reconnect
-    // that would overwrite the new connection.
-    const thisWs = ws;
-
-    thisWs.on('close', () => {
-        if (ws === thisWs) {
-            wsConnected = false;
-            console.log('[WS] Connection closed');
-            scheduleReconnect();
-        }
-    });
-
-    thisWs.on('error', (err) => {
-        // Suppress noisy ECONNREFUSED errors during reconnect attempts
-        if (err.code !== 'ECONNREFUSED') {
-            console.error(`[WS] Error: ${err.message}`);
-        }
-        // 'close' event will fire after error, triggering reconnect
-    });
-
-    return connectPromise;
+    return { error: 'No transport available' };
 }
 
-// Schedules a reconnection attempt with exponential backoff.
-function scheduleReconnect() {
-    if (activeTransport !== 'WIFI') return; // Do not reconnect if transport switched away.
-    if (wsReconnectTimer) return;  // Already scheduled
-
-    console.log(`[WS] Reconnecting in ${wsReconnectDelay / 1000}s...`);
-    wsReconnectTimer = setTimeout(() => {
-        wsReconnectTimer = null;
-        // Skip if something else already established a connection.
-        if (ws && ws.readyState === WebSocket.OPEN) return;
-        connectWebSocket();
-    }, wsReconnectDelay);
-
-    // Exponential backoff: double the delay each time, capped at max
-    wsReconnectDelay = Math.min(wsReconnectDelay * 2, WS_MAX_RECONNECT_DELAY);
-}
-
-function disconnectWebSocket() {
-    // stop reconnect attempts when user disconnects.
-    if (wsReconnectTimer) {
-        clearTimeout(wsReconnectTimer);
-        wsReconnectTimer = null;
-    }
-
-    wsReconnectDelay = 1000;
-    wsConnected = false;
-
-    if (ws) {
-        console.log('[WS] Closing connection...');
-        try {
-            ws.close();
-        } catch (e) {
-            console.error('[WS] Close error:', e.message);
+// Sends all upload lines to a single module. Returns { ok, sent, error }.
+function uploadLinesToModule(ip, lines) {
+    const sent = [];
+    for (const line of lines) {
+        const r = sendToModule(ip, String(line));
+        sent.push({ line, result: r });
+        if (r && r.error) {
+            return { ok: false, error: r.error, sent };
         }
     }
-
-    ws = undefined;
-
-    return { success: true, mode: 'websocket', closed: true };
+    return { ok: true, sent, sentCount: sent.length };
 }
 
-if (COMM_MODE === 'WIFI') {
-    console.log(`[INIT] Starting in WIFI (WebSocket) mode targeting ${currentEsp32Ip}...`);
-    connectWebSocket();
+// Broadcasts all upload lines to every connected module. Returns per-module results.
+function uploadLinesToAllModules(lines) {
+    const moduleResults = [];
+    for (const [ip, entry] of modules) {
+        if (!entry.connected || !entry.ws || entry.ws.readyState !== WebSocket.OPEN) continue;
+        const result = uploadLinesToModule(ip, lines);
+        moduleResults.push({ module: ip, sentCount: result.sentCount, failed: !result.ok });
+    }
+    return moduleResults;
+}
+
+// Sends all upload lines via serial. Returns { ok, sent, error }.
+function uploadLinesToSerial(lines) {
+    const sent = [];
+    for (const line of lines) {
+        const r = sendSerialCommand(String(line));
+        sent.push({ line, result: r });
+        if (r && r.error) {
+            return { ok: false, error: r.error, sent };
+        }
+    }
+    return { ok: true, sent, sentCount: sent.length };
+}
+
+// Marks a module's current sequence after a successful upload.
+function markModuleSequence(ip, seq) {
+    const entry = modules.get(ip);
+    if (entry) {
+        entry.currentSequenceId = seq.id;
+        entry.currentSequenceName = seq.name;
+    }
+}
+
+// Marks all connected modules' current sequence after a successful upload.
+function markAllModulesSequence(seq) {
+    for (const entry of modules.values()) {
+        if (entry.connected) {
+            entry.currentSequenceId = seq.id;
+            entry.currentSequenceName = seq.name;
+        }
+    }
 }
 
 // ============ COMMAND TRANSLATION (firmware v5) ============
 
-// Translates API endpoint + query parameters into a single-character serial
-// command for firmware v5.
-//
-// Firmware v5 removed the persistent mode system (no more m/a/f commands).
-// Instead, mode is specified at sequence start time:
-//   g = start sequence in guided mode
-//   t = start sequence in teaching mode
-//   x = stop sequence
-//   c = view current sequence
-//   l = test LEDs
-//   s = test servos
-//   q = toggle test log mode
-//   h/? = help
-//
-// Removed from v4: m (manual), a (guided mode), f (teaching mode),
-//                   s (start), n (next), p (prev)
 function translateToSerialCmd(endpoint, query) {
     if (endpoint === '/api/seq/control') {
-        // In v5, 'start' requires a mode parameter (guided or teaching).
         if (query.cmd === 'start') {
             if (query.mode === 'guided')  return 'g';
             if (query.mode === 'teaching') return 't';
-            // Default to guided if no mode specified
             return 'g';
         }
         if (query.cmd === 'stop')  return 'x';
@@ -466,175 +457,29 @@ function translateToSerialCmd(endpoint, query) {
     return null;
 }
 
-// ============ COMMAND DISPATCH ============
-
-// Both WIFI and SERIAL modes now use the same fire-and-forget pattern:
-//   1. Translate the API call to a single-char command
-//   2. Send it over the active channel (WebSocket or serial)
-//   3. Return immediately with a confirmation
-// The ESP32's response (log output) streams back asynchronously.
-
-async function sendCommand(endpoint, method, query = {}) {
-    const cmd = translateToSerialCmd(endpoint, query);
-
-    if (!cmd) {
-        console.warn(`[CMD] No mapping for ${endpoint} ${JSON.stringify(query)}`);
-        return { error: 'Command not supported' };
-    }
-
-    // record the last command sent for UI debugging / state mirror
-    controllerState.lastCommand = {
-        ts: new Date().toISOString(),
-        transport: activeTransport,
-        cmd: cmd
-    };
-
-    if (activeTransport === 'WIFI') {
-        return sendWsCommand(cmd);
-    }
-
-    if (activeTransport === 'SERIAL') {
-        return sendSerialCommand(cmd);
-    }
-
-    return { error: 'No active transport selected' };
-}
-
-// Sends a raw multi-character line (used for sequence upload U/S/E lines).
-// Uses the same transport framing rules as other commands.
-function sendRawLine(line) {
-  if (typeof line !== 'string' || line.trim().length === 0) {
-    return { error: 'Empty upload line' };
-  }
-
-  // Record for UI debugging
-  controllerState.lastCommand = {
-    ts: new Date().toISOString(),
-    transport: activeTransport,
-    cmd: line
-  };
-
-  if (activeTransport === 'WIFI') {
-    return sendWsCommand(line);
-  }
-
-  if (activeTransport === 'SERIAL') {
-    return sendSerialCommand(line);
-  }
-
-  return { error: 'No active transport selected' };
-}
-
-// ============ TRANSPORT FRAMING ============
-// Firmware v5 routes WebSocket commands by message length:
-//   - length === 1  -> treated as a single-char command
-//   - length  >  1  -> treated as a sequence upload command string
-// Therefore, we MUST NOT append a newline for single-char WS commands.
-// Serial, however, only dispatches after receiving a newline, so we do append it.
-
-function trimLineEndings(s) {
-    return s.replace(/[\r\n]+$/g, '');
-}
-
-function frameForWebSocket(cmd) {
-    const clean = trimLineEndings(String(cmd));
-
-    // Single-char commands: send exactly one character.
-    if (clean.length === 1) {
-        return clean;
-    }
-
-    // Multi-line / upload strings: safe to newline-terminate.
-    // (Firmware upload parsing stops at \n or \0.)
-    return clean.endsWith('\n') ? clean : `${clean}\n`;
-}
-
-function frameForSerial(cmd) {
-    const clean = trimLineEndings(String(cmd));
-    return `${clean}\n`;
-}
-
-function sendWsCommand(cmd) {
-    if (!ws || !wsConnected) {
-        console.error('[WS] Not connected to ESP32');
-        return { error: 'WebSocket not connected' };
-    }
-
-    const payload = frameForWebSocket(cmd);
-
-    // for single-char commands, payload == cmd.
-    console.log(`[WS] Sending: '${cmd}' -> '${payload.replace(/\n/g, '\\n')}'`);
-
-    // record controller actions for UI debugging.
-    pushLog('CTRL', `WS send: ${cmd}`);
-
-    ws.send(payload);
-    return { success: true, mode: 'websocket', cmd: cmd };
-}
-
-function sendSerialCommand(cmd) {
-    if (!port || !port.isOpen) {
-        console.error('[SERIAL] Port closed');
-        return { error: 'Serial port closed' };
-    }
-
-    // The firmware's USB-Serial command handler only dispatches a command
-    // when it receives a line ending (\n or \r). Without this, single-char
-    // commands can sit in the firmware's input buffer and never execute.
-    // WebSocket mode does not need this because each WS message is already
-    // a complete "frame".
-    const serialPayload = frameForSerial(cmd);
-
-    console.log(`[SERIAL] Sending: '${cmd}' (with newline)`);
-    // record controller actions for UI debugging.
-    pushLog('CTRL', `SERIAL send: ${cmd}`);
-    port.write(serialPayload);
-
-    return { success: true, mode: 'serial', cmd: cmd };
-}
-
-
 // ============ API ROUTES ============
 
-// Connect/disconnect endpoints for the UI.
-// This lets us switch between WIFI and SERIAL without restarting the Node controller.
-// Body examples:
-//   { "transport": "WIFI", "esp32Ip": "192.168.4.1", "wsPort": 81 }
-//   { "transport": "SERIAL", "serialPort": "/dev/cu.usbmodemXXXX" }
+// Connect serial (legacy fallback for single-module debugging)
 app.post('/api/connect', async (req, res) => {
     try {
         const body = req.body || {};
         const transport = String(body.transport || '').toUpperCase();
 
-        if (transport !== 'WIFI' && transport !== 'SERIAL') {
-            res.status(400).json({ error: 'transport must be WIFI or SERIAL' });
+        if (transport === 'SERIAL') {
+            const serialPort = body.serialPort ? String(body.serialPort) : undefined;
+            const serialResult = await connectSerial(serialPort);
+            res.json({ success: true, result: { transport: 'SERIAL', serial: serialResult } });
             return;
         }
 
-        // Close the other transport first (lowest-risk: avoid two open pipes).
-        if (transport === 'WIFI') {
-            disconnectSerial();
-            activeTransport = 'WIFI';
-            refreshConnectionState();
-
-            const ip = body.esp32Ip ? String(body.esp32Ip) : undefined;
-            const wsPort = body.wsPort !== undefined ? Number(body.wsPort) : undefined;
-
-            const wsOk = await connectWebSocket(ip, wsPort);
-            refreshConnectionState();
-            res.json({ success: true, result: { transport: 'WIFI', connect: true, ws: wsOk } });
-            return;
-        }
-
-        // SERIAL
-        disconnectWebSocket();
-        activeTransport = 'SERIAL';
-        refreshConnectionState();
-
-        const serialPort = body.serialPort ? String(body.serialPort) : undefined;
-        const serialResult = await connectSerial(serialPort);
-        refreshConnectionState();
-        res.json({ success: true, result: { transport: 'SERIAL', connect: true, serial: serialResult } });
+        // WiFi modules connect inward; no outbound connection to establish.
+        res.json({
+            success: true,
+            result: {
+                transport: 'WIFI',
+                note: 'Modules connect to the controller WS server automatically. No outbound connection needed.'
+            }
+        });
     } catch (e) {
         res.status(500).json({ error: e.message });
     }
@@ -642,85 +487,127 @@ app.post('/api/connect', async (req, res) => {
 
 app.post('/api/disconnect', (req, res) => {
     try {
-        const wsResult = disconnectWebSocket();
+        const body = req.body || {};
+        const moduleIp = body.module;
+
+        if (moduleIp) {
+            // Disconnect a specific module
+            const entry = modules.get(moduleIp);
+            if (entry && entry.ws) {
+                entry.ws.close();
+            }
+            res.json({ success: true, disconnected: moduleIp });
+            return;
+        }
+
+        // Disconnect all
+        for (const [ip, entry] of modules) {
+            if (entry.ws) {
+                try { entry.ws.close(); } catch (_) {}
+            }
+        }
         const serialResult = disconnectSerial();
-        refreshConnectionState();
-        res.json({ success: true, result: { websocket: wsResult, serial: serialResult } });
+        res.json({ success: true, result: { serial: serialResult, modulesDisconnected: modules.size } });
     } catch (e) {
         res.status(500).json({ error: e.message });
     }
 });
 
-// NOTE: /api/modes endpoint removed for firmware v5. Mode is no longer a
-// persistent state — it is specified at sequence start time via
-// /api/seq/control?cmd=start&mode=guided|teaching
-
 app.post('/api/seq/control', async (req, res) => {
     try {
-        const result = await sendCommand('/api/seq/control', 'POST', req.query);
-        res.json(result);
+        const cmd = translateToSerialCmd('/api/seq/control', req.query);
+        if (!cmd) {
+            res.status(400).json({ error: 'Invalid command' });
+            return;
+        }
+
+        const moduleIp = req.query.module;
+        if (moduleIp === 'all' || !moduleIp) {
+            const results = broadcastToAll(cmd);
+            res.json({ success: true, cmd, results });
+        } else {
+            const result = sendToModule(moduleIp, cmd);
+            res.json(result);
+        }
     } catch (e) { res.status(500).json({ error: e.message }); }
 });
 
 app.get('/api/seq/list', async (req, res) => {
     try {
-        const result = await sendCommand('/api/seq/list', 'GET');
-        res.json(result);
+        const cmd = translateToSerialCmd('/api/seq/list', {});
+        const moduleIp = req.query.module;
+        if (moduleIp) {
+            const result = sendToModule(moduleIp, cmd);
+            res.json(result);
+        } else {
+            const results = broadcastToAll(cmd);
+            res.json({ success: true, cmd, results });
+        }
     } catch (e) { res.status(500).json({ error: e.message }); }
 });
 
 app.post('/api/test', async (req, res) => {
     try {
-        const result = await sendCommand('/api/test', 'POST', req.query);
-        res.json(result);
+        const cmd = translateToSerialCmd('/api/test', req.query);
+        if (!cmd) {
+            res.status(400).json({ error: 'Invalid test target' });
+            return;
+        }
+
+        const moduleIp = req.query.module;
+        if (moduleIp === 'all' || !moduleIp) {
+            const results = broadcastToAll(cmd);
+            res.json({ success: true, cmd, results });
+        } else {
+            const result = sendToModule(moduleIp, cmd);
+            res.json(result);
+        }
     } catch (e) { res.status(500).json({ error: e.message }); }
 });
 
 app.get('/api/status', async (req, res) => {
     try {
-        const result = await sendCommand('/api/status', 'GET');
-        res.json(result);
+        const moduleIp = req.query.module;
+        if (moduleIp) {
+            const entry = modules.get(moduleIp);
+            if (!entry) {
+                res.status(404).json({ error: 'Module not found' });
+                return;
+            }
+            res.json({ ok: true, module: getModuleSnapshot(entry) });
+        } else {
+            res.json({ ok: true, modules: getAllModuleSnapshots() });
+        }
     } catch (e) { res.status(503).json({ online: false }); }
 });
 
-// Simple health endpoint for UI and for no-hardware testing.
-// only reports current controller state.
+// Health endpoint — returns module list with connection status
 app.get('/api/health', (req, res) => {
-    const mode = activeTransport || (process.env.COMM_MODE || 'WIFI');
-
-    const wsConnectedVal = !!(ws && ws.readyState === WebSocket.OPEN);
+    const connectedModules = getAllModuleSnapshots();
     const serialOpen = !!(port && port.isOpen);
-    refreshConnectionState();
 
     res.json({
         ok: true,
-        mode: mode,
-        appPort: process.env.APP_PORT || 3000,
-        wifi: {
-            target: `ws://${currentEsp32Ip}:${currentWsPort}`,
-            connected: wsConnectedVal
-        },
+        wsServerPort: WS_PORT,
+        appPort: PORT,
+        connectedModules: connectedModules.length,
+        modules: connectedModules,
         serial: {
-            port: currentSerialPath || null,
+            port: SERIAL_PATH || null,
             open: serialOpen
         }
     });
 });
 
-// Returns the shared colour palette (finger colours, key mappings).
+// Returns the shared colour palette
 app.get('/api/colors', (req, res) => {
     res.json({ ok: true, ...COLORS });
 });
 
-// Returns the most recent controller/ESP32 log lines for the UI.
-// Query:
-//   tail=<n> (default 200, max LOG_BUFFER_MAX)
-
+// Returns log lines
 app.get('/api/logs', (req, res) => {
     const rawTail = req.query.tail;
     const requested = rawTail ? Number(rawTail) : 200;
-
-    // Validate tail
     let tail = Number.isFinite(requested) ? Math.floor(requested) : 200;
     if (tail <= 0) tail = 200;
     if (tail > LOG_BUFFER_MAX) tail = LOG_BUFFER_MAX;
@@ -736,34 +623,246 @@ app.get('/api/logs', (req, res) => {
     });
 });
 
-// Returns the controller state mirror for the UI.
+// Returns per-module state
 app.get('/api/state', (req, res) => {
-    refreshConnectionState();
-    res.json({ ok: true, state: snapshotControllerState() });
+    const connectedModules = getAllModuleSnapshots();
+    const serialOpen = !!(port && port.isOpen);
+
+    res.json({
+        ok: true,
+        state: {
+            wsServerPort: WS_PORT,
+            connectedModules: connectedModules.length,
+            modules: connectedModules,
+            serial: {
+                port: SERIAL_PATH || null,
+                open: serialOpen
+            }
+        }
+    });
 });
 
-// Resets the in-memory state mirror (useful in Settings/Debug later).
 app.post('/api/state/reset', (req, res) => {
-    controllerState.transport = activeTransport;
-    controllerState.connected = false;
-    controllerState.wsTarget = `ws://${currentEsp32Ip}:${currentWsPort}`;
-    controllerState.serialPort = currentSerialPath || null;
+    // Clear last status on all modules
+    for (const entry of modules.values()) {
+        entry.lastStatus = null;
+        entry.lastAck = null;
+        entry.lastError = null;
+    }
+    res.json({ ok: true, state: { modules: getAllModuleSnapshots() } });
+});
 
-    controllerState.lastCommand = null;
-    controllerState.lastAck = null;
-    controllerState.lastStatus = null;
-    controllerState.lastEvent = null;
-    controllerState.lastError = null;
+// ============ MODULE ENDPOINTS ============
 
-    controllerState.counters = { lines: 0, ack: 0, status: 0, evt: 0, err: 0 };
+// laptop hosting
+// IMPORTANT: keep the explicit /all routes above the parameterised /:ip routes.
+// Otherwise Express matches "/all/..." as if "all" were a module IP.
 
-    res.json({ ok: true, state: snapshotControllerState() });
+// POST /api/modules/all/upload — upload sequence to ALL connected modules
+app.post('/api/modules/all/upload', (req, res) => {
+    try {
+        const body = req.body || {};
+        const sequenceId = body.sequenceId;
+        const colorMode = String(body.colorMode || req.query.colorMode || 'default');
+
+        if (!sequenceId) {
+            res.status(400).json({ ok: false, error: 'Missing sequenceId in body' });
+            return;
+        }
+
+        const seq = getSequence(sequenceId);
+        if (!seq) {
+            res.status(404).json({ ok: false, error: 'Sequence not found' });
+            return;
+        }
+
+        const gen = generateUploadLinesFromData(seq.id, seq.name, seq.data, colorMode);
+        if (!gen.ok) {
+            res.status(400).json({ ok: false, error: gen.error });
+            return;
+        }
+
+        const moduleResults = uploadLinesToAllModules(gen.lines);
+        for (const mr of moduleResults) {
+            if (!mr.failed) markModuleSequence(mr.module, seq);
+        }
+
+        res.json({ ok: true, uploaded: seq.id, modules: moduleResults });
+    } catch (e) {
+        res.status(500).json({ ok: false, error: e.message });
+    }
+});
+
+// POST /api/modules/all/control — start/stop or test on ALL connected modules
+app.post('/api/modules/all/control', (req, res) => {
+    try {
+        const body = req.body || {};
+        const cmd = body.cmd;
+        const mode = body.mode;
+
+        // laptop hosting / module power control
+        let serialCmd;
+        if (cmd === 'start') {
+            serialCmd = mode === 'teaching' ? 't' : 'g';
+        } else if (cmd === 'stop') {
+            serialCmd = 'x';
+        } else if (cmd === 'led_test') {
+            serialCmd = 'l';
+        } else if (cmd === 'servo_test') {
+            serialCmd = 's';
+        } else if (cmd === 'power_toggle') {
+            serialCmd = 'o';
+        } else {
+            res.status(400).json({ ok: false, error: 'cmd must be start, stop, led_test, servo_test, or power_toggle' });
+            return;
+        }
+
+        const results = broadcastToAll(serialCmd);
+        res.json({ ok: true, cmd: serialCmd, results });
+    } catch (e) {
+        res.status(500).json({ ok: false, error: e.message });
+    }
+});
+
+// GET /api/modules — full module registry
+app.get('/api/modules', (req, res) => {
+    const all = [];
+    for (const entry of modules.values()) {
+        all.push(getModuleSnapshot(entry));
+    }
+    res.json({ ok: true, modules: all });
+});
+
+// POST /api/modules/:ip/upload — upload sequence to specific module
+app.post('/api/modules/:ip/upload', (req, res) => {
+    try {
+        const ip = req.params.ip;
+        const entry = modules.get(ip);
+
+        if (!entry || !entry.connected) {
+            res.status(404).json({ ok: false, error: `Module ${ip} not connected` });
+            return;
+        }
+
+        const body = req.body || {};
+        const sequenceId = body.sequenceId;
+        const colorMode = String(body.colorMode || req.query.colorMode || 'default');
+
+        if (!sequenceId) {
+            res.status(400).json({ ok: false, error: 'Missing sequenceId in body' });
+            return;
+        }
+
+        const seq = getSequence(sequenceId);
+        if (!seq) {
+            res.status(404).json({ ok: false, error: 'Sequence not found' });
+            return;
+        }
+
+        const gen = generateUploadLinesFromData(seq.id, seq.name, seq.data, colorMode);
+        if (!gen.ok) {
+            res.status(400).json({ ok: false, error: gen.error });
+            return;
+        }
+
+        const result = uploadLinesToModule(ip, gen.lines);
+        if (!result.ok) {
+            res.status(500).json({ ok: false, error: result.error, sent: result.sent });
+            return;
+        }
+
+        markModuleSequence(ip, seq);
+        res.json({ ok: true, uploaded: seq.id, module: ip, sentCount: result.sentCount, sent: result.sent });
+    } catch (e) {
+        res.status(500).json({ ok: false, error: e.message });
+    }
+});
+
+
+// POST /api/modules/:ip/control — start/stop sequence or run hardware tests on a specific module
+app.post('/api/modules/:ip/control', (req, res) => {
+    try {
+        const ip = req.params.ip;
+        const body = req.body || {};
+        const cmd = body.cmd; // 'start' | 'stop' | 'led_test' | 'servo_test'
+        const mode = body.mode; // 'guided' | 'teaching'
+
+        // laptop hosting / module power control
+        let serialCmd;
+        if (cmd === 'start') {
+            serialCmd = mode === 'teaching' ? 't' : 'g';
+        } else if (cmd === 'stop') {
+            serialCmd = 'x';
+        } else if (cmd === 'led_test') {
+            serialCmd = 'l';
+        } else if (cmd === 'servo_test') {
+            serialCmd = 's';
+        } else if (cmd === 'power_toggle') {
+            serialCmd = 'o';
+        } else {
+            res.status(400).json({ ok: false, error: 'cmd must be start, stop, led_test, servo_test, or power_toggle' });
+            return;
+        }
+
+        const result = sendToModule(ip, serialCmd);
+        res.json({ ok: !result.error, ...result });
+    } catch (e) {
+        res.status(500).json({ ok: false, error: e.message });
+    }
+});
+
+// midi import
+// POST /api/midi/import — upload a MIDI file, convert it into an Open Octave
+// sequence, save it into SQLite, and return the created item + metadata.
+app.post('/api/midi/import', upload.single('file'), (req, res) => {
+    try {
+        if (!req.file) {
+            res.status(400).json({ ok: false, error: 'No MIDI file uploaded.' });
+            return;
+        }
+
+        const originalName = String(req.file.originalname || '').trim();
+        const lowerName = originalName.toLowerCase();
+
+        if (!(lowerName.endsWith('.mid') || lowerName.endsWith('.midi'))) {
+            res.status(400).json({ ok: false, error: 'Only .mid or .midi files are supported.' });
+            return;
+        }
+
+        const nameOverride = req.body?.name ? String(req.body.name).trim() : undefined;
+
+        const result = importMidiBufferToSequence(req.file.buffer, {
+            filename: originalName,
+            nameOverride
+        });
+
+        if (!result.ok) {
+            res.status(400).json({
+                ok: false,
+                error: result.error,
+                warnings: result.warnings || []
+            });
+            return;
+        }
+
+        const savedId = upsertSequence(result.sequence);
+        const item = getSequence(savedId);
+
+        res.json({
+            ok: true,
+            message: 'MIDI imported successfully.',
+            item,
+            meta: result.meta,
+            warnings: result.warnings || []
+        });
+    } catch (e) {
+        res.status(500).json({ ok: false, error: e.message });
+    }
 });
 
 
 // ============ DB API (SOFTWARE SEQUENCE LIBRARY) ============
 
-// Lists software-side sequences stored in SQLite.
 app.get('/api/db/sequences', (req, res) => {
   try {
     res.json({ ok: true, items: listSequences(), dbPath: DB_PATH });
@@ -772,7 +871,6 @@ app.get('/api/db/sequences', (req, res) => {
   }
 });
 
-// Gets one sequence from SQLite.
 app.get('/api/db/sequences/:id', (req, res) => {
   try {
     const id = String(req.params.id || '').trim();
@@ -793,27 +891,16 @@ app.get('/api/db/sequences/:id', (req, res) => {
   }
 });
 
-// Creates/updates a software-side sequence in SQLite.
-// Body example:
-// {
-//   "id": "twinkle",
-//   "name": "Twinkle_Twinkle",
-//   "description": "Demo song",
-//   "steps": [ {"k":0,"c":"00B4D8","d":300}, ... ]
-// }
-// NOTE: uploadLines are generated on-demand during upload if not stored.
+// Creates/updates a sequence in SQLite.
+// Accepts both new format (keys/colors/duration) and legacy format (k/c/d).
 app.post('/api/db/sequences', (req, res) => {
   try {
     const body = req.body || {};
-    const id = String(body.id || '').trim();
+    const id = body.id !== undefined ? String(body.id).trim() : undefined;
     const name = String(body.name || '').trim();
     const description = body.description ? String(body.description) : '';
     const steps = body.steps;
 
-    if (!id) {
-      res.status(400).json({ ok: false, error: 'Missing id' });
-      return;
-    }
     if (!name) {
       res.status(400).json({ ok: false, error: 'Missing name' });
       return;
@@ -823,7 +910,6 @@ app.post('/api/db/sequences', (req, res) => {
       return;
     }
 
-    // Store the software model. Do not require uploadLines.
     const seq = {
       id,
       name,
@@ -832,19 +918,38 @@ app.post('/api/db/sequences', (req, res) => {
       uploadLines: []
     };
 
-    upsertSequence(seq);
+    const savedId = upsertSequence(seq);
 
-    res.json({ ok: true, message: 'Saved sequence', item: getSequence(id) });
+    res.json({ ok: true, message: 'Saved sequence', item: getSequence(savedId || id) });
   } catch (e) {
     res.status(500).json({ ok: false, error: e.message });
   }
 });
 
-// Seeds the demo preset sequences into SQLite (mirroring the firmware preset library).
-// NOTE: uploadLines are sent verbatim to the firmware, so ensure they match the firmware v5 upload protocol.
+// DELETE a sequence
+app.delete('/api/db/sequences/:id', (req, res) => {
+  try {
+    const id = String(req.params.id || '').trim();
+    if (!id) {
+      res.status(400).json({ ok: false, error: 'Missing id' });
+      return;
+    }
+
+    const deleted = deleteSequence(id);
+    if (!deleted) {
+      res.status(404).json({ ok: false, error: 'Sequence not found' });
+      return;
+    }
+
+    res.json({ ok: true, message: 'Deleted sequence', id: Number(id) });
+  } catch (e) {
+    res.status(500).json({ ok: false, error: e.message });
+  }
+});
+
+// Seeds the demo preset sequences (updated to new format).
 app.post('/api/db/sequences/seed', (req, res) => {
   try {
-    // Colour helpers — driven by shared/colors.json
     function colorForFinger(f) {
       const key = String(f || '').toLowerCase();
       return COLORS.fingerColors[key] || COLORS.fallbackColor;
@@ -860,6 +965,16 @@ app.post('/api/db/sequences/seed', (req, res) => {
       return colorForFinger(finger);
     }
 
+    // Helper: convert old {k, c, d} to new {keys, colors, duration}
+    function step(k, c, d) {
+      return { keys: [k], colors: [c], duration: d };
+    }
+
+    // Helper: chord step with multiple keys
+    function chord(keys, colors, d) {
+      return { keys, colors, duration: d };
+    }
+
     const presets = [
       {
         id: '0',
@@ -867,11 +982,11 @@ app.post('/api/db/sequences/seed', (req, res) => {
         description: 'Sequence 0: alternating pattern across keys 0-2.',
         data: {
           steps: [
-            { k: 0, c: colorFor3KeyIndex(0), d: 500 },
-            { k: 1, c: colorFor3KeyIndex(1), d: 500 },
-            { k: 2, c: colorFor3KeyIndex(2), d: 500 },
-            { k: 1, c: colorFor3KeyIndex(1), d: 500 },
-            { k: 0, c: colorFor3KeyIndex(0), d: 500 }
+            step(0, colorFor3KeyIndex(0), 500),
+            step(1, colorFor3KeyIndex(1), 500),
+            step(2, colorFor3KeyIndex(2), 500),
+            step(1, colorFor3KeyIndex(1), 500),
+            step(0, colorFor3KeyIndex(0), 500)
           ]
         },
         uploadLines: []
@@ -879,15 +994,15 @@ app.post('/api/db/sequences/seed', (req, res) => {
       {
         id: '1',
         name: 'Up & Down',
-        description: 'Sequence 1: three-key ascending/descending (adapted).',
+        description: 'Sequence 1: three-key ascending/descending.',
         data: {
           steps: [
-            { k: 0, c: colorFor3KeyIndex(0), d: 400 },
-            { k: 1, c: colorFor3KeyIndex(1), d: 400 },
-            { k: 1, c: colorFor3KeyIndex(1), d: 400 },
-            { k: 0, c: colorFor3KeyIndex(0), d: 400 },
-            { k: 2, c: colorFor3KeyIndex(2), d: 400 },
-            { k: 0, c: colorFor3KeyIndex(0), d: 400 }
+            step(0, colorFor3KeyIndex(0), 400),
+            step(1, colorFor3KeyIndex(1), 400),
+            step(1, colorFor3KeyIndex(1), 400),
+            step(0, colorFor3KeyIndex(0), 400),
+            step(2, colorFor3KeyIndex(2), 400),
+            step(0, colorFor3KeyIndex(0), 400)
           ]
         },
         uploadLines: []
@@ -898,12 +1013,12 @@ app.post('/api/db/sequences/seed', (req, res) => {
         description: 'Sequence 2: repeating pattern across keys 0-2.',
         data: {
           steps: [
-            { k: 1, c: colorFor3KeyIndex(1), d: 500 },
-            { k: 1, c: colorFor3KeyIndex(1), d: 500 },
-            { k: 0, c: colorFor3KeyIndex(0), d: 500 },
-            { k: 2, c: colorFor3KeyIndex(2), d: 500 },
-            { k: 2, c: colorFor3KeyIndex(2), d: 500 },
-            { k: 1, c: colorFor3KeyIndex(1), d: 500 }
+            step(1, colorFor3KeyIndex(1), 500),
+            step(1, colorFor3KeyIndex(1), 500),
+            step(0, colorFor3KeyIndex(0), 500),
+            step(2, colorFor3KeyIndex(2), 500),
+            step(2, colorFor3KeyIndex(2), 500),
+            step(1, colorFor3KeyIndex(1), 500)
           ]
         },
         uploadLines: []
@@ -911,23 +1026,23 @@ app.post('/api/db/sequences/seed', (req, res) => {
       {
         id: '3',
         name: 'Sweep',
-        description: 'Sequence 3: slow-fast-slow arc across RGB keys (0,1,2).',
+        description: 'Sequence 3: slow-fast-slow arc across RGB keys.',
         data: {
           steps: [
-            { k: 0, c: colorFor3KeyIndex(0), d: 600 },
-            { k: 1, c: colorFor3KeyIndex(1), d: 500 },
-            { k: 2, c: colorFor3KeyIndex(2), d: 400 },
-            { k: 0, c: colorFor3KeyIndex(0), d: 300 },
-            { k: 1, c: colorFor3KeyIndex(1), d: 300 },
-            { k: 2, c: colorFor3KeyIndex(2), d: 300 },
-            { k: 0, c: colorFor3KeyIndex(0), d: 300 },
-            { k: 1, c: colorFor3KeyIndex(1), d: 300 },
-            { k: 2, c: colorFor3KeyIndex(2), d: 300 },
-            { k: 0, c: colorFor3KeyIndex(0), d: 300 },
-            { k: 1, c: colorFor3KeyIndex(1), d: 400 },
-            { k: 2, c: colorFor3KeyIndex(2), d: 500 },
-            { k: 0, c: colorFor3KeyIndex(0), d: 600 },
-            { k: 1, c: colorFor3KeyIndex(1), d: 700 }
+            step(0, colorFor3KeyIndex(0), 600),
+            step(1, colorFor3KeyIndex(1), 500),
+            step(2, colorFor3KeyIndex(2), 400),
+            step(0, colorFor3KeyIndex(0), 300),
+            step(1, colorFor3KeyIndex(1), 300),
+            step(2, colorFor3KeyIndex(2), 300),
+            step(0, colorFor3KeyIndex(0), 300),
+            step(1, colorFor3KeyIndex(1), 300),
+            step(2, colorFor3KeyIndex(2), 300),
+            step(0, colorFor3KeyIndex(0), 300),
+            step(1, colorFor3KeyIndex(1), 400),
+            step(2, colorFor3KeyIndex(2), 500),
+            step(0, colorFor3KeyIndex(0), 600),
+            step(1, colorFor3KeyIndex(1), 700)
           ]
         },
         uploadLines: []
@@ -938,22 +1053,22 @@ app.post('/api/db/sequences/seed', (req, res) => {
         description: 'Sequence 4: irregular rhythm across all keys.',
         data: {
           steps: [
-            { k: 0, c: colorFor3KeyIndex(0), d: 300 },
-            { k: 2, c: colorFor3KeyIndex(2), d: 300 },
-            { k: 1, c: colorFor3KeyIndex(1), d: 600 },
-            { k: 0, c: colorFor3KeyIndex(0), d: 300 },
-            { k: 2, c: colorFor3KeyIndex(2), d: 300 },
-            { k: 1, c: colorFor3KeyIndex(1), d: 300 },
-            { k: 0, c: colorFor3KeyIndex(0), d: 300 },
-            { k: 1, c: colorFor3KeyIndex(1), d: 300 },
-            { k: 2, c: colorFor3KeyIndex(2), d: 300 },
-            { k: 0, c: colorFor3KeyIndex(0), d: 500 },
-            { k: 1, c: colorFor3KeyIndex(1), d: 300 },
-            { k: 2, c: colorFor3KeyIndex(2), d: 300 },
-            { k: 0, c: colorFor3KeyIndex(0), d: 400 },
-            { k: 1, c: colorFor3KeyIndex(1), d: 300 },
-            { k: 2, c: colorFor3KeyIndex(2), d: 300 },
-            { k: 0, c: colorFor3KeyIndex(0), d: 700 }
+            step(0, colorFor3KeyIndex(0), 300),
+            step(2, colorFor3KeyIndex(2), 300),
+            step(1, colorFor3KeyIndex(1), 600),
+            step(0, colorFor3KeyIndex(0), 300),
+            step(2, colorFor3KeyIndex(2), 300),
+            step(1, colorFor3KeyIndex(1), 300),
+            step(0, colorFor3KeyIndex(0), 300),
+            step(1, colorFor3KeyIndex(1), 300),
+            step(2, colorFor3KeyIndex(2), 300),
+            step(0, colorFor3KeyIndex(0), 500),
+            step(1, colorFor3KeyIndex(1), 300),
+            step(2, colorFor3KeyIndex(2), 300),
+            step(0, colorFor3KeyIndex(0), 400),
+            step(1, colorFor3KeyIndex(1), 300),
+            step(2, colorFor3KeyIndex(2), 300),
+            step(0, colorFor3KeyIndex(0), 700)
           ]
         },
         uploadLines: []
@@ -964,21 +1079,21 @@ app.post('/api/db/sequences/seed', (req, res) => {
         description: 'Sequence 5: Ode to Joy (adapted for 3 keys).',
         data: {
           steps: [
-            { k: 1, c: colorFor3KeyIndex(1), d: 400 },
-            { k: 1, c: colorFor3KeyIndex(1), d: 400 },
-            { k: 0, c: colorFor3KeyIndex(0), d: 400 },
-            { k: 0, c: colorFor3KeyIndex(0), d: 400 },
-            { k: 0, c: colorFor3KeyIndex(0), d: 400 },
-            { k: 0, c: colorFor3KeyIndex(0), d: 400 },
-            { k: 1, c: colorFor3KeyIndex(1), d: 400 },
-            { k: 1, c: colorFor3KeyIndex(1), d: 400 },
-            { k: 2, c: colorFor3KeyIndex(2), d: 400 },
-            { k: 2, c: colorFor3KeyIndex(2), d: 400 },
-            { k: 1, c: colorFor3KeyIndex(1), d: 400 },
-            { k: 1, c: colorFor3KeyIndex(1), d: 400 },
-            { k: 1, c: colorFor3KeyIndex(1), d: 600 },
-            { k: 2, c: colorFor3KeyIndex(2), d: 400 },
-            { k: 2, c: colorFor3KeyIndex(2), d: 800 }
+            step(1, colorFor3KeyIndex(1), 400),
+            step(1, colorFor3KeyIndex(1), 400),
+            step(0, colorFor3KeyIndex(0), 400),
+            step(0, colorFor3KeyIndex(0), 400),
+            step(0, colorFor3KeyIndex(0), 400),
+            step(0, colorFor3KeyIndex(0), 400),
+            step(1, colorFor3KeyIndex(1), 400),
+            step(1, colorFor3KeyIndex(1), 400),
+            step(2, colorFor3KeyIndex(2), 400),
+            step(2, colorFor3KeyIndex(2), 400),
+            step(1, colorFor3KeyIndex(1), 400),
+            step(1, colorFor3KeyIndex(1), 400),
+            step(1, colorFor3KeyIndex(1), 600),
+            step(2, colorFor3KeyIndex(2), 400),
+            step(2, colorFor3KeyIndex(2), 800)
           ]
         },
         uploadLines: []
@@ -989,20 +1104,20 @@ app.post('/api/db/sequences/seed', (req, res) => {
         description: 'Sequence 6: gentle arpeggio (adapted for 3 keys).',
         data: {
           steps: [
-            { k: 2, c: colorFor3KeyIndex(2), d: 500 },
-            { k: 1, c: colorFor3KeyIndex(1), d: 500 },
-            { k: 0, c: colorFor3KeyIndex(0), d: 500 },
-            { k: 1, c: colorFor3KeyIndex(1), d: 500 },
-            { k: 2, c: colorFor3KeyIndex(2), d: 500 },
-            { k: 1, c: colorFor3KeyIndex(1), d: 500 },
-            { k: 0, c: colorFor3KeyIndex(0), d: 700 },
-            { k: 0, c: colorFor3KeyIndex(0), d: 300 },
-            { k: 1, c: colorFor3KeyIndex(1), d: 500 },
-            { k: 2, c: colorFor3KeyIndex(2), d: 500 },
-            { k: 1, c: colorFor3KeyIndex(1), d: 400 },
-            { k: 0, c: colorFor3KeyIndex(0), d: 600 },
-            { k: 1, c: colorFor3KeyIndex(1), d: 500 },
-            { k: 2, c: colorFor3KeyIndex(2), d: 900 }
+            step(2, colorFor3KeyIndex(2), 500),
+            step(1, colorFor3KeyIndex(1), 500),
+            step(0, colorFor3KeyIndex(0), 500),
+            step(1, colorFor3KeyIndex(1), 500),
+            step(2, colorFor3KeyIndex(2), 500),
+            step(1, colorFor3KeyIndex(1), 500),
+            step(0, colorFor3KeyIndex(0), 700),
+            step(0, colorFor3KeyIndex(0), 300),
+            step(1, colorFor3KeyIndex(1), 500),
+            step(2, colorFor3KeyIndex(2), 500),
+            step(1, colorFor3KeyIndex(1), 400),
+            step(0, colorFor3KeyIndex(0), 600),
+            step(1, colorFor3KeyIndex(1), 500),
+            step(2, colorFor3KeyIndex(2), 900)
           ]
         },
         uploadLines: []
@@ -1013,19 +1128,19 @@ app.post('/api/db/sequences/seed', (req, res) => {
         description: 'Sequence 7: Mary Had a Little Lamb (adapted for 3 keys).',
         data: {
           steps: [
-            { k: 1, c: colorFor3KeyIndex(1), d: 400 },
-            { k: 2, c: colorFor3KeyIndex(2), d: 400 },
-            { k: 2, c: colorFor3KeyIndex(2), d: 400 },
-            { k: 2, c: colorFor3KeyIndex(2), d: 400 },
-            { k: 1, c: colorFor3KeyIndex(1), d: 400 },
-            { k: 1, c: colorFor3KeyIndex(1), d: 400 },
-            { k: 1, c: colorFor3KeyIndex(1), d: 800 },
-            { k: 2, c: colorFor3KeyIndex(2), d: 400 },
-            { k: 2, c: colorFor3KeyIndex(2), d: 400 },
-            { k: 2, c: colorFor3KeyIndex(2), d: 800 },
-            { k: 1, c: colorFor3KeyIndex(1), d: 400 },
-            { k: 0, c: colorFor3KeyIndex(0), d: 400 },
-            { k: 0, c: colorFor3KeyIndex(0), d: 800 }
+            step(1, colorFor3KeyIndex(1), 400),
+            step(2, colorFor3KeyIndex(2), 400),
+            step(2, colorFor3KeyIndex(2), 400),
+            step(2, colorFor3KeyIndex(2), 400),
+            step(1, colorFor3KeyIndex(1), 400),
+            step(1, colorFor3KeyIndex(1), 400),
+            step(1, colorFor3KeyIndex(1), 800),
+            step(2, colorFor3KeyIndex(2), 400),
+            step(2, colorFor3KeyIndex(2), 400),
+            step(2, colorFor3KeyIndex(2), 800),
+            step(1, colorFor3KeyIndex(1), 400),
+            step(0, colorFor3KeyIndex(0), 400),
+            step(0, colorFor3KeyIndex(0), 800)
           ]
         },
         uploadLines: []
@@ -1033,39 +1148,134 @@ app.post('/api/db/sequences/seed', (req, res) => {
       {
         id: '8',
         name: 'Mary Had a Little Lamb (12-key)',
-        description: 'Right-hand only. Thumb=Cyan (C), Index=Green (D), Middle=Gold (E), Ring=Coral (F), Pinky=Magenta (G). Slow pace for guided/teaching tests.',
+        description: 'Right-hand only. Slow pace for guided/teaching tests.',
         data: {
           steps: [
-            { k: 4, c: colorFor12KeyIndex(4), d: 700 },
-            { k: 2, c: colorFor12KeyIndex(2), d: 700 },
-            { k: 0, c: colorFor12KeyIndex(0), d: 700 },
-            { k: 2, c: colorFor12KeyIndex(2), d: 700 },
-            { k: 4, c: colorFor12KeyIndex(4), d: 700 },
-            { k: 4, c: colorFor12KeyIndex(4), d: 700 },
-            { k: 4, c: colorFor12KeyIndex(4), d: 1000 },
-
-            { k: 2, c: colorFor12KeyIndex(2), d: 700 },
-            { k: 2, c: colorFor12KeyIndex(2), d: 700 },
-            { k: 2, c: colorFor12KeyIndex(2), d: 1000 },
-
-            { k: 4, c: colorFor12KeyIndex(4), d: 700 },
-            { k: 7, c: colorFor12KeyIndex(7), d: 700 },
-            { k: 7, c: colorFor12KeyIndex(7), d: 1000 },
-
-            { k: 4, c: colorFor12KeyIndex(4), d: 700 },
-            { k: 2, c: colorFor12KeyIndex(2), d: 700 },
-            { k: 0, c: colorFor12KeyIndex(0), d: 700 },
-            { k: 2, c: colorFor12KeyIndex(2), d: 700 },
-            { k: 4, c: colorFor12KeyIndex(4), d: 700 },
-            { k: 4, c: colorFor12KeyIndex(4), d: 700 },
-            { k: 4, c: colorFor12KeyIndex(4), d: 1000 },
-
-            { k: 4, c: colorFor12KeyIndex(4), d: 700 },
-            { k: 2, c: colorFor12KeyIndex(2), d: 700 },
-            { k: 2, c: colorFor12KeyIndex(2), d: 700 },
-            { k: 4, c: colorFor12KeyIndex(4), d: 700 },
-            { k: 2, c: colorFor12KeyIndex(2), d: 700 },
-            { k: 0, c: colorFor12KeyIndex(0), d: 1200 }
+            step(4, colorFor12KeyIndex(4), 700),
+            step(2, colorFor12KeyIndex(2), 700),
+            step(0, colorFor12KeyIndex(0), 700),
+            step(2, colorFor12KeyIndex(2), 700),
+            step(4, colorFor12KeyIndex(4), 700),
+            step(4, colorFor12KeyIndex(4), 700),
+            step(4, colorFor12KeyIndex(4), 1000),
+            step(2, colorFor12KeyIndex(2), 700),
+            step(2, colorFor12KeyIndex(2), 700),
+            step(2, colorFor12KeyIndex(2), 1000),
+            step(4, colorFor12KeyIndex(4), 700),
+            step(7, colorFor12KeyIndex(7), 700),
+            step(7, colorFor12KeyIndex(7), 1000),
+            step(4, colorFor12KeyIndex(4), 700),
+            step(2, colorFor12KeyIndex(2), 700),
+            step(0, colorFor12KeyIndex(0), 700),
+            step(2, colorFor12KeyIndex(2), 700),
+            step(4, colorFor12KeyIndex(4), 700),
+            step(4, colorFor12KeyIndex(4), 700),
+            step(4, colorFor12KeyIndex(4), 1000),
+            step(4, colorFor12KeyIndex(4), 700),
+            step(2, colorFor12KeyIndex(2), 700),
+            step(2, colorFor12KeyIndex(2), 700),
+            step(4, colorFor12KeyIndex(4), 700),
+            step(2, colorFor12KeyIndex(2), 700),
+            step(0, colorFor12KeyIndex(0), 1200)
+          ]
+        },
+        uploadLines: []
+      },
+      // === NEW MULTI-MODULE SEQUENCES ===
+      {
+        id: '9',
+        name: 'Two_Octave_Scale',
+        description: 'C major scale across 2 octaves, ascending and descending.',
+        data: {
+          steps: [
+            // Ascending: C4 D4 E4 F4 G4 A4 B4 C5 D5 E5 F5 G5 A5 B5
+            step(0, colorFor12KeyIndex(0), 400),
+            step(2, colorFor12KeyIndex(2), 400),
+            step(4, colorFor12KeyIndex(4), 400),
+            step(5, colorFor12KeyIndex(5), 400),
+            step(7, colorFor12KeyIndex(7), 400),
+            step(9, colorFor12KeyIndex(9), 400),
+            step(11, colorFor12KeyIndex(11), 400),
+            step(12, colorFor12KeyIndex(0), 400),
+            step(14, colorFor12KeyIndex(2), 400),
+            step(16, colorFor12KeyIndex(4), 400),
+            step(17, colorFor12KeyIndex(5), 400),
+            step(19, colorFor12KeyIndex(7), 400),
+            step(21, colorFor12KeyIndex(9), 400),
+            step(23, colorFor12KeyIndex(11), 600),
+            // Descending: B5 A5 G5 F5 E5 D5 C5 B4 A4 G4 F4 E4 D4 C4
+            step(23, colorFor12KeyIndex(11), 400),
+            step(21, colorFor12KeyIndex(9), 400),
+            step(19, colorFor12KeyIndex(7), 400),
+            step(17, colorFor12KeyIndex(5), 400),
+            step(16, colorFor12KeyIndex(4), 400),
+            step(14, colorFor12KeyIndex(2), 400),
+            step(12, colorFor12KeyIndex(0), 400),
+            step(11, colorFor12KeyIndex(11), 400),
+            step(9, colorFor12KeyIndex(9), 400),
+            step(7, colorFor12KeyIndex(7), 400),
+            step(5, colorFor12KeyIndex(5), 400),
+            step(4, colorFor12KeyIndex(4), 400),
+            step(2, colorFor12KeyIndex(2), 400),
+            step(0, colorFor12KeyIndex(0), 600)
+          ]
+        },
+        uploadLines: []
+      },
+      {
+        id: '10',
+        name: 'Cross_Octave_Chords',
+        description: 'Chords that span both octaves (C4+C5, E4+E5, G4+G5, etc.).',
+        data: {
+          steps: [
+            chord([0, 12], [colorFor12KeyIndex(0), colorFor12KeyIndex(0)], 800),
+            chord([4, 16], [colorFor12KeyIndex(4), colorFor12KeyIndex(4)], 800),
+            chord([7, 19], [colorFor12KeyIndex(7), colorFor12KeyIndex(7)], 800),
+            chord([0, 4, 7], [colorFor12KeyIndex(0), colorFor12KeyIndex(4), colorFor12KeyIndex(7)], 1000),
+            chord([12, 16, 19], [colorFor12KeyIndex(0), colorFor12KeyIndex(4), colorFor12KeyIndex(7)], 1000),
+            chord([0, 7, 12, 19], [colorFor12KeyIndex(0), colorFor12KeyIndex(7), colorFor12KeyIndex(0), colorFor12KeyIndex(7)], 1200),
+            chord([5, 9], [colorFor12KeyIndex(5), colorFor12KeyIndex(9)], 800),
+            chord([17, 21], [colorFor12KeyIndex(5), colorFor12KeyIndex(9)], 800),
+            chord([5, 9, 12], [colorFor12KeyIndex(5), colorFor12KeyIndex(9), colorFor12KeyIndex(0)], 1000),
+            chord([0, 12], [colorFor12KeyIndex(0), colorFor12KeyIndex(0)], 1200)
+          ]
+        },
+        uploadLines: []
+      },
+      {
+        id: '11',
+        name: 'Octave_Jump',
+        description: 'Alternating notes between octave 1 and octave 2.',
+        data: {
+          steps: [
+            step(0, colorFor12KeyIndex(0), 400),
+            step(12, colorFor12KeyIndex(0), 400),
+            step(2, colorFor12KeyIndex(2), 400),
+            step(14, colorFor12KeyIndex(2), 400),
+            step(4, colorFor12KeyIndex(4), 400),
+            step(16, colorFor12KeyIndex(4), 400),
+            step(5, colorFor12KeyIndex(5), 400),
+            step(17, colorFor12KeyIndex(5), 400),
+            step(7, colorFor12KeyIndex(7), 400),
+            step(19, colorFor12KeyIndex(7), 400),
+            step(9, colorFor12KeyIndex(9), 400),
+            step(21, colorFor12KeyIndex(9), 400),
+            step(11, colorFor12KeyIndex(11), 400),
+            step(23, colorFor12KeyIndex(11), 600),
+            step(23, colorFor12KeyIndex(11), 400),
+            step(11, colorFor12KeyIndex(11), 400),
+            step(21, colorFor12KeyIndex(9), 400),
+            step(9, colorFor12KeyIndex(9), 400),
+            step(19, colorFor12KeyIndex(7), 400),
+            step(7, colorFor12KeyIndex(7), 400),
+            step(17, colorFor12KeyIndex(5), 400),
+            step(5, colorFor12KeyIndex(5), 400),
+            step(16, colorFor12KeyIndex(4), 400),
+            step(4, colorFor12KeyIndex(4), 400),
+            step(14, colorFor12KeyIndex(2), 400),
+            step(2, colorFor12KeyIndex(2), 400),
+            step(12, colorFor12KeyIndex(0), 400),
+            step(0, colorFor12KeyIndex(0), 600)
           ]
         },
         uploadLines: []
@@ -1082,16 +1292,9 @@ app.post('/api/db/sequences/seed', (req, res) => {
   }
 });
 
-// Uploads one DB sequence to the device (over active transport).
-// This overwrites the device's previously uploaded sequence (firmware holds only one uploaded sequence).
+// Upload one DB sequence to a specific module or via serial fallback.
 app.post('/api/db/sequences/:id/upload', async (req, res) => {
   try {
-    refreshConnectionState();
-    if (!controllerState.connected) {
-      res.status(400).json({ ok: false, error: 'Not connected to device transport' });
-      return;
-    }
-
     const id = String(req.params.id || '').trim();
     if (!id) {
       res.status(400).json({ ok: false, error: 'Missing id' });
@@ -1104,8 +1307,6 @@ app.post('/api/db/sequences/:id/upload', async (req, res) => {
       return;
     }
 
-    // Always regenerate upload lines from data.steps so runtime options
-    // (e.g. colourblind palette remapping) are applied consistently.
     const colorMode = String(req.query.colorMode || 'default');
     const gen = generateUploadLinesFromData(seq.id, seq.name, seq.data, colorMode);
     if (!gen.ok) {
@@ -1114,27 +1315,94 @@ app.post('/api/db/sequences/:id/upload', async (req, res) => {
     }
     const lines = gen.lines;
 
-    // Send lines one-by-one. Firmware parsing is line-based.
-    const sent = [];
-    for (const line of lines) {
-      const r = sendRawLine(String(line));
-      sent.push({ line, result: r });
-      if (r && r.error) {
-        res.status(500).json({ ok: false, error: r.error, sent });
+    // Determine target: specific module IP from query, or broadcast/serial
+    const moduleIp = req.query.module;
+
+    if (moduleIp && moduleIp !== 'all') {
+      // Send to specific module
+      const result = uploadLinesToModule(moduleIp, lines);
+      if (!result.ok) {
+        res.status(500).json({ ok: false, error: result.error, sent: result.sent });
         return;
       }
+      markModuleSequence(moduleIp, seq);
+      res.json({ ok: true, uploaded: id, sentCount: result.sentCount, sent: result.sent });
+      return;
     }
 
-    res.json({ ok: true, uploaded: id, sentCount: sent.length, sent });
+    if (moduleIp === 'all') {
+      // Broadcast to all modules
+      const moduleResults = uploadLinesToAllModules(lines);
+      markAllModulesSequence(seq);
+      res.json({ ok: true, uploaded: id, broadcast: true, modules: moduleResults });
+      return;
+    }
+
+    // Default: try connected modules first, then serial fallback
+    const connectedModules = [...modules.values()].filter(e => e.connected && e.ws);
+    if (connectedModules.length > 0) {
+      const moduleResults = uploadLinesToAllModules(lines);
+      markAllModulesSequence(seq);
+      res.json({ ok: true, uploaded: id, sentCount: lines.length, modules: moduleResults });
+      return;
+    }
+
+    // Serial fallback
+    if (port && port.isOpen) {
+      const result = uploadLinesToSerial(lines);
+      if (!result.ok) {
+        res.status(500).json({ ok: false, error: result.error, sent: result.sent });
+        return;
+      }
+      res.json({ ok: true, uploaded: id, sentCount: result.sentCount, sent: result.sent });
+      return;
+    }
+
+    res.status(400).json({ ok: false, error: 'No module connected and no serial port open' });
   } catch (e) {
     res.status(500).json({ ok: false, error: e.message });
   }
 });
 
-// ============ START SERVER ============
+// ============ WEBSOCKET SERVER ============
 
-app.listen(PORT, () => {
+const httpServer = app.listen(PORT, '0.0.0.0', () => {
     console.log(`\nOPEN OCTAVE CONTROLLER`);
-    console.log(`Server running at: http://localhost:${PORT}`);
-    console.log(`Mode: ${activeTransport}\n`);
+    console.log(`HTTP server running at: http://localhost:${PORT}`);
+    console.log(`WebSocket server listening on port ${WS_PORT}`);
+    console.log(`Modules connect automatically via WebSocket\n`);
+});
+
+// const wss = new WebSocket.Server({ port: Number(WS_PORT) }, () => {
+//     console.log(`[WS] WebSocket server listening on 0.0.0.0:${WS_PORT}`);
+// });
+
+// laptop hosting
+const wss = new WebSocket.Server({ host: '0.0.0.0', port: WS_PORT }, () => {
+    console.log(`[WS] WebSocket server listening on 0.0.0.0:${WS_PORT}`);
+});
+
+wss.on('connection', (socket, req) => {
+    const clientIp = req.socket.remoteAddress?.replace('::ffff:', '') || 'unknown';
+    console.log(`[WS] Incoming connection from ${clientIp}`);
+
+    const entry = registerModule(clientIp, socket);
+
+    socket.on('message', (data) => {
+        const msg = data.toString().trim();
+        if (msg.length === 0) return;
+
+        console.log(`[ESP32 ${clientIp}] ${msg}`);
+        pushLog(`ESP32:${clientIp}`, msg);
+        ingestEsp32Line(msg, clientIp);
+    });
+
+    socket.on('close', () => {
+        unregisterModule(clientIp);
+    });
+
+    socket.on('error', (err) => {
+        console.error(`[WS] Error from ${clientIp}: ${err.message}`);
+        unregisterModule(clientIp);
+    });
 });
