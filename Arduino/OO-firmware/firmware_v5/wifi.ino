@@ -6,27 +6,6 @@ WiFi Access Point setup, connection status reporting,
 and WebSocket event handling.
 */
 
-// void connectToWifi() {
-//   WiFi.config(ESP32_IP, ESP32_GATEWAY, ESP32_SUBNET);
-
-//   WiFi.begin(WIFI_SSID, WIFI_PASSWORD);
-//   LOGF("[WIFI] Connecting to %s...\n", WIFI_SSID);
-
-//   unsigned long wifiStart = millis();
-//   // Try repeatedly for 10 seconds
-//   while (WiFi.status() != WL_CONNECTED && millis() - wifiStart < 10000) {
-//     delay(250);
-//     LOG(".");
-//   }
-//   LOGLN("");
-
-//   if (WiFi.status() == WL_CONNECTED) {
-//     LOGF("[WIFI] Connected! IP: %s\n", WiFi.localIP().toString().c_str());
-//   } else {
-//     LOGF("[WIFI] Connection FAILED (status: %d)\n", WiFi.status());
-//   }
-// }
-
 // laptop hosting
 // use DHCP instead of fixed IP config so the ESP32 can join macOS/Windows hotspots
 // without assuming a fixed subnet. (fixed ip address of esp32 commented in config.h)
@@ -84,16 +63,6 @@ void checkWifiStatus() {
     }
   }
 }
-
-// void connectToWebsocket(){
-//   // Connect to the controller (acting as the WebSocket server).
-//   webSocket.begin(CONTROLLER_IP, CONTROLLER_PORT, "/");
-//   webSocket.onEvent(webSocketEvent);
-//   // Auto-reconnect every 5 seconds if connection gets dropped
-//   webSocket.setReconnectInterval(2500);
-//   wsReady = true;
-//   LOGLN("[WS] WebSocket client started");
-// }
 
 // laptop hosting
 // backend server = wifi gateway, esp32 will connect to this 
