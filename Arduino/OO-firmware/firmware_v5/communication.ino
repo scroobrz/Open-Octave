@@ -308,6 +308,18 @@ void handleUsbSerialCommands() {
   // NOTE: Serial monitor must be set to "Newline" or "Both NL and CR" for
   // commands to be properly processed by this function
 
+  if (!on){
+    if(Serial.available() && Serial.peek() == 'o'){
+      Serial.read(); // consume
+      playStartupAnimation();
+      on = true;
+      LOGLN("ACK cmd=o power=on ok=1");
+      emitStatus();
+    } else {
+      return;
+    }
+  }
+
   while (Serial.available()) {
     char c = (char)Serial.read();
 
@@ -382,10 +394,24 @@ void webSocketEvent(WStype_t type, uint8_t * payload, size_t length) {
 }
 
 void handleWebSocketCommand(char *cmd, size_t length){
+  if (!on){
+    if (cmd[0] == 'o'){
+      playStartupAnimation();
+      on = true;
+      LOGLN("ACK cmd=o power=on ok=1");
+      emitStatus();
+
+      cmd++;
+      length--;
+    } else {
+      return;
+    }
+  }
+    
   if (length == 1){
     // regular single-character command
     processSingleCharCommand(cmd[0]);
-  } else {
+  } else if (length > 1){
     // sequence command; string of characters
     handleSequenceCommand(cmd);
   }
@@ -439,15 +465,14 @@ void processSingleCharCommand(char cmd) {
       emitStatus();
       break;
 
-    // laptop hosting / module power control
     case 'o': // Toggle module on/off
       LOGLN("\n[CMD] Received: Toggle module power");
 
       if (on) {
+        on = false;
         if (recording) stopRecording();
         stopSequence();
         playShutdownAnimation();
-        on = false;
         LOGLN("ACK cmd=o power=off ok=1");
       } else {
         playStartupAnimation();

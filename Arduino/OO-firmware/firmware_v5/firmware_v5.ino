@@ -226,14 +226,17 @@ void setup() {
 // runs repeatedly forever
 void loop() {
   ioport.pinStates();
-  checkOnOff();
+  checkOnOffButton();
+
+  if (isMaster){
+    handleControllerCommunication();
+    checkWifiStatus();
+  }
 
   if (on){
     handleChainCommunication();
 
     if (isMaster){
-      handleControllerCommunication();
-      checkWifiStatus();
       handleSequencePlayback();
       handleSequenceButtons();
       handleRecordButton();
@@ -243,7 +246,7 @@ void loop() {
   }
 }
 
-void checkOnOff(){
+void checkOnOffButton(){
   if (millis() - lastOnOffSwitchTime >= BUTTON_DEBOUNCE_DELAY){
     // if on/off button pressed
     if (ioport.stateOfPin(ON_OFF_PIN) == HIGH){
