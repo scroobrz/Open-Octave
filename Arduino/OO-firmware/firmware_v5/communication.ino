@@ -352,6 +352,35 @@ void handleUsbSerialCommands() {
   }
 }
 
+// Called by the WebSocketsClient library whenever a WebSocket event occurs.
+// WStype_t tells us what kind of event it is (connect, disconnect, message, etc).
+// Notice that 'num' (client ID) is not present because we are the client.
+void webSocketEvent(WStype_t type, uint8_t * payload, size_t length) {
+  switch (type) {
+
+    case WStype_DISCONNECTED:
+      wsReady = false;
+      LOGLN("[WS] Disconnected from server");
+      break;
+
+    case WStype_CONNECTED:
+      wsReady = true;
+      LOGLN("[WS] Connected to server");
+      sendHelloToController();
+      break;
+
+    case WStype_TEXT:
+      if (length > 0) {
+        LOGF("[WS] Received payload from server (%d bytes)\n", (int)length);
+        handleWebSocketCommand((char*)payload, length);
+      }
+      break;
+
+    default:
+      break;
+  }
+}
+
 void handleWebSocketCommand(char *cmd, size_t length){
   if (length == 1){
     // regular single-character command
