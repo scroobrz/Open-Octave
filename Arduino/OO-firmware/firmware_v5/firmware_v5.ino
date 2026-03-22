@@ -175,17 +175,9 @@ void setup() {
   if (!ioport.begin()) {
     LOGLN("[ERROR] PCA9555 I/O expander not responding at address 0x20!");
     LOGLN("Check I2C wiring (SDA=21, SCL=22) and verify the chip is powered.");
-    while (true) { delay(1000); }  // Halt - buttons won't work without it
+  } else {
+    LOGLN("OK");
   }
-  LOGLN("OK");
-
-  // // just to bypass hardware setup for now
-  // LOG("[SETUP] Initializing expansion board... ");
-  // if (!ioport.begin()) {
-  //   LOGLN("[WARNING] PCA9555 not detected — continuing without button hardware (wifi test mode)");
-  // } else {
-  //   LOGLN("OK");
-  // }
 
   LOG("[SETUP] Initializing servo driver... ");
   servoDriver.init();
