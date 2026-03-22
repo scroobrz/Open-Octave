@@ -49,8 +49,6 @@ void sendHeartbeat() {
     DownstreamSerial.write(CHAIN_HEARTBEAT_BYTE);
     DownstreamSerial.write(moduleChainIndex + 1);
     timeLastHeartbeatSent = millis();
-    LOGF("[DEBUG] Sent heartbeat downstream (index=%d, t=%lu)\n",
-         moduleChainIndex + 1, timeLastHeartbeatSent);
   }
 }
 
@@ -173,8 +171,6 @@ void handleCommandsFromUpstream(){
 }
 
 void handleHeartbeatFromUpstream(uint8_t num){
-  LOGF("[DEBUG] Received heartbeat from upstream (index=%d, isMaster=%d, t=%lu)\n",
-       num, isMaster, millis());
   timeLastHeartbeatReceived = millis();
 
   numModulesInChain = num + 1;
