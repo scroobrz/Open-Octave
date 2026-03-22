@@ -311,8 +311,7 @@ void handleUsbSerialCommands() {
   if (!on){
     if(Serial.available() && Serial.peek() == 'o'){
       Serial.read(); // consume
-      playStartupAnimation();
-      on = true;
+      powerOn();
       LOGLN("ACK cmd=o power=on ok=1");
       emitStatus();
     } else {
@@ -396,8 +395,7 @@ void webSocketEvent(WStype_t type, uint8_t * payload, size_t length) {
 void handleWebSocketCommand(char *cmd, size_t length){
   if (!on){
     if (cmd[0] == 'o'){
-      playStartupAnimation();
-      on = true;
+      powerOn();
       LOGLN("ACK cmd=o power=on ok=1");
       emitStatus();
 
@@ -469,14 +467,10 @@ void processSingleCharCommand(char cmd) {
       LOGLN("\n[CMD] Received: Toggle module power");
 
       if (on) {
-        on = false;
-        if (recording) stopRecording();
-        stopSequence();
-        playShutdownAnimation();
+        powerOff();
         LOGLN("ACK cmd=o power=off ok=1");
       } else {
-        playStartupAnimation();
-        on = true;
+        powerOn();
         LOGLN("ACK cmd=o power=on ok=1");
       }
 

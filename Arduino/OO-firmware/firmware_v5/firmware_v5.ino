@@ -251,13 +251,9 @@ void checkOnOffButton(){
     // if on/off button pressed
     if (ioport.stateOfPin(ON_OFF_PIN) == HIGH){
       if (on) {
-        on = false;
-        if (recording) stopRecording();
-        stopSequence();
-        playShutdownAnimation();
+        powerOff();
       } else {
-        playStartupAnimation();
-        on = true;
+        powerOn();
       }
       lastOnOffSwitchTime = millis();
     }
