@@ -850,6 +850,17 @@ bool processSequenceEndCommand(char *cmd){
   return true;
 }
 
+// Sends the HELLO registration message to the controller.
+// Called on initial WS connect and whenever the chain length changes.
+void sendHelloToController() {
+  if (!wsReady) return;
+
+  char buf[24];
+  snprintf(buf, sizeof(buf), "HELLO modules=%d", numModulesInChain);
+  webSocket.sendTXT(buf);
+  LOGF("[WS] Sent: %s\n", buf);
+}
+
 void chainSendKeyCmd(HardwareSerial &serialPort, char cmd, int key) {
   char buf[8];
   uint8_t len = snprintf(buf, sizeof(buf), "%c%d\n", cmd, key);

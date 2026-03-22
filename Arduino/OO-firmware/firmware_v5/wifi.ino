@@ -124,17 +124,6 @@ void disconnectWebsocket() {
   LOGLN("[WS] Disconnected");
 }
 
-// Sends the HELLO registration message to the controller.
-// Called on initial WS connect and whenever the chain length changes.
-void sendHelloToController() {
-  if (!wsReady) return;
-
-  char buf[24];
-  snprintf(buf, sizeof(buf), "HELLO modules=%d", numModulesInChain);
-  webSocket.sendTXT(buf);
-  LOGF("[WS] Sent: %s\n", buf);
-}
-
 // Called by the WebSocketsClient library whenever a WebSocket event occurs.
 // WStype_t tells us what kind of event it is (connect, disconnect, message, etc).
 // Notice that 'num' (client ID) is not present because we are the client.
