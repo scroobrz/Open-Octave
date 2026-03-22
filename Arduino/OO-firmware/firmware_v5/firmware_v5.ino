@@ -176,8 +176,9 @@ void setup() {
   if (!ioport.begin()) {
     LOGLN("[ERROR] PCA9555 I/O expander not responding at address 0x20!");
     LOGLN("Check I2C wiring (SDA=21, SCL=22) and verify the chip is powered.");
+  } else {
+    LOGLN("OK");
   }
-  LOGLN("OK");
 
   LOG("[SETUP] Initializing servo driver... ");
   servoDriver.init();
@@ -226,15 +227,17 @@ void setup() {
 // runs repeatedly forever
 void loop() {
   ioport.pinStates();
-  checkOnOff();
+  checkOnOffButton();
+
+  if (isMaster){
+    handleControllerCommunication();
+    checkWifiStatus();
+  }
 
   if (on){
     handleChainCommunication();
 
     if (isMaster){
-      handleWifiConnection();
-      handleControllerCommunication();
-      checkWifiStatus();
       handleSequencePlayback();
       handleSequenceButtons();
       handleRecordButton();
@@ -244,18 +247,14 @@ void loop() {
   }
 }
 
-void checkOnOff(){
+void checkOnOffButton(){
   if (millis() - lastOnOffSwitchTime >= BUTTON_DEBOUNCE_DELAY){
     // if on/off button pressed
     if (ioport.stateOfPin(ON_OFF_PIN) == HIGH){
       if (on) {
-        on = false;
-        if (recording) stopRecording();
-        stopSequence();
-        playShutdownAnimation();
+        powerOff();
       } else {
-        playStartupAnimation();
-        on = true;
+        powerOn();
       }
       lastOnOffSwitchTime = millis();
     }

@@ -4,6 +4,22 @@
 ===============================
 */
 
+void powerOn(){
+  if (on) return;
+
+  playStartupAnimation();
+  on = true;
+}
+
+void powerOff(){
+  if (!on) return;
+
+  on = false;
+  if (recording) stopRecording();
+  stopSequence();
+  playShutdownAnimation();
+}
+
 bool checkUpstream(){
   pinMode(RX1, INPUT_PULLDOWN);
   delay(10);

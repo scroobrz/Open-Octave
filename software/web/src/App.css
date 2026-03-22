@@ -741,6 +741,27 @@ details.diagnostics[open] summary {
   vertical-align: middle;
 }
 
+.steps-table tr[draggable="true"] {
+  transition: opacity 0.15s;
+}
+
+.steps-table tr.dragging {
+  opacity: 0.4;
+}
+
+.steps-table tr.drag-insert-before td {
+  box-shadow: 0 -2px 0 0 var(--accent, #6366f1);
+}
+
+.steps-table tr.drag-insert-after td {
+  box-shadow: 0 2px 0 0 var(--accent, #6366f1);
+}
+
+.drag-handle {
+  width: 28px;
+  font-size: 16px;
+}
+
 .step-color {
   display: inline-flex;
   align-items: center;
@@ -852,3 +873,181 @@ details.diagnostics[open] summary {
   justify-content: space-between;
   gap: 12px;
 }
+
+/* ===== CHAIN / MODULE VISUALIZATION ===== */
+.chain-card {
+  margin-bottom: 16px;
+}
+
+.chain-header {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 12px;
+  padding-bottom: 12px;
+  border-bottom: 2px solid var(--border);
+  margin-bottom: 12px;
+}
+
+.chain-header-left {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+}
+
+.chain-header-right {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+}
+
+.chain-info {
+  color: var(--muted-foreground);
+  font-size: 13px;
+}
+
+.dot-green {
+  width: 10px;
+  height: 10px;
+  border-radius: 50%;
+  display: inline-block;
+  background: var(--green);
+  flex-shrink: 0;
+}
+
+.dot-red {
+  width: 10px;
+  height: 10px;
+  border-radius: 50%;
+  display: inline-block;
+  background: #b91c1c;
+  flex-shrink: 0;
+}
+
+.chain-keyboard-row {
+  display: flex;
+  gap: 4px;
+  overflow-x: auto;
+  padding: 8px 0;
+}
+
+.octave-group {
+  flex-shrink: 0;
+}
+
+.octave-label {
+  font-size: 11px;
+  color: var(--muted-foreground);
+  text-align: center;
+  margin-bottom: 4px;
+  font-weight: 600;
+}
+
+.chain-controls {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 12px;
+  margin-top: 12px;
+  padding-top: 12px;
+  border-top: 1px solid var(--border);
+}
+
+.chain-controls-left {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  flex: 1;
+}
+
+.chain-controls-right {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+}
+
+.chain-seq-select {
+  max-width: 300px;
+}
+
+/* ===== KEYBOARD KEY INDEX LABEL ===== */
+.kb-idx {
+  font-size: 9px;
+  color: var(--muted-foreground);
+  font-family: var(--font-mono);
+}
+
+/* ===== STEP EDITOR ===== */
+.step-edit-row td {
+  background: rgba(0, 180, 216, 0.04);
+  padding: 12px !important;
+}
+
+.step-edit-form {
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
+}
+
+.step-edit-keys {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 8px;
+}
+
+.step-key-input-group {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  padding: 4px 8px;
+  background: var(--card);
+  border: 1px solid var(--border);
+  border-radius: var(--radius);
+}
+
+.step-key-note {
+  font-family: var(--font-mono);
+  font-size: 12px;
+  font-weight: 600;
+  color: var(--primary);
+  min-width: 30px;
+}
+
+.step-color-select {
+  width: auto;
+  min-width: 100px;
+  padding: 4px 8px;
+  font-size: 12px;
+}
+
+.step-edit-duration {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+}
+
+.step-edit-actions {
+  display: flex;
+  gap: 6px;
+}
+
+/* ===== ERROR TEXT ===== */
+.error-text {
+  color: var(--destructive);
+  font-size: 12px;
+  margin-top: 4px;
+}
+
+.input-error {
+  border-color: var(--destructive) !important;
+}
+
+/* ===== SIDEBAR MODULE COUNT ===== */
+.sidebar-module-count {
+  font-size: 12px;
+  color: var(--muted-foreground);
+  margin-top: 4px;
+}
+
+
