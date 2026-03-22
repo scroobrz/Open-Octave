@@ -378,6 +378,62 @@ function sendRawLine(line, moduleIp) {
     return { error: 'No transport available' };
 }
 
+// Sends all upload lines to a single module. Returns { ok, sent, error }.
+function uploadLinesToModule(ip, lines) {
+    const sent = [];
+    for (const line of lines) {
+        const r = sendToModule(ip, String(line));
+        sent.push({ line, result: r });
+        if (r && r.error) {
+            return { ok: false, error: r.error, sent };
+        }
+    }
+    return { ok: true, sent, sentCount: sent.length };
+}
+
+// Broadcasts all upload lines to every connected module. Returns per-module results.
+function uploadLinesToAllModules(lines) {
+    const moduleResults = [];
+    for (const [ip, entry] of modules) {
+        if (!entry.connected || !entry.ws || entry.ws.readyState !== WebSocket.OPEN) continue;
+        const result = uploadLinesToModule(ip, lines);
+        moduleResults.push({ module: ip, sentCount: result.sentCount, failed: !result.ok });
+    }
+    return moduleResults;
+}
+
+// Sends all upload lines via serial. Returns { ok, sent, error }.
+function uploadLinesToSerial(lines) {
+    const sent = [];
+    for (const line of lines) {
+        const r = sendSerialCommand(String(line));
+        sent.push({ line, result: r });
+        if (r && r.error) {
+            return { ok: false, error: r.error, sent };
+        }
+    }
+    return { ok: true, sent, sentCount: sent.length };
+}
+
+// Marks a module's current sequence after a successful upload.
+function markModuleSequence(ip, seq) {
+    const entry = modules.get(ip);
+    if (entry) {
+        entry.currentSequenceId = seq.id;
+        entry.currentSequenceName = seq.name;
+    }
+}
+
+// Marks all connected modules' current sequence after a successful upload.
+function markAllModulesSequence(seq) {
+    for (const entry of modules.values()) {
+        if (entry.connected) {
+            entry.currentSequenceId = seq.id;
+            entry.currentSequenceName = seq.name;
+        }
+    }
+}
+
 // ============ COMMAND TRANSLATION (firmware v5) ============
 
 function translateToSerialCmd(endpoint, query) {
@@ -626,27 +682,9 @@ app.post('/api/modules/all/upload', (req, res) => {
             return;
         }
 
-        const moduleResults = [];
-        for (const [ip, entry] of modules) {
-            if (!entry.connected || !entry.ws || entry.ws.readyState !== WebSocket.OPEN) continue;
-
-            const sent = [];
-            let failed = false;
-            for (const line of gen.lines) {
-                const r = sendToModule(ip, String(line));
-                sent.push({ line, result: r });
-                if (r && r.error) {
-                    failed = true;
-                    break;
-                }
-            }
-
-            if (!failed) {
-                entry.currentSequenceId = seq.id;
-                entry.currentSequenceName = seq.name;
-            }
-
-            moduleResults.push({ module: ip, sentCount: sent.length, failed });
+        const moduleResults = uploadLinesToAllModules(gen.lines);
+        for (const mr of moduleResults) {
+            if (!mr.failed) markModuleSequence(mr.module, seq);
         }
 
         res.json({ ok: true, uploaded: seq.id, modules: moduleResults });
@@ -727,20 +765,14 @@ app.post('/api/modules/:ip/upload', (req, res) => {
             return;
         }
 
-        const sent = [];
-        for (const line of gen.lines) {
-            const r = sendToModule(ip, String(line));
-            sent.push({ line, result: r });
-            if (r && r.error) {
-                res.status(500).json({ ok: false, error: r.error, sent });
-                return;
-            }
+        const result = uploadLinesToModule(ip, gen.lines);
+        if (!result.ok) {
+            res.status(500).json({ ok: false, error: result.error, sent: result.sent });
+            return;
         }
 
-        entry.currentSequenceId = seq.id;
-        entry.currentSequenceName = seq.name;
-
-        res.json({ ok: true, uploaded: seq.id, module: ip, sentCount: sent.length, sent });
+        markModuleSequence(ip, seq);
+        res.json({ ok: true, uploaded: seq.id, module: ip, sentCount: result.sentCount, sent: result.sent });
     } catch (e) {
         res.status(500).json({ ok: false, error: e.message });
     }
@@ -1288,70 +1320,41 @@ app.post('/api/db/sequences/:id/upload', async (req, res) => {
 
     if (moduleIp && moduleIp !== 'all') {
       // Send to specific module
-      const sent = [];
-      for (const line of lines) {
-        const r = sendToModule(moduleIp, String(line));
-        sent.push({ line, result: r });
-        if (r && r.error) {
-          res.status(500).json({ ok: false, error: r.error, sent });
-          return;
-        }
+      const result = uploadLinesToModule(moduleIp, lines);
+      if (!result.ok) {
+        res.status(500).json({ ok: false, error: result.error, sent: result.sent });
+        return;
       }
-      const entry = modules.get(moduleIp);
-      if (entry) {
-        entry.currentSequenceId = seq.id;
-        entry.currentSequenceName = seq.name;
-      }
-      res.json({ ok: true, uploaded: id, sentCount: sent.length, sent });
+      markModuleSequence(moduleIp, seq);
+      res.json({ ok: true, uploaded: id, sentCount: result.sentCount, sent: result.sent });
       return;
     }
 
     if (moduleIp === 'all') {
       // Broadcast to all modules
-      for (const line of lines) {
-        broadcastToAll(String(line));
-      }
-      for (const entry of modules.values()) {
-        if (entry.connected) {
-          entry.currentSequenceId = seq.id;
-          entry.currentSequenceName = seq.name;
-        }
-      }
-      res.json({ ok: true, uploaded: id, broadcast: true });
+      const moduleResults = uploadLinesToAllModules(lines);
+      markAllModulesSequence(seq);
+      res.json({ ok: true, uploaded: id, broadcast: true, modules: moduleResults });
       return;
     }
 
-    // Default: try first connected module, or serial fallback
+    // Default: try connected modules first, then serial fallback
     const connectedModules = [...modules.values()].filter(e => e.connected && e.ws);
     if (connectedModules.length > 0) {
-      // Send to all connected modules
-      const sent = [];
-      for (const line of lines) {
-        for (const entry of connectedModules) {
-          sendToModule(entry.ip, String(line));
-        }
-        sent.push({ line, result: 'ok' });
-      }
-      for (const entry of connectedModules) {
-        entry.currentSequenceId = seq.id;
-        entry.currentSequenceName = seq.name;
-      }
-      res.json({ ok: true, uploaded: id, sentCount: sent.length, sent });
+      const moduleResults = uploadLinesToAllModules(lines);
+      markAllModulesSequence(seq);
+      res.json({ ok: true, uploaded: id, sentCount: lines.length, modules: moduleResults });
       return;
     }
 
     // Serial fallback
     if (port && port.isOpen) {
-      const sent = [];
-      for (const line of lines) {
-        const r = sendSerialCommand(String(line));
-        sent.push({ line, result: r });
-        if (r && r.error) {
-          res.status(500).json({ ok: false, error: r.error, sent });
-          return;
-        }
+      const result = uploadLinesToSerial(lines);
+      if (!result.ok) {
+        res.status(500).json({ ok: false, error: result.error, sent: result.sent });
+        return;
       }
-      res.json({ ok: true, uploaded: id, sentCount: sent.length, sent });
+      res.json({ ok: true, uploaded: id, sentCount: result.sentCount, sent: result.sent });
       return;
     }
 
