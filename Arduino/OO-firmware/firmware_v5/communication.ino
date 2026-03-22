@@ -177,15 +177,15 @@ void handleHeartbeatFromUpstream(uint8_t num){
        num, isMaster, millis());
   timeLastHeartbeatReceived = millis();
 
-  if (moduleChainIndex != num) {
-    moduleChainIndex = num;
-    configureNotes();
-  }
-
   numModulesInChain = num + 1;
 
   if (isMaster){
     demoteToSlave();
+  }
+
+  if (moduleChainIndex != num) {
+    moduleChainIndex = num;
+    configureNotes();
   }
 
   // Forward heartbeat downstream
