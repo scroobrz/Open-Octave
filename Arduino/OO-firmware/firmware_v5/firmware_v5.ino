@@ -213,8 +213,7 @@ void setup() {
 
   if (!hasUpstream){
     LOGLN("[SETUP] Connecting to WiFi...");
-    connectToWifiBlocking();
-    connectToWebsocket();
+    connectToControllerBlocking();
     LOGLN("[SETUP] WiFi & WebSocket Active!");
   }
 
@@ -230,8 +229,8 @@ void loop() {
   checkOnOffButton();
 
   if (isMaster){
+    handleControllerConnection();
     handleControllerCommunication();
-    handleWifiConnection();
     checkWifiStatus();
   }
 

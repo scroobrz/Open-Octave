@@ -11,7 +11,7 @@ and WebSocket event handling.
 // without assuming a fixed subnet. (fixed ip address of esp32 commented in config.h)
 // Non-blocking: kicks off WiFi.begin() and returns immediately.
 // Call handleWifiConnection() in loop() to poll for completion.
-void connectToWifi() {
+void startControllerConnection() {
   WiFi.begin(WIFI_SSID, WIFI_PASSWORD);
   isConnectingWifi = true;
   LOGF("[WIFI] Connecting to %s...\n", WIFI_SSID);
@@ -19,8 +19,8 @@ void connectToWifi() {
 
 // Blocking version used only during initial setup(), where there are
 // no heartbeats to miss yet.
-void connectToWifiBlocking() {
-  connectToWifi();
+void connectToControllerBlocking() {
+  startControllerConnection();
 
   unsigned long wifiStart = millis();
   // try repeatedly for 10 seconds
@@ -32,6 +32,7 @@ void connectToWifiBlocking() {
     LOGF("[WIFI] Connected! Local IP: %s\n", WiFi.localIP().toString().c_str());
     LOGF("[WIFI] Gateway IP (host laptop): %s\n", WiFi.gatewayIP().toString().c_str());
     isConnectingWifi = false;
+    connectToWebsocket();
   } else {
     LOGF("[WIFI] Connection FAILED (status: %d)\n", WiFi.status());
     isConnectingWifi = false;
@@ -40,7 +41,7 @@ void connectToWifiBlocking() {
 
 // Called every loop() iteration while isMaster.
 // Once WiFi connects, automatically starts the WebSocket.
-void handleWifiConnection() {
+void handleControllerConnection() {
   if (!isConnectingWifi) return;
 
   if (WiFi.status() == WL_CONNECTED) {
