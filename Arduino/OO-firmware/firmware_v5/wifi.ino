@@ -40,7 +40,7 @@ void connectToControllerBlocking() {
 }
 
 // Called every loop() iteration while isMaster.
-// Once WiFi connects, automatically starts the WebSocket.
+// Once WiFi connects, automatically starts the WebSocket connection and sends a hello to the controller.
 void handleControllerConnection() {
   if (!isConnectingWifi) return;
 
@@ -49,6 +49,7 @@ void handleControllerConnection() {
     isConnectingWifi = false;
     connectToWebsocket();
     LOGLN("[SETUP] WiFi & WebSocket Active!");
+    sendHelloToController()
   }
 }
 
