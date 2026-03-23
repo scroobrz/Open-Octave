@@ -231,6 +231,7 @@ void loop() {
 
   if (isMaster){
     handleControllerCommunication();
+    handleWifiConnection();
     checkWifiStatus();
   }
 
