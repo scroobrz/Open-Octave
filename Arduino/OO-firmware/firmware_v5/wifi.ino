@@ -49,7 +49,7 @@ void handleControllerConnection() {
     isConnectingWifi = false;
     connectToWebsocket();
     LOGLN("[SETUP] WiFi & WebSocket Active!");
-    sendHelloToController()
+    sendHelloToController();
   }
 }
 
