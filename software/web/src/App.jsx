@@ -473,16 +473,16 @@ export default function App() {
     }
   }
 
-  async function setModuleOctaveOffset(moduleIp, octaveOffset) {
-    try {
-      await apiPost(`/api/modules/${encodeURIComponent(moduleIp)}/octave-offset`, {
-        octaveOffset
-      });
-      await refreshModules();
-    } catch (e) {
-      setDbSeqError(`Octave offset update failed: ${e.message}`);
-    }
-  }
+  // async function setModuleOctaveOffset(moduleIp, octaveOffset) {
+  //   try {
+  //     await apiPost(`/api/modules/${encodeURIComponent(moduleIp)}/octave-offset`, {
+  //       octaveOffset
+  //     });
+  //     await refreshModules();
+  //   } catch (e) {
+  //     setDbSeqError(`Octave offset update failed: ${e.message}`);
+  //   }
+  // }
 
   async function sendAllControl(cmd, mode) {
     try {
@@ -931,9 +931,6 @@ export default function App() {
             {mod.currentSequenceName && (
               <span className="pill pill-teal">{mod.currentSequenceName}</span>
             )}
-            <span className="pill pill-muted">
-              Octave Offset: {mod.lastStatus?.octaveOffset ?? mod.octaveOffset ?? 0}
-            </span>
             {mod.lastStatus?.running && (
               <span className="pill pill-green">{mod.lastStatus.mode}</span>
             )}
@@ -997,25 +994,6 @@ export default function App() {
         {/* Per-chain controls */}
         <div className="chain-controls">
         <div className="chain-controls-left" style={{ display: 'flex', flexDirection: 'column', gap: 10, alignItems: 'flex-start', textAlign: 'left' }}>
-            <div className="row" style={{ gap: 10, alignItems: 'center', flexWrap: 'wrap', justifyContent: 'flex-start', width: '100%' }}>
-              <label className="label" style={{ marginBottom: 0 }}>Octave Offset</label>
-              <select
-                className="input input-small"
-                value={String(mod.lastStatus?.octaveOffset ?? mod.octaveOffset ?? 0)}
-                disabled={!mod.connected}
-                onChange={(e) => {
-                  const value = Number(e.target.value);
-                  setModuleOctaveOffset(mod.ip, value);
-                }}
-              >
-                <option value="0">0</option>
-                <option value="1">1</option>
-                <option value="2">2</option>
-              </select>
-              <span className="hint" style={{ margin: 0 }}>
-                Shifts this connected chain up by whole octaves.
-              </span>
-            </div>
 
             <div className="row" style={{ gap: 10, alignItems: 'center', flexWrap: 'wrap', justifyContent: 'flex-start', width: '100%' }}>
               <label className="label" style={{ marginBottom: 0 }}>Sequence</label>

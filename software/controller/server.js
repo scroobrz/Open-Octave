@@ -95,7 +95,7 @@ function registerModule(ip, ws) {
         totalKeys: existing?.totalKeys || 12,
         currentSequenceId: existing?.currentSequenceId || null,
         currentSequenceName: existing?.currentSequenceName || null,
-        octaveOffset: 0, // octave offset
+        // octaveOffset: 0, // octave offset
         lastStatus: existing?.lastStatus || null,
         lastAck: existing?.lastAck || null,
         lastError: existing?.lastError || null,
@@ -138,7 +138,7 @@ function getModuleSnapshot(entry) {
         totalKeys: entry.totalKeys,
         currentSequenceId: entry.currentSequenceId,
         currentSequenceName: entry.currentSequenceName,
-        octaveOffset: entry.octaveOffset ?? 0, // octave offset
+        // octaveOffset: entry.octaveOffset ?? 0, // octave offset
         lastStatus: entry.lastStatus
     };
 }
@@ -208,14 +208,14 @@ function ingestEsp32Line(msg, moduleIp) {
         const fields = parseKeyValuePairs(normalized);
         if (entry) {
             const octaveOffset = parseInt(fields.octaveOffset, 10);
-            entry.octaveOffset = Number.isFinite(octaveOffset) ? octaveOffset : (entry.octaveOffset ?? 0); // octave offset
+            // entry.octaveOffset = Number.isFinite(octaveOffset) ? octaveOffset : (entry.octaveOffset ?? 0); // octave offset
             entry.lastStatus = {
                 ts: new Date().toISOString(),
                 running: fields.running === '1',
                 seq: parseInt(fields.seq, 10) || -1,
                 step: parseInt(fields.step, 10) || -1,
                 mode: fields.mode || 'N/A',
-                octaveOffset: entry.octaveOffset // octave offset
+                // octaveOffset: entry.octaveOffset // octave offset
             };
         }
         return;
@@ -858,39 +858,39 @@ app.post('/api/modules/:ip/control', (req, res) => {
 });
 
 // POST /api/modules/:ip/octave-offset — set chain octave offset on a specific module
-app.post('/api/modules/:ip/octave-offset', (req, res) => {
-    try {
-        const ip = req.params.ip;
-        const body = req.body || {};
-        const rawOffset = body.octaveOffset;
-        const octaveOffset = Number(rawOffset);
+// app.post('/api/modules/:ip/octave-offset', (req, res) => {
+//     try {
+//         const ip = req.params.ip;
+//         const body = req.body || {};
+//         const rawOffset = body.octaveOffset;
+//         const octaveOffset = Number(rawOffset);
 
-        if (!Number.isInteger(octaveOffset)) {
-            res.status(400).json({ ok: false, error: 'octaveOffset must be an integer' });
-            return;
-        }
+//         if (!Number.isInteger(octaveOffset)) {
+//             res.status(400).json({ ok: false, error: 'octaveOffset must be an integer' });
+//             return;
+//         }
 
-        if (octaveOffset < 0 || octaveOffset > 2) {
-            res.status(400).json({ ok: false, error: 'octaveOffset must be between 0 and 2' });
-            return;
-        }
+//         if (octaveOffset < 0 || octaveOffset > 2) {
+//             res.status(400).json({ ok: false, error: 'octaveOffset must be between 0 and 2' });
+//             return;
+//         }
 
-        const result = sendToModule(ip, `O v=${octaveOffset}`);
-        if (result.error) {
-            res.status(400).json({ ok: false, error: result.error });
-            return;
-        }
+//         const result = sendToModule(ip, `O v=${octaveOffset}`);
+//         if (result.error) {
+//             res.status(400).json({ ok: false, error: result.error });
+//             return;
+//         }
 
-        const entry = modules.get(ip);
-        if (entry) {
-            entry.octaveOffset = octaveOffset; // octave offset
-        }
+//         const entry = modules.get(ip);
+//         if (entry) {
+//             entry.octaveOffset = octaveOffset; // octave offset
+//         }
 
-        res.json({ ok: true, module: ip, octaveOffset, result });
-    } catch (e) {
-        res.status(500).json({ ok: false, error: e.message });
-    }
-});
+//         res.json({ ok: true, module: ip, octaveOffset, result });
+//     } catch (e) {
+//         res.status(500).json({ ok: false, error: e.message });
+//     }
+// });
 
 // midi import
 // POST /api/midi/import — upload a MIDI file, convert it into an Open Octave
