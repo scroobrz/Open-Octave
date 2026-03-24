@@ -116,6 +116,7 @@ uint8_t testLogAutoRepeatStreak = 0;
 
 unsigned long lastWifiCheckTime = 0;
 bool isWifiConnected = false;
+bool isConnectingWifi = false;
 bool wsReady = false;  // Prevents wsSendLog() from running before webSocket.begin()
 
 char serialBuf[SERIAL_BUF_SIZE];
@@ -215,8 +216,7 @@ void setup() {
 
   if (!hasUpstream){
     LOGLN("[SETUP] Connecting to WiFi...");
-    connectToWifi();
-    connectToWebsocket();
+    connectToControllerBlocking();
     LOGLN("[SETUP] WiFi & WebSocket Active!");
   }
 
@@ -232,6 +232,7 @@ void loop() {
   checkOnOffButton();
 
   if (isMaster){
+    handleControllerConnection();
     handleControllerCommunication();
     checkWifiStatus();
   }

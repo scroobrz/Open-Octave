@@ -55,6 +55,8 @@ void sendHeartbeat() {
 // Slaves check for upstream heartbeats and promote themselves if lost
 void checkHeartbeat() {
   if (!isMaster && millis() - timeLastHeartbeatReceived >= HEARTBEAT_TIMEOUT){
+    LOGF("[DEBUG] Heartbeat timeout — last received %lums ago, upstream bytes available: %d\n",
+         millis() - timeLastHeartbeatReceived, UpstreamSerial.available());
     promoteToMaster();
   }
 }
@@ -65,7 +67,10 @@ void checkHeartbeatReply() {
       millis() - timeLastHeartbeatReplyReceived >= HEARTBEAT_TIMEOUT) {
     numModulesInChain = moduleChainIndex + 1;  // Only count up to self
     LOGF("[CHAIN] Downstream lost — chain count reset to %d\n", numModulesInChain);
-    if (isMaster) sendHelloToController();
+    if (isMaster) {
+      sendHelloToController();
+      updateDefaultSequenceForChainSize();
+    }
   }
 }
 
@@ -170,16 +175,16 @@ void handleCommandsFromUpstream(){
 
 void handleHeartbeatFromUpstream(uint8_t num){
   timeLastHeartbeatReceived = millis();
-  
-  if (moduleChainIndex != num) {
-    moduleChainIndex = num;
-    configureNotes();
-  }
-  
+
   numModulesInChain = num + 1;
 
   if (isMaster){
     demoteToSlave();
+  }
+
+  if (moduleChainIndex != num) {
+    moduleChainIndex = num;
+    configureNotes();
   }
 
   // Forward heartbeat downstream
@@ -293,7 +298,10 @@ void handleHeartbeatFromDownstream(uint8_t num){
   uint8_t reportedCount = num + 1;
   if (reportedCount > numModulesInChain) {
     numModulesInChain = reportedCount;
-    if (isMaster) sendHelloToController();
+    if (isMaster) {
+      sendHelloToController();
+      updateDefaultSequenceForChainSize();
+    }
   }
 
   // slaves forward replies upstream
@@ -308,16 +316,17 @@ void handleUsbSerialCommands() {
   // NOTE: Serial monitor must be set to "Newline" or "Both NL and CR" for
   // commands to be properly processed by this function
 
-  if (!on){
-    if(Serial.available() && Serial.peek() == 'o'){
-      Serial.read(); // consume
-      powerOn();
-      LOGLN("ACK cmd=o power=on ok=1");
-      emitStatus();
+  if(Serial.available() && Serial.peek() == 'o'){
+    Serial.read(); // consume
+    if (on){
+      powerOff();
     } else {
-      return;
+      powerOn();
     }
+    return;
   }
+
+  if (!on) return;
 
   while (Serial.available()) {
     char c = (char)Serial.read();
@@ -394,18 +403,10 @@ void webSocketEvent(WStype_t type, uint8_t * payload, size_t length) {
 
 void handleWebSocketCommand(char *cmd, size_t length){
   if (!on){
-    if (cmd[0] == 'o'){
-      powerOn();
-      LOGLN("ACK cmd=o power=on ok=1");
-      emitStatus();
-
-      cmd++;
-      length--;
-    } else {
-      return;
-    }
+    // not listening to software while off
+    return;
   }
-    
+
   if (length == 1){
     // regular single-character command
     processSingleCharCommand(cmd[0]);
@@ -458,20 +459,6 @@ void processSingleCharCommand(char cmd) {
       } else {
         stopSequence();
         LOGLN("ACK cmd=x ok=1");
-      }
-
-      emitStatus();
-      break;
-
-    case 'o': // Toggle module on/off
-      LOGLN("\n[CMD] Received: Toggle module power");
-
-      if (on) {
-        powerOff();
-        LOGLN("ACK cmd=o power=off ok=1");
-      } else {
-        powerOn();
-        LOGLN("ACK cmd=o power=on ok=1");
       }
 
       emitStatus();
