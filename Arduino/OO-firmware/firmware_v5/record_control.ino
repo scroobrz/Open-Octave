@@ -124,8 +124,8 @@ void commitRecordedStep() {
   if (recChordNumKeys == 0 || recStepCount >= MAX_SEQUENCE_LENGTH) return;
 
   unsigned long duration = millis() - recChordStartTime;
-  if (duration < MIN_NOTE_DURATION) duration = MIN_NOTE_DURATION;
-  if (duration > MAX_NOTE_DURATION) duration = MAX_NOTE_DURATION;
+  if (duration < MIN_STEP_DURATION) duration = MIN_STEP_DURATION;
+  if (duration > MAX_STEP_DURATION) duration = MAX_STEP_DURATION;
 
   SequenceStep* step = &currentSequence.steps[recStepCount];
   step->numKeys = recChordNumKeys;
