@@ -9,28 +9,53 @@ and WebSocket event handling.
 // laptop hosting
 // use DHCP instead of fixed IP config so the ESP32 can join macOS/Windows hotspots
 // without assuming a fixed subnet. (fixed ip address of esp32 commented in config.h)
-void connectToWifi() {
+// Non-blocking: kicks off WiFi.begin() and returns immediately.
+// Call handleWifiConnection() in loop() to poll for completion.
+void startControllerConnection() {
   WiFi.begin(WIFI_SSID, WIFI_PASSWORD);
-  LOGF("[WIFI] Connecting to %s...", WIFI_SSID);
+  isConnectingWifi = true;
+  LOGF("[WIFI] Connecting to %s...\n", WIFI_SSID);
+}
+
+// Blocking version used only during initial setup(), where there are
+// no heartbeats to miss yet.
+void connectToControllerBlocking() {
+  startControllerConnection();
 
   unsigned long wifiStart = millis();
   // try repeatedly for 10 seconds
   while (WiFi.status() != WL_CONNECTED && millis() - wifiStart < 10000) {
     delay(250);
-    LOG(".");
   }
-  LOGLN("");
 
   if (WiFi.status() == WL_CONNECTED) {
     LOGF("[WIFI] Connected! Local IP: %s\n", WiFi.localIP().toString().c_str());
     LOGF("[WIFI] Gateway IP (host laptop): %s\n", WiFi.gatewayIP().toString().c_str());
+    isConnectingWifi = false;
+    connectToWebsocket();
   } else {
     LOGF("[WIFI] Connection FAILED (status: %d)\n", WiFi.status());
+    isConnectingWifi = false;
+  }
+}
+
+// Called every loop() iteration while isMaster.
+// Once WiFi connects, automatically starts the WebSocket connection and sends a hello to the controller.
+void handleControllerConnection() {
+  if (!isConnectingWifi) return;
+
+  if (WiFi.status() == WL_CONNECTED) {
+    LOGF("[WIFI] Connected! IP: %s\n", WiFi.localIP().toString().c_str());
+    isConnectingWifi = false;
+    connectToWebsocket();
+    LOGLN("[SETUP] WiFi & WebSocket Active!");
+    sendHelloToController();
   }
 }
 
 void disconnectWifi() {
   WiFi.disconnect();
+  isConnectingWifi = false;
   LOGLN("[WIFI] Disconnected");
 }
 

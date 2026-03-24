@@ -11,9 +11,5 @@ void promoteToMaster(){
     configureNotes();
     numModulesInChain = 1;
     updateDefaultSequenceForChainSize();
-
-    LOGLN("[SETUP] Connecting to WiFi...");
-    connectToWifi();
-    connectToWebsocket();
-    LOGLN("[SETUP] WiFi & WebSocket Active!");
+    startControllerConnection();
 }
