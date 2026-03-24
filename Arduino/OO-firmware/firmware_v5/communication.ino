@@ -308,16 +308,17 @@ void handleUsbSerialCommands() {
   // NOTE: Serial monitor must be set to "Newline" or "Both NL and CR" for
   // commands to be properly processed by this function
 
-  if (!on){
-    if(Serial.available() && Serial.peek() == 'o'){
-      Serial.read(); // consume
-      powerOn();
-      LOGLN("ACK cmd=o power=on ok=1");
-      emitStatus();
+  if(Serial.available() && Serial.peek() == 'o'){
+    Serial.read(); // consume
+    if (on){
+      powerOff();
     } else {
-      return;
+      powerOn();
     }
+    return;
   }
+
+  if (!on) return;
 
   while (Serial.available()) {
     char c = (char)Serial.read();
@@ -394,18 +395,10 @@ void webSocketEvent(WStype_t type, uint8_t * payload, size_t length) {
 
 void handleWebSocketCommand(char *cmd, size_t length){
   if (!on){
-    if (cmd[0] == 'o'){
-      powerOn();
-      LOGLN("ACK cmd=o power=on ok=1");
-      emitStatus();
-
-      cmd++;
-      length--;
-    } else {
-      return;
-    }
+    // not listening to software while off
+    return;
   }
-    
+
   if (length == 1){
     // regular single-character command
     processSingleCharCommand(cmd[0]);
@@ -458,20 +451,6 @@ void processSingleCharCommand(char cmd) {
       } else {
         stopSequence();
         LOGLN("ACK cmd=x ok=1");
-      }
-
-      emitStatus();
-      break;
-
-    case 'o': // Toggle module on/off
-      LOGLN("\n[CMD] Received: Toggle module power");
-
-      if (on) {
-        powerOff();
-        LOGLN("ACK cmd=o power=off ok=1");
-      } else {
-        powerOn();
-        LOGLN("ACK cmd=o power=on ok=1");
       }
 
       emitStatus();
@@ -798,7 +777,7 @@ bool processSequenceStepCommand(uint8_t stepIndex, char *cmd){
           case 'd': {
             int parsedDuration = atoi(&cmd[i+2]);
 
-            if (parsedDuration >= MIN_NOTE_DURATION && parsedDuration <= MAX_NOTE_DURATION) {
+            if (parsedDuration >= MIN_STEP_DURATION && parsedDuration <= MAX_STEP_DURATION) {
               duration = parsedDuration;
             } else {
               LOGF("[SEQ] Step %d: invalid duration\n", stepIndex);

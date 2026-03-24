@@ -11,7 +11,7 @@ and WebSocket event handling.
 // without assuming a fixed subnet. (fixed ip address of esp32 commented in config.h)
 void connectToWifi() {
   WiFi.begin(WIFI_SSID, WIFI_PASSWORD);
-  LOGF("[WIFI] Connecting to %s...\n", WIFI_SSID);
+  LOGF("[WIFI] Connecting to %s...", WIFI_SSID);
 
   unsigned long wifiStart = millis();
   // try repeatedly for 10 seconds

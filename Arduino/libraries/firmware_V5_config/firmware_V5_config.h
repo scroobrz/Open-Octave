@@ -29,8 +29,9 @@
 #define MAX_SEQUENCE_LENGTH 128
 #define MAX_KEYS_PER_STEP 4
 
-#define MIN_NOTE_DURATION 100
-#define MAX_NOTE_DURATION 10000
+#define MIN_TONE_DURATION 100    // minimum speaker tone time (non-blocking, audibility only)
+#define MIN_STEP_DURATION 500    // minimum recorded sequence step duration (ms)
+#define MAX_STEP_DURATION 10000  // maximum recorded sequence step duration (ms)
 
 // ============ HARDWARE CONFIG ============
 
