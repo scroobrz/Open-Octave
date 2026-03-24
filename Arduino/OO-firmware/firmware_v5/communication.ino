@@ -190,11 +190,6 @@ void handleCommandsFromUpstream(){
 void handleHeartbeatFromUpstream(uint8_t num){
   timeLastHeartbeatReceived = millis();
   
-  if (moduleChainIndex != num) {
-    moduleChainIndex = num;
-    configureNotes();
-  }
-  
   numModulesInChain = num + 1;
 
   if (isMaster){
