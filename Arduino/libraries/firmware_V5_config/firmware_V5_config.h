@@ -130,6 +130,17 @@
 #define TEACHING_SEQ_BUTTON_PIN 14
 #define RECORD_BUTTON_PIN 15
 
+// --- Pin Definitions ---
+#define I2S_BCK 26
+#define I2S_LRC 25
+#define I2S_DOUT 27
+ 
+// --- Configuration ---
+#define SAMPLE_RATE 44100
+#define I2S_NUM I2S_NUM_0
+#define VOLUME 0.8  
+#define DMA_BUF_LEN 256
+
 // ============ ANIMATION DEFINITIONS ============
 
 #define SWEEP_DELAY_PER_KEY 100

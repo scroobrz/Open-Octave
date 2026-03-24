@@ -30,7 +30,7 @@ void handleKeyPresses() {
 
         LOGF("[KEY] Key %d PRESSED (pin %d, freq %dHz)\n", i, keys[i].buttonPin, keys[i].noteFreq);
 
-        startKeyTone(i);
+        // startKeyTone(i);
 
         if (isMaster && recording) {
           recordKeyPress(globalKey);
@@ -52,7 +52,7 @@ void handleKeyPresses() {
       
       LOGF("[KEY] Key %d RELEASED\n", i);
 
-      stopKeyTone(i);
+      // stopKeyTone(i);
 
       if (isMaster && recording) {
         recordKeyRelease(globalKey);
@@ -63,7 +63,7 @@ void handleKeyPresses() {
   }
 }
 
-// starts playing the tone for a specific key
+// starts playing the tone for a specific key - OUTDATED
 inline void startKeyTone(int keyIndex) {
   tone(SPEAKER_PIN, keys[keyIndex].noteFreq);
 }
