@@ -81,7 +81,10 @@ void checkHeartbeatReply() {
       millis() - timeLastHeartbeatReplyReceived >= HEARTBEAT_TIMEOUT) {
     numModulesInChain = moduleChainIndex + 1;  // Only count up to self
     LOGF("[CHAIN] Downstream lost — chain count reset to %d\n", numModulesInChain);
-    if (isMaster) sendHelloToController();
+    if (isMaster) {
+      sendHelloToController();
+      updateDefaultSequenceForChainSize();
+    }
   }
 }
 
@@ -316,7 +319,10 @@ void handleHeartbeatFromDownstream(uint8_t num){
   uint8_t reportedCount = num + 1;
   if (reportedCount > numModulesInChain) {
     numModulesInChain = reportedCount;
-    if (isMaster) sendHelloToController();
+    if (isMaster) {
+      sendHelloToController();
+      updateDefaultSequenceForChainSize();
+    }
   }
 
   // slaves forward replies upstream
