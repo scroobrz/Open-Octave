@@ -1,0 +1,149 @@
+// Chord synthesis.ino
+
+#define SINE_TABLE_SIZE 1024
+#define NUM_HARMONICS 5
+
+const float HARMONICS[NUM_HARMONICS][2] = {
+  {1.0f, 1.0f},
+  {2.0f, 0.5f},
+  {3.0f, 0.25f},
+  {4.0f, 0.125f},
+  {5.0f, 0.0625f}
+};
+
+#define DECAY_PER_SAMPLE 0.9999f
+#define ATTACK_PER_SAMPLE 0.001f  // Ramp up over ~1000 samples to avoid click on press
+
+float sineTable[SINE_TABLE_SIZE];
+float phaseAccumulators[MAX_TOTAL_KEYS][NUM_HARMONICS] = {0};
+
+struct Envelope {
+  float value;
+  bool wasPressed;  // Tracks previous state to detect fresh keypresses
+};
+Envelope envelopes[MAX_TOTAL_KEYS] = {0};
+
+static int16_t sampleBuf[DMA_BUF_LEN * 2];
+static int16_t silenceBuf[DMA_BUF_LEN * 2];
+
+void buildSineTable() {
+  for (int i = 0; i < SINE_TABLE_SIZE; i++) {
+    sineTable[i] = sinf(2.0f * M_PI * i / SINE_TABLE_SIZE);
+  }
+}
+
+void noteSetup() {
+  i2s_config_t i2s_config = {
+    .mode = (i2s_mode_t)(I2S_MODE_MASTER | I2S_MODE_TX),
+    .sample_rate = SAMPLE_RATE,
+    .bits_per_sample = I2S_BITS_PER_SAMPLE_16BIT,
+    .channel_format = I2S_CHANNEL_FMT_RIGHT_LEFT,
+    .communication_format = I2S_COMM_FORMAT_STAND_I2S,
+    .intr_alloc_flags = ESP_INTR_FLAG_LEVEL1,
+    .dma_buf_count = 16,
+    .dma_buf_len = 256,
+    .use_apll = false
+  };
+
+  i2s_pin_config_t pin_config = {
+    .bck_io_num = I2S_BCK,
+    .ws_io_num = I2S_LRC,
+    .data_out_num = I2S_DOUT,
+    .data_in_num = I2S_PIN_NO_CHANGE
+  };
+
+  i2s_driver_install(I2S_NUM, &i2s_config, 0, NULL);
+  i2s_set_pin(I2S_NUM, &pin_config);
+
+  buildSineTable();
+  memset(silenceBuf, 0, sizeof(silenceBuf));
+  i2s_zero_dma_buffer(I2S_NUM);
+
+  // Initialise all envelopes to safe defaults
+  for (int i = 0; i < MAX_TOTAL_KEYS; i++) {
+    envelopes[i].value = 0.0f;
+    envelopes[i].wasPressed = false;
+  }
+}
+
+void playPressedKeys() {
+  // --- Snapshot key states atomically at the start ---
+  // Never read keys[i].isPressed more than once per call,
+  // prevents race condition if button scanning runs on another core
+  bool pressedSnapshot[MAX_TOTAL_KEYS];
+  for (int i = 0; i < NUM_KEYS; i++) {
+    pressedSnapshot[i] = keys[i].isPressed && keys[i].noteFreq > 0;
+  }
+
+  // --- 1. Update envelopes from snapshot ---
+  for (int i = 0; i < NUM_KEYS; i++) {
+    // Detect fresh keypress from snapshot — reset envelope
+    if (pressedSnapshot[i] && !envelopes[i].wasPressed) {
+      envelopes[i].value = 0.0f;
+    }
+
+    // Advance envelope once per buffer
+    if (pressedSnapshot[i]) {
+      envelopes[i].value = min(1.0f, envelopes[i].value + 0.05f);
+    } else {
+      envelopes[i].value = max(0.0f, envelopes[i].value - 0.02f);
+    }
+
+    // Update wasPressed from snapshot — consistent with what we just used
+    envelopes[i].wasPressed = pressedSnapshot[i];
+  }
+
+  // --- 2. Collect active keys (pressed or still releasing) ---
+  int activeIndices[MAX_TOTAL_KEYS];
+  int activeCount = 0;
+
+  for (int i = 0; i < NUM_KEYS; i++) {
+    if (envelopes[i].value > 0.0f) {
+      activeIndices[activeCount++] = i;
+    }
+  }
+
+  // Nothing audible — write silence and return
+  if (activeCount == 0) {
+    size_t bytesWritten;
+    i2s_write(I2S_NUM, silenceBuf, sizeof(silenceBuf), &bytesWritten, portMAX_DELAY);
+    return;
+  }
+
+  // --- 3. Generate one buffer of mixed audio ---
+  float totalHarmonicWeight = 0.0f;
+  for (int h = 0; h < NUM_HARMONICS; h++) totalHarmonicWeight += HARMONICS[h][1];
+  float voiceVolume = VOLUME / (activeCount * totalHarmonicWeight);
+
+  for (int s = 0; s < DMA_BUF_LEN; s++) {
+    float mixedSample = 0.0f;
+
+    for (int v = 0; v < activeCount; v++) {
+      int keyIdx = activeIndices[v];
+      float freq = (float)keys[keyIdx].noteFreq;
+      float noteSample = 0.0f;
+
+      for (int h = 0; h < NUM_HARMONICS; h++) {
+        float harmonicFreq = freq * HARMONICS[h][0];
+        if (harmonicFreq >= SAMPLE_RATE / 2) continue;
+
+        phaseAccumulators[keyIdx][h] += (float)SINE_TABLE_SIZE * harmonicFreq / SAMPLE_RATE;
+        if (phaseAccumulators[keyIdx][h] >= SINE_TABLE_SIZE)
+          phaseAccumulators[keyIdx][h] -= SINE_TABLE_SIZE;
+
+        noteSample += sineTable[(int)phaseAccumulators[keyIdx][h]] * HARMONICS[h][1];
+      }
+
+      noteSample *= envelopes[keyIdx].value;
+      mixedSample += noteSample;
+    }
+
+    int16_t pcmSample = (int16_t)(mixedSample * voiceVolume * 32767.0f);
+    sampleBuf[s * 2]     = pcmSample;
+    sampleBuf[s * 2 + 1] = pcmSample;
+  }
+
+  // --- 4. Send buffer to I2S DMA ---
+  size_t bytesWritten;
+  i2s_write(I2S_NUM, sampleBuf, sizeof(sampleBuf), &bytesWritten, portMAX_DELAY);
+}

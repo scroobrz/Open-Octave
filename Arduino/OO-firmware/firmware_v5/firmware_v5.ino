@@ -31,6 +31,8 @@
 #include <WiFi.h>
 #include <WebSocketsClient.h>
 #include <cstdint>
+#include <driver/i2s.h>
+#include <math.h>
 
 // ============ HARDWARE DEFINITIONS ============
 
@@ -166,8 +168,7 @@ void setup() {
 
   // ===== INITIALIZATION =====
   LOG("[SETUP] Configuring speaker... ");
-  pinMode(SPEAKER_PIN, OUTPUT);
-  noTone(SPEAKER_PIN);
+  noteSetup();
   LOGF("OK (speaker_pin: %d)\n", SPEAKER_PIN);
 
   LOG("[SETUP] Initializing I2C... ");
@@ -247,6 +248,7 @@ void loop() {
 
     handleKeyPresses();
     handleToneSustain();
+    playPressedKeys();
   }
 }
 
