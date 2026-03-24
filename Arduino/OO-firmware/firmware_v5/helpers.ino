@@ -6,18 +6,18 @@
 
 void powerOn(){
   if (on) return;
-
   playStartupAnimation();
   on = true;
+  emitStatus();
 }
 
 void powerOff(){
   if (!on) return;
-
-  on = false;
   if (recording) stopRecording();
   stopSequence();
   playShutdownAnimation();
+  on = false;
+  emitStatus();
 }
 
 bool checkUpstream(){
@@ -110,8 +110,8 @@ void toLowercase(char &c) {
 }
 
 void emitStatus() {
-  LOGF("STATUS running=%d seq=%d step=%d mode=%s\n",
-       sequenceRunning, currentSequence.id, 
+  LOGF("STATUS power=%d running=%d seq=%d step=%d mode=%s\n",
+       on, sequenceRunning, currentSequence.id, 
        (sequenceRunning ? currentSequenceStepIndex : -1), 
        (sequenceRunning ? getCurrentSequenceModeString() : "N/A"));
 }
