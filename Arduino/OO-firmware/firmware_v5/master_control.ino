@@ -10,5 +10,6 @@ void promoteToMaster(){
     moduleChainIndex = 0;
     configureNotes();
     numModulesInChain = 1;
+    updateDefaultSequenceForChainSize();
     startControllerConnection();
 }

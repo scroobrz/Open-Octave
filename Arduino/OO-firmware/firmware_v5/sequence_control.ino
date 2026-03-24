@@ -298,3 +298,43 @@ void loadDefaultSequence() {
   currentSequence.length = sizeof(defaultSteps) / sizeof(defaultSteps[0]);
   memcpy(currentSequence.steps, defaultSteps, sizeof(defaultSteps));
 }
+
+// Loads a two-octave default sequence spanning keys 0-23 (modules 0 and 1).
+// Key mapping: Module 0 = C4(0)..B4(11), Module 1 = C5(12)..B5(23)
+void loadDefaultSequenceTwoOctave() {
+  currentSequence.id = 0;
+  strcpy(currentSequence.name, "Default (2-Oct)");
+
+  const SequenceStep defaultSteps[] = {
+    {4, {0, 4, 7, 12},    {COLOR_CYAN, COLOR_GOLD, COLOR_MAGENTA, COLOR_CYAN},       800},  // C major w/ octave
+    {1, {14},              {COLOR_GREEN},                                               400},  // D5 melody
+    {1, {16},              {COLOR_GOLD},                                                400},  // E5 melody
+    {4, {5, 9, 12, 17},   {COLOR_CORAL, COLOR_CYAN, COLOR_CYAN, COLOR_CORAL},         800},  // F major w/ octave
+    {1, {19},              {COLOR_MAGENTA},                                             400},  // G5 melody
+    {1, {16},              {COLOR_GOLD},                                                400},  // E5 melody
+    {4, {0, 7, 12, 19},   {COLOR_CYAN, COLOR_MAGENTA, COLOR_CYAN, COLOR_MAGENTA},     600},  // C+G fifths across octaves
+    {4, {7, 11, 14, 19},  {COLOR_MAGENTA, COLOR_CORAL, COLOR_GREEN, COLOR_MAGENTA},   800},  // G major w/ octave
+    {1, {17},              {COLOR_CORAL},                                               400},  // F5 melody
+    {1, {16},              {COLOR_GOLD},                                                400},  // E5 melody
+    {1, {14},              {COLOR_GREEN},                                               400},  // D5 melody
+    {4, {0, 4, 7, 12},    {COLOR_CYAN, COLOR_GOLD, COLOR_MAGENTA, COLOR_CYAN},       1000},  // C major resolve w/ octave
+  };
+
+  currentSequence.length = sizeof(defaultSteps) / sizeof(defaultSteps[0]);
+  memcpy(currentSequence.steps, defaultSteps, sizeof(defaultSteps));
+}
+
+// Switches the default sequence to match the current chain size.
+// Only acts if the current sequence is the default (id == 0) and no sequence is running.
+void updateDefaultSequenceForChainSize() {
+  if (currentSequence.id != 0 || sequenceRunning) return;
+
+  if (numModulesInChain >= 2) {
+    loadDefaultSequenceTwoOctave();
+  } else {
+    loadDefaultSequence();
+  }
+
+  LOGF("[SEQ] Default sequence updated for %d module(s): \"%s\" (%d steps)\n",
+       numModulesInChain, currentSequence.name, currentSequence.length);
+}
