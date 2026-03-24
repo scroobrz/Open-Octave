@@ -108,7 +108,6 @@ void connectToWebsocket() {
   webSocket.begin(controllerIp.toString().c_str(), CONTROLLER_PORT, "/");
   webSocket.onEvent(webSocketEvent);
   webSocket.setReconnectInterval(2500);
-  wsReady = true;
   LOGLN("[WS] WebSocket client started");
 }
 

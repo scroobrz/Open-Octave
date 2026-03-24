@@ -30,8 +30,6 @@ void handleKeyPresses() {
 
         LOGF("[KEY] Key %d PRESSED (pin %d, freq %dHz)\n", i, keys[i].buttonPin, keys[i].noteFreq);
 
-        // startKeyTone(i);
-
         if (isMaster && recording) {
           recordKeyPress(globalKey);
         } else if (isMaster) {
@@ -52,67 +50,12 @@ void handleKeyPresses() {
       
       LOGF("[KEY] Key %d RELEASED\n", i);
 
-      // stopKeyTone(i);
-
       if (isMaster && recording) {
         recordKeyRelease(globalKey);
       } else if (isMaster) {
         evaluateWrongKeyFeedback(globalKey, false);
       }
     }
-  }
-}
-
-// starts playing the tone for a specific key - OUTDATED
-inline void startKeyTone(int keyIndex) {
-  tone(SPEAKER_PIN, keys[keyIndex].noteFreq);
-}
-
-// stops playing the tone for a specific key
-// if another key is still pressed, switches to playing that key's tone instead
-// (this handles the case where you have multiple keys held down)
-// PROBLEM: it falls back to the pressed key with the lowest index rather than
-// the one that was pressed last, could use a stack to solve this
-void stopKeyTone(int keyIndex) {
-  // check if any other key is still being pressed
-  for (int i = 0; i < NUM_KEYS; i++) {
-    if (keys[i].isPressed) {
-      // found another pressed key, play its tone instead
-      // (this cancels any sustain since a new key takes over)
-      toneSustainKey = -1;
-      startKeyTone(i);
-      return;
-    }
-  }
-
-  // no other keys pressed — check if we need to sustain for audibility
-  unsigned long elapsed = millis() - toneStartTime[keyIndex];
-  if (elapsed < MIN_TONE_DURATION) {
-    // keep the tone playing non-blockingly until MIN_TONE_DURATION elapses
-    toneSustainKey = keyIndex;
-    toneSustainUntil = toneStartTime[keyIndex] + MIN_TONE_DURATION;
-    return;
-  }
-
-  // tone has already played long enough, silence immediately
-  noTone(SPEAKER_PIN);
-}
-
-// called from the main loop to silence tones that were sustained past key
-// release for audibility. Non-blocking replacement for the old delay().
-void handleToneSustain() {
-  if (toneSustainKey < 0) return;
-
-  // if the user pressed another key while sustaining, cancel —
-  // startKeyTone will have already overridden the speaker
-  if (keys[toneSustainKey].isPressed) {
-    toneSustainKey = -1;
-    return;
-  }
-
-  if (millis() >= toneSustainUntil) {
-    noTone(SPEAKER_PIN);
-    toneSustainKey = -1;
   }
 }
 

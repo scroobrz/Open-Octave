@@ -29,7 +29,6 @@
 #define MAX_SEQUENCE_LENGTH 128
 #define MAX_KEYS_PER_STEP 4
 
-#define MIN_TONE_DURATION 100    // minimum speaker tone time (non-blocking, audibility only)
 #define MIN_STEP_DURATION 300    // minimum recorded sequence step duration (ms)
 #define MAX_STEP_DURATION 10000  // maximum recorded sequence step duration (ms)
 
@@ -52,6 +51,11 @@
 #define LED_STRIP_PIN 19
 #define LED_BRIGHTNESS 50
 
+#define SAMPLE_RATE 44100
+#define I2S_NUM I2S_NUM_0
+#define VOLUME 0.8  
+#define DMA_BUF_LEN 256
+
 // ============ PIN ASSIGNMENTS ============
 // Button pins are on the IO expansion board
 // Servo channels are on the servo driver board
@@ -63,7 +67,9 @@
 #define RX2 4
 #define TX2 15
 
-#define SPEAKER_PIN 25          // D2 (IO25) — DAC-capable, good for audio
+#define I2S_BCK 26
+#define I2S_LRC 25
+#define I2S_DOUT 27
 
 #define KEY0_BUTTON_PIN 0
 #define KEY0_LED_INDEX 0
@@ -129,17 +135,6 @@
 #define GUIDED_SEQ_BUTTON_PIN 13
 #define TEACHING_SEQ_BUTTON_PIN 14
 #define RECORD_BUTTON_PIN 15
-
-// --- Pin Definitions ---
-#define I2S_BCK 26
-#define I2S_LRC 25
-#define I2S_DOUT 27
- 
-// --- Configuration ---
-#define SAMPLE_RATE 44100
-#define I2S_NUM I2S_NUM_0
-#define VOLUME 0.8  
-#define DMA_BUF_LEN 256
 
 // ============ ANIMATION DEFINITIONS ============
 
