@@ -32,6 +32,8 @@ const PORT = process.env.APP_PORT || 3000;
 const WS_PORT = Number(process.env.WS_PORT || 8081);
 const SERIAL_PATH = process.env.SERIAL_PORT;
 const BAUD_RATE = 115200;
+const MODULE_STALE_TIMEOUT_MS = Number(process.env.MODULE_STALE_TIMEOUT_MS || 10000);
+const MODULE_CLEANUP_INTERVAL_MS = Number(process.env.MODULE_CLEANUP_INTERVAL_MS || 3000);
 
 // Module counter — assigns labels (Module A, Module B, ...) in connect order
 let moduleCounter = 0;
@@ -82,16 +84,21 @@ function getModuleLabel(ip) {
 
 function registerModule(ip, ws) {
     const existing = modules.get(ip);
+    const now = new Date().toISOString();
     const entry = {
         ip,
         ws,
         connected: true,
-        connectedAt: new Date().toISOString(),
+        connectedAt: now,
+        lastSeenAt: now,
         chainLength: existing?.chainLength || 1,
         totalKeys: existing?.totalKeys || 12,
         currentSequenceId: existing?.currentSequenceId || null,
         currentSequenceName: existing?.currentSequenceName || null,
+        octaveOffset: 0, // octave offset
         lastStatus: existing?.lastStatus || null,
+        lastAck: existing?.lastAck || null,
+        lastError: existing?.lastError || null,
         label: getModuleLabel(ip)
     };
     modules.set(ip, entry);
@@ -100,13 +107,23 @@ function registerModule(ip, ws) {
     return entry;
 }
 
+function touchModule(ip) {
+    const entry = modules.get(ip);
+    if (!entry) return null;
+    entry.lastSeenAt = new Date().toISOString();
+    return entry;
+}
+
 function unregisterModule(ip) {
     const entry = modules.get(ip);
     if (entry) {
+        const wasConnected = entry.connected;
         entry.ws = null;
         entry.connected = false;
-        pushLog('WS', `Module disconnected: ${entry.label} (${ip})`);
-        console.log(`[WS] Module disconnected: ${entry.label} (${ip})`);
+        if (wasConnected) {
+            pushLog('WS', `Module disconnected: ${entry.label} (${ip})`);
+            console.log(`[WS] Module disconnected: ${entry.label} (${ip})`);
+        }
     }
 }
 
@@ -116,10 +133,12 @@ function getModuleSnapshot(entry) {
         label: entry.label,
         connected: entry.connected,
         connectedAt: entry.connectedAt,
+        lastSeenAt: entry.lastSeenAt,
         chainLength: entry.chainLength,
         totalKeys: entry.totalKeys,
         currentSequenceId: entry.currentSequenceId,
         currentSequenceName: entry.currentSequenceName,
+        octaveOffset: entry.octaveOffset ?? 0, // octave offset
         lastStatus: entry.lastStatus
     };
 }
@@ -157,6 +176,7 @@ function ingestEsp32Line(msg, moduleIp) {
         normalized = m[1];
     }
 
+    touchModule(moduleIp);
     // Handle HELLO protocol
     if (normalized.startsWith('HELLO ')) {
         const fields = parseKeyValuePairs(normalized);
@@ -187,12 +207,15 @@ function ingestEsp32Line(msg, moduleIp) {
     if (normalized.startsWith('STATUS ')) {
         const fields = parseKeyValuePairs(normalized);
         if (entry) {
+            const octaveOffset = parseInt(fields.octaveOffset, 10);
+            entry.octaveOffset = Number.isFinite(octaveOffset) ? octaveOffset : (entry.octaveOffset ?? 0); // octave offset
             entry.lastStatus = {
                 ts: new Date().toISOString(),
                 running: fields.running === '1',
                 seq: parseInt(fields.seq, 10) || -1,
                 step: parseInt(fields.step, 10) || -1,
-                mode: fields.mode || 'N/A'
+                mode: fields.mode || 'N/A',
+                octaveOffset: entry.octaveOffset // octave offset
             };
         }
         return;
@@ -206,6 +229,29 @@ function ingestEsp32Line(msg, moduleIp) {
             };
         }
         return;
+    }
+}
+
+
+function cleanupStaleModules() {
+    const now = Date.now();
+
+    for (const [ip, entry] of modules) {
+        if (!entry.connected) continue;
+
+        const lastSeenMs = entry.lastSeenAt ? Date.parse(entry.lastSeenAt) : NaN;
+        const staleByTime = !Number.isFinite(lastSeenMs) || (now - lastSeenMs > MODULE_STALE_TIMEOUT_MS);
+        const socketMissing = !entry.ws;
+        const socketClosed = entry.ws && entry.ws.readyState !== WebSocket.OPEN;
+
+        if (socketMissing || socketClosed || staleByTime) {
+            if (entry.ws) {
+                try {
+                    entry.ws.terminate();
+                } catch (_) {}
+            }
+            unregisterModule(ip);
+        }
     }
 }
 
@@ -811,6 +857,41 @@ app.post('/api/modules/:ip/control', (req, res) => {
     }
 });
 
+// POST /api/modules/:ip/octave-offset — set chain octave offset on a specific module
+app.post('/api/modules/:ip/octave-offset', (req, res) => {
+    try {
+        const ip = req.params.ip;
+        const body = req.body || {};
+        const rawOffset = body.octaveOffset;
+        const octaveOffset = Number(rawOffset);
+
+        if (!Number.isInteger(octaveOffset)) {
+            res.status(400).json({ ok: false, error: 'octaveOffset must be an integer' });
+            return;
+        }
+
+        if (octaveOffset < 0 || octaveOffset > 2) {
+            res.status(400).json({ ok: false, error: 'octaveOffset must be between 0 and 2' });
+            return;
+        }
+
+        const result = sendToModule(ip, `O v=${octaveOffset}`);
+        if (result.error) {
+            res.status(400).json({ ok: false, error: result.error });
+            return;
+        }
+
+        const entry = modules.get(ip);
+        if (entry) {
+            entry.octaveOffset = octaveOffset; // octave offset
+        }
+
+        res.json({ ok: true, module: ip, octaveOffset, result });
+    } catch (e) {
+        res.status(500).json({ ok: false, error: e.message });
+    }
+});
+
 // midi import
 // POST /api/midi/import — upload a MIDI file, convert it into an Open Octave
 // sequence, save it into SQLite, and return the created item + metadata.
@@ -1387,11 +1468,19 @@ wss.on('connection', (socket, req) => {
     console.log(`[WS] Incoming connection from ${clientIp}`);
 
     const entry = registerModule(clientIp, socket);
+    socket.isAlive = true;
+
+    socket.on('pong', () => {
+        socket.isAlive = true;
+        touchModule(clientIp);
+    });
 
     socket.on('message', (data) => {
         const msg = data.toString().trim();
         if (msg.length === 0) return;
 
+        socket.isAlive = true;
+        touchModule(clientIp);
         console.log(`[ESP32 ${clientIp}] ${msg}`);
         pushLog(`ESP32:${clientIp}`, msg);
         ingestEsp32Line(msg, clientIp);
@@ -1405,4 +1494,19 @@ wss.on('connection', (socket, req) => {
         console.error(`[WS] Error from ${clientIp}: ${err.message}`);
         unregisterModule(clientIp);
     });
+});
+
+const staleCleanupTimer = setInterval(() => {
+    cleanupStaleModules();
+
+    for (const entry of modules.values()) {
+        if (!entry.connected || !entry.ws || entry.ws.readyState !== WebSocket.OPEN) continue;
+        try {
+            entry.ws.ping();
+        } catch (_) {}
+    }
+}, MODULE_CLEANUP_INTERVAL_MS);
+
+wss.on('close', () => {
+    clearInterval(staleCleanupTimer);
 });

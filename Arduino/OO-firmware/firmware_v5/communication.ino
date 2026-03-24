@@ -38,9 +38,25 @@ void handleChainCommunication(){
   sendHeartbeat();
 }
 
+
 void handleControllerCommunication(){
     webSocket.loop();
     handleUsbSerialCommands();
+}
+
+// new: non-master modules must ensure they don't accidentally have WiFi or WebSocket active (prev only check at startup)
+void enforceSlaveNetworkingOff() {
+  if (isMaster) return;
+
+  if (wsClientStarted || wsReady) {
+    LOGLN("[CHAIN] Slave confirmed - disconnecting WebSocket");
+    disconnectWebsocket();
+  }
+
+  if (isWifiConnected) {
+    LOGLN("[CHAIN] Slave confirmed - disconnecting WiFi");
+    disconnectWifi();
+  }
 }
 
 // Masters begin the heartbeat chain
@@ -180,6 +196,13 @@ void handleHeartbeatFromUpstream(uint8_t num){
 
   if (isMaster){
     demoteToSlave();
+  }
+
+  enforceSlaveNetworkingOff();
+
+  if (moduleChainIndex != num) {
+    moduleChainIndex = num;
+    configureNotes();
   }
 
   // Forward heartbeat downstream
@@ -339,9 +362,14 @@ void handleUsbSerialCommands() {
         // regular single-character command
         processSingleCharCommand(serialBuf[0]);
       } else {
-        // sequence command; string of characters
+        // octave offset
         serialBuf[serialBufPos] = '\0';
-        handleSequenceCommand(serialBuf);
+        if (serialBuf[0] == 'O') {
+          handleExtendedCommand(serialBuf);
+        } else {
+          // sequence command; string of characters
+          handleSequenceCommand(serialBuf);
+        }
       }
 
       // Reset buffer for next line
@@ -376,6 +404,7 @@ void webSocketEvent(WStype_t type, uint8_t * payload, size_t length) {
       break;
 
     case WStype_CONNECTED:
+      wsClientStarted = true;
       wsReady = true;
       LOGLN("[WS] Connected to server");
       sendHelloToController();
@@ -403,8 +432,18 @@ void handleWebSocketCommand(char *cmd, size_t length){
     // regular single-character command
     processSingleCharCommand(cmd[0]);
   } else if (length > 1){
-    // sequence command; string of characters
-    handleSequenceCommand(cmd);
+    // octave offset
+    if (cmd[0] == 'O') {
+      char safeCmd[SERIAL_BUF_SIZE];
+      size_t copyLen = length;
+      if (copyLen >= SERIAL_BUF_SIZE) copyLen = SERIAL_BUF_SIZE - 1;
+      memcpy(safeCmd, cmd, copyLen);
+      safeCmd[copyLen] = '\0';
+      handleExtendedCommand(safeCmd);
+    } else {
+      // sequence command; string of characters
+      handleSequenceCommand(cmd);
+    }
   }
 }
 
@@ -528,6 +567,8 @@ void processSingleCharCommand(char cmd) {
       LOGLN("    q - Enter/Exit test log mode");
       LOGLN("  POWER:");
       LOGLN("    o - Toggle module on/off");
+      LOGLN("  SETTINGS:");
+      LOGLN("    O v=0..2 - Set chain octave offset"); // octave offset
       LOGLN("  HELP:");
       LOGLN("    h/? - Show this help");
       LOGLN("========================================\n");
@@ -543,6 +584,49 @@ void processSingleCharCommand(char cmd) {
       LOGF("[CMD] Unknown command: '%c' (type 'h' or '?' for help)\n", cmd);
       break;
     }
+}
+
+// octave offset
+bool processOctaveOffsetCommand(char *cmd) {
+  int parsedOffset = -1;
+  int i = 1;
+
+  while (cmd[i] != '\n' && cmd[i] != '\0') {
+    if ((i == 1 || cmd[i - 1] == ' ') && cmd[i + 1] == '=') {
+      toLowercase(cmd[i]);
+      if (cmd[i] == 'v') {
+        char *endPtr;
+        long value = strtol(&cmd[i + 2], &endPtr, 10);
+        if (endPtr != &cmd[i + 2]) {
+          parsedOffset = (int)value;
+        }
+      }
+    }
+    i++;
+  }
+
+  if (parsedOffset < MIN_CHAIN_OCTAVE_OFFSET || parsedOffset > MAX_CHAIN_OCTAVE_OFFSET) {
+    LOGF("ERR octave_offset=invalid range=%d-%d\n",
+         MIN_CHAIN_OCTAVE_OFFSET,
+         MAX_CHAIN_OCTAVE_OFFSET);
+    emitStatus();
+    return false;
+  }
+
+  chainOctaveOffset = (uint8_t)parsedOffset;
+  configureNotes();
+  LOGF("ACK octave_offset=%d ok=1\n", chainOctaveOffset);
+  emitStatus();
+  return true;
+}
+
+void handleExtendedCommand(char *cmd) {
+  if (cmd[0] == 'O') {
+    processOctaveOffsetCommand(cmd);
+    return;
+  }
+
+  LOGF("[CMD] Unknown extended command: %s\n", cmd);
 }
 
 // ============ SEQUENCE UPLOAD PROTOCOL ============
@@ -880,7 +964,7 @@ bool processSequenceEndCommand(char *cmd){
 // Sends the HELLO registration message to the controller.
 // Called on initial WS connect and whenever the chain length changes.
 void sendHelloToController() {
-  if (!wsReady) return;
+  if (!wsClientStarted || !wsReady) return;
 
   char buf[24];
   snprintf(buf, sizeof(buf), "HELLO modules=%d", numModulesInChain);

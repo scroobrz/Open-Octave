@@ -11,7 +11,11 @@ and WebSocket event handling.
 // without assuming a fixed subnet. (fixed ip address of esp32 commented in config.h)
 void connectToWifi() {
   WiFi.begin(WIFI_SSID, WIFI_PASSWORD);
-  LOGF("[WIFI] Connecting to %s...", WIFI_SSID);
+  isWifiConnected = false;
+  wsClientStarted = false;
+  wsReady = false;
+  isConnectingWifi = true;
+  LOGF("[WIFI] Connecting to %s...\n", WIFI_SSID);
 
   unsigned long wifiStart = millis();
   // try repeatedly for 10 seconds
@@ -24,13 +28,38 @@ void connectToWifi() {
   if (WiFi.status() == WL_CONNECTED) {
     LOGF("[WIFI] Connected! Local IP: %s\n", WiFi.localIP().toString().c_str());
     LOGF("[WIFI] Gateway IP (host laptop): %s\n", WiFi.gatewayIP().toString().c_str());
+    isWifiConnected = true;
+    isConnectingWifi = false;
   } else {
     LOGF("[WIFI] Connection FAILED (status: %d)\n", WiFi.status());
+    isWifiConnected = false;
+    wsClientStarted = false;
+    wsReady = false;
+    isConnectingWifi = false;
+  }
+}
+
+// Called every loop() iteration while isMaster.
+// Once WiFi connects, automatically starts the WebSocket.
+void handleWifiConnection() {
+  if (!isConnectingWifi) return;
+
+  if (WiFi.status() == WL_CONNECTED) {
+    LOGF("[WIFI] Connected! IP: %s\n", WiFi.localIP().toString().c_str());
+    LOGF("[WIFI] Gateway IP (host laptop): %s\n", WiFi.gatewayIP().toString().c_str());
+    isWifiConnected = true;
+    isConnectingWifi = false;
+    connectToWebsocket();
+    LOGLN("[SETUP] WiFi & WebSocket Active!");
   }
 }
 
 void disconnectWifi() {
   WiFi.disconnect();
+  isWifiConnected = false;
+  isConnectingWifi = false;
+  wsClientStarted = false;
+  wsReady = false;
   LOGLN("[WIFI] Disconnected");
 }
 
@@ -50,8 +79,8 @@ void checkWifiStatus() {
         LOGF("[WIFI] Reconnected. Gateway IP (host laptop): %s\n", WiFi.gatewayIP().toString().c_str());
       }
 
-      if (!wsReady) {
-        LOGLN("[WS] WiFi is connected and WebSocket is not active. Starting WebSocket client...");
+      if (!wsClientStarted) {
+        LOGLN("[WS] WiFi is connected and WebSocket client is not started. Starting WebSocket client...");
         connectToWebsocket();
       }
     } else {
@@ -59,6 +88,7 @@ void checkWifiStatus() {
         LOGLN("[WIFI] Lost connection");
       }
       isWifiConnected = false;
+      wsClientStarted = false;
       wsReady = false;
     }
   }
@@ -71,6 +101,13 @@ void connectToWebsocket() {
   // safety check that wifi is connected
   if (WiFi.status() != WL_CONNECTED) {
     LOGLN("[WS] Cannot connect: WiFi is not connected");
+    wsClientStarted = false;
+    wsReady = false;
+    return;
+  }
+
+  if (wsClientStarted) {
+    LOGLN("[WS] WebSocket client already started");
     return;
   }
 
@@ -83,12 +120,54 @@ void connectToWebsocket() {
   webSocket.begin(controllerIp.toString().c_str(), CONTROLLER_PORT, "/");
   webSocket.onEvent(webSocketEvent);
   webSocket.setReconnectInterval(2500);
-  wsReady = true;
+  wsClientStarted = true;
+  wsReady = false;
   LOGLN("[WS] WebSocket client started");
 }
 
 void disconnectWebsocket() {
   webSocket.disconnect();
+  wsClientStarted = false;
   wsReady = false;
   LOGLN("[WS] Disconnected");
+}
+
+// Sends the HELLO registration message to the controller.
+// Called on initial WS connect and whenever the chain length changes.
+void sendHelloToController() {
+  if (!wsReady) return;
+
+  char buf[24];
+  snprintf(buf, sizeof(buf), "HELLO modules=%d", numModulesInChain);
+  webSocket.sendTXT(buf);
+  LOGF("[WS] Sent: %s\n", buf);
+}
+
+// Called by the WebSocketsClient library whenever a WebSocket event occurs.
+// WStype_t tells us what kind of event it is (connect, disconnect, message, etc).
+// Notice that 'num' (client ID) is not present because we are the client.
+void webSocketEvent(WStype_t type, uint8_t * payload, size_t length) {
+  switch (type) {
+
+    case WStype_DISCONNECTED:
+      wsReady = false;
+      LOGLN("[WS] Disconnected from server");
+      break;
+
+    case WStype_CONNECTED:
+      wsReady = true;
+      LOGLN("[WS] Connected to server");
+      sendHelloToController();
+      break;
+
+    case WStype_TEXT:
+      if (length > 0) {
+        LOGF("[WS] Received payload from server (%d bytes)\n", (int)length);
+        handleWebSocketCommand((char*)payload, length);
+      }
+      break;
+
+    default:
+      break;
+  }
 }

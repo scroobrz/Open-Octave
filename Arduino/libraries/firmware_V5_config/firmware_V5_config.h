@@ -20,7 +20,8 @@
 // laptop hosting
 #define CONTROLLER_PORT 8081
 
-#define WIFI_CHECK_INTERVAL 20000
+#define WIFI_CHECK_INTERVAL 5000
+#define STATUS_PUSH_INTERVAL 3000
 
 #define HEARTBEAT_INTERVAL 1000
 #define HEARTBEAT_TIMEOUT 2000
@@ -32,6 +33,10 @@
 #define MIN_TONE_DURATION 100    // minimum speaker tone time (non-blocking, audibility only)
 #define MIN_STEP_DURATION 500    // minimum recorded sequence step duration (ms)
 #define MAX_STEP_DURATION 10000  // maximum recorded sequence step duration (ms)
+
+// octave offset
+#define MIN_CHAIN_OCTAVE_OFFSET 0
+#define MAX_CHAIN_OCTAVE_OFFSET 2
 
 // ============ HARDWARE CONFIG ============
 

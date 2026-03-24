@@ -19,9 +19,21 @@ const int baseNoteFreqs[NUM_KEYS] = {
     KEY6_NOTE, KEY7_NOTE, KEY8_NOTE, KEY9_NOTE, KEY10_NOTE, KEY11_NOTE
 };
 
+// void configureNotes(){
+//     LOGF("[SETUP] Configuring notes for module index %d (octave shift: %d)\n", moduleChainIndex, moduleChainIndex);
+//     for (int i = 0; i < NUM_KEYS; i++) {
+//         keys[i].noteFreq = baseNoteFreqs[i] << moduleChainIndex;
+//     }
+// }
+
 void configureNotes(){
-    LOGF("[SETUP] Configuring notes for module index %d (octave shift: %d)\n", moduleChainIndex, moduleChainIndex);
+    uint8_t effectiveOctaveShift = moduleChainIndex + chainOctaveOffset; // octave offset
+    LOGF("[SETUP] Configuring notes for module index %d (octave shift: %d, base offset: %d)\n",
+         moduleChainIndex,
+         effectiveOctaveShift,
+         chainOctaveOffset);
+
     for (int i = 0; i < NUM_KEYS; i++) {
-        keys[i].noteFreq = baseNoteFreqs[i] << moduleChainIndex;
+        keys[i].noteFreq = baseNoteFreqs[i] << effectiveOctaveShift;
     }
 }

@@ -110,8 +110,31 @@ void toLowercase(char &c) {
 }
 
 void emitStatus() {
-  LOGF("STATUS power=%d running=%d seq=%d step=%d mode=%s\n",
-       on, sequenceRunning, currentSequence.id, 
-       (sequenceRunning ? currentSequenceStepIndex : -1), 
-       (sequenceRunning ? getCurrentSequenceModeString() : "N/A"));
+  LOGF("STATUS running=%d seq=%d step=%d mode=%s octaveOffset=%d\n",
+       sequenceRunning,
+       currentSequence.id,
+       (sequenceRunning ? currentSequenceStepIndex : -1),
+       (sequenceRunning ? getCurrentSequenceModeString() : "N/A"),
+       chainOctaveOffset); // octave offset
+}
+
+void sendPeriodicStatusIfDue() {
+  if (!isMaster) return;
+  if (!isWifiConnected) return;
+  if (!wsReady) return;
+
+  unsigned long now = millis();
+  if (now - lastStatusPushTime < STATUS_PUSH_INTERVAL) return;
+
+  lastStatusPushTime = now;
+
+  char buf[128];
+  snprintf(buf, sizeof(buf), "STATUS running=%d seq=%d step=%d mode=%s octaveOffset=%d",
+           sequenceRunning,
+           currentSequence.id,
+           (sequenceRunning ? currentSequenceStepIndex : -1),
+           (sequenceRunning ? getCurrentSequenceModeString() : "N/A"),
+           chainOctaveOffset); // octave offset
+
+  wsSendLog(buf);
 }

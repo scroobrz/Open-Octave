@@ -67,6 +67,7 @@ unsigned long lastOnOffSwitchTime = 0;
 bool isMaster = true;
 uint8_t moduleChainIndex = 0;
 uint8_t numModulesInChain = 1;
+uint8_t chainOctaveOffset = 0; // octave offset
 
 unsigned long timeLastHeartbeatSent = 0;
 unsigned long timeLastHeartbeatReceived = 0;
@@ -113,8 +114,11 @@ int8_t testLogLastAutoKey = -1;
 uint8_t testLogAutoRepeatStreak = 0;
 
 unsigned long lastWifiCheckTime = 0;
+unsigned long lastStatusPushTime = 0;
 bool isWifiConnected = false;
-bool wsReady = false;  // Prevents wsSendLog() from running before webSocket.begin()
+bool isConnectingWifi = false;
+bool wsClientStarted = false;
+bool wsReady = false;  // True only when the WebSocket is actually connected and safe for sending
 
 char serialBuf[SERIAL_BUF_SIZE];
 uint8_t serialBufPos = 0;
@@ -177,9 +181,17 @@ void setup() {
   if (!ioport.begin()) {
     LOGLN("[ERROR] PCA9555 I/O expander not responding at address 0x20!");
     LOGLN("Check I2C wiring (SDA=21, SCL=22) and verify the chip is powered.");
-  } else {
-    LOGLN("OK");
+    while (true) { delay(1000); }  // Halt - buttons won't work without it
   }
+  LOGLN("OK");
+
+  // // just to bypass hardware setup for now
+  // LOG("[SETUP] Initializing expansion board... ");
+  // if (!ioport.begin()) {
+  //   LOGLN("[WARNING] PCA9555 not detected — continuing without button hardware (wifi test mode)");
+  // } else {
+  //   LOGLN("OK");
+  // }
 
   LOG("[SETUP] Initializing servo driver... ");
   servoDriver.init();
@@ -215,8 +227,12 @@ void setup() {
   if (!hasUpstream){
     LOGLN("[SETUP] Connecting to WiFi...");
     connectToWifi();
-    connectToWebsocket();
-    LOGLN("[SETUP] WiFi & WebSocket Active!");
+    if (WiFi.status() == WL_CONNECTED) {
+      connectToWebsocket();
+      LOGLN("[SETUP] WiFi & WebSocket Active!");
+    } else {
+      LOGLN("[SETUP] WiFi connection failed during startup. WebSocket not started.");
+    }
   }
 
   LOGLN("========================================");
@@ -228,35 +244,42 @@ void setup() {
 // runs repeatedly forever
 void loop() {
   ioport.pinStates();
-  checkOnOffButton();
+  checkOnOff();
 
   if (isMaster){
     handleControllerCommunication();
+    handleWifiConnection();
     checkWifiStatus();
+    sendPeriodicStatusIfDue();
   }
 
   if (on){
     handleChainCommunication();
 
     if (isMaster){
+      handleControllerCommunication();
+      checkWifiStatus();
       handleSequencePlayback();
       handleSequenceButtons();
       handleRecordButton();
     }
 
     handleKeyPresses();
-    handleToneSustain();
   }
 }
 
-void checkOnOffButton(){
+void checkOnOff(){
   if (millis() - lastOnOffSwitchTime >= BUTTON_DEBOUNCE_DELAY){
     // if on/off button pressed
     if (ioport.stateOfPin(ON_OFF_PIN) == HIGH){
       if (on) {
-        powerOff();
+        on = false;
+        if (recording) stopRecording();
+        stopSequence();
+        playShutdownAnimation();
       } else {
-        powerOn();
+        playStartupAnimation();
+        on = true;
       }
       lastOnOffSwitchTime = millis();
     }
