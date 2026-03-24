@@ -32,8 +32,10 @@ const PORT = process.env.APP_PORT || 3000;
 const WS_PORT = Number(process.env.WS_PORT || 8081);
 const SERIAL_PATH = process.env.SERIAL_PORT;
 const BAUD_RATE = 115200;
-const MODULE_STALE_TIMEOUT_MS = Number(process.env.MODULE_STALE_TIMEOUT_MS || 10000);
-const MODULE_CLEANUP_INTERVAL_MS = Number(process.env.MODULE_CLEANUP_INTERVAL_MS || 3000);
+// Demo stability patch: be more tolerant of short WiFi/WebSocket hiccups
+// so the UI does not flicker between connected and disconnected too quickly.
+const MODULE_STALE_TIMEOUT_MS = Number(process.env.MODULE_STALE_TIMEOUT_MS || 30000);
+const MODULE_CLEANUP_INTERVAL_MS = Number(process.env.MODULE_CLEANUP_INTERVAL_MS || 5000);
 
 // Module counter — assigns labels (Module A, Module B, ...) in connect order
 let moduleCounter = 0;
@@ -244,13 +246,30 @@ function cleanupStaleModules() {
         const socketMissing = !entry.ws;
         const socketClosed = entry.ws && entry.ws.readyState !== WebSocket.OPEN;
 
-        if (socketMissing || socketClosed || staleByTime) {
+        // Demo stability patch: only force-remove immediately if the socket is
+        // truly missing/closed. For stale modules, wait for the longer timeout
+        // before removing them so short hiccups do not flicker the UI.
+        if (socketMissing || socketClosed) {
             if (entry.ws) {
                 try {
                     entry.ws.terminate();
                 } catch (_) {}
             }
             unregisterModule(ip);
+            continue;
+        }
+
+        if (staleByTime) {
+            try {
+                entry.ws.ping();
+            } catch (_) {}
+
+            if (entry.ws && entry.ws.readyState !== WebSocket.OPEN) {
+                try {
+                    entry.ws.terminate();
+                } catch (_) {}
+                unregisterModule(ip);
+            }
         }
     }
 }

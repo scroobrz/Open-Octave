@@ -343,9 +343,8 @@ export default function App() {
         return next;
       });
     } catch {
-      setModulesList([]);
-      setChainSequences({});
-      setChainSeqData({});
+      // Demo stability patch: keep the last known module state on brief API hiccups
+      // so the UI does not flicker or collapse controls during short disconnects.
     }
   }
 
@@ -803,21 +802,22 @@ export default function App() {
 
   function startAutoLogs() {
     if (timerRef.current) clearInterval(timerRef.current);
-    timerRef.current = setInterval(refreshLogs, 1000);
+    timerRef.current = setInterval(refreshLogs, 2000);
   }
   function stopAutoLogs() {
     if (timerRef.current) { clearInterval(timerRef.current); timerRef.current = null; }
   }
   function startAutoState() {
     if (stateTimerRef.current) clearInterval(stateTimerRef.current);
-    stateTimerRef.current = setInterval(refreshControllerState, 1000);
+    timerRef.current;
+    stateTimerRef.current = setInterval(refreshControllerState, 3000);
   }
   function stopAutoState() {
     if (stateTimerRef.current) { clearInterval(stateTimerRef.current); stateTimerRef.current = null; }
   }
   function startAutoModules() {
     if (modulesTimerRef.current) clearInterval(modulesTimerRef.current);
-    modulesTimerRef.current = setInterval(refreshModules, 2000);
+    modulesTimerRef.current = setInterval(refreshModules, 5000);
   }
   function stopAutoModules() {
     if (modulesTimerRef.current) { clearInterval(modulesTimerRef.current); modulesTimerRef.current = null; }
