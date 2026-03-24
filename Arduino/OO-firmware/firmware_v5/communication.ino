@@ -315,7 +315,10 @@ void handleUsbSerialCommands() {
     } else {
       powerOn();
     }
+    return;
   }
+
+  if (!on) return;
 
   while (Serial.available()) {
     char c = (char)Serial.read();
