@@ -280,18 +280,22 @@ void loadDefaultSequence() {
   currentSequence.id = 0;
   strcpy(currentSequence.name, "Default");
 
-  // Short demo mixing single melody notes and chords
+  // A-minor descending melody — distinct from the two-octave C-major version
+  // Key map: 0=C4 1=C#4 2=D4 4=E4 5=F4 7=G4 8=G#4 9=A4 10=A#4 11=B4
+  // Avoids keys 3 (D#4) and 6 (F#4)
   const SequenceStep defaultSteps[] = {
-    {3, {0, 4, 7},   {COLOR_CYAN, COLOR_GOLD, COLOR_MAGENTA},  800},  // C major chord
-    {1, {4},          {COLOR_GOLD},                              400},  // E4 melody
-    {1, {5},          {COLOR_CORAL},                             400},  // F4 melody
-    {3, {5, 9, 0},    {COLOR_CORAL, COLOR_CYAN, COLOR_CYAN},    800},  // F major chord
-    {1, {7},          {COLOR_MAGENTA},                           400},  // G4 melody
-    {1, {4},          {COLOR_GOLD},                              400},  // E4 melody
-    {2, {0, 7},       {COLOR_CYAN, COLOR_MAGENTA},               600},  // C4+G4 fifth
-    {3, {7, 11, 2},   {COLOR_MAGENTA, COLOR_CORAL, COLOR_GREEN}, 800},  // G major chord
-    {1, {2},          {COLOR_GREEN},                             400},  // D4 melody
-    {3, {0, 4, 7},    {COLOR_CYAN, COLOR_GOLD, COLOR_MAGENTA}, 1000},  // C major chord resolve
+    {3, {9, 0, 4},    {COLOR_CORAL, COLOR_CYAN, COLOR_GOLD},     800},  // A minor chord (A4+C4+E4)
+    {1, {7},           {COLOR_MAGENTA},                            400},  // G4 melody
+    {1, {5},           {COLOR_CORAL},                              400},  // F4 melody
+    {1, {4},           {COLOR_GOLD},                               400},  // E4 melody
+    {2, {2, 9},        {COLOR_GREEN, COLOR_CORAL},                 600},  // D4+A4 fifth
+    {1, {5},           {COLOR_CORAL},                              400},  // F4 melody
+    {1, {4},           {COLOR_GOLD},                               400},  // E4 melody
+    {3, {2, 5, 9},     {COLOR_GREEN, COLOR_CORAL, COLOR_CORAL},   800},  // D minor chord (D4+F4+A4)
+    {1, {0},           {COLOR_CYAN},                               400},  // C4 melody
+    {1, {2},           {COLOR_GREEN},                              400},  // D4 melody
+    {3, {4, 8, 11},    {COLOR_GOLD, COLOR_VIOLET, COLOR_INDIGO},  800},  // E major chord (E4+G#4+B4)
+    {3, {9, 0, 4},     {COLOR_CORAL, COLOR_CYAN, COLOR_GOLD},    1000},  // A minor resolve
   };
 
   currentSequence.length = sizeof(defaultSteps) / sizeof(defaultSteps[0]);
