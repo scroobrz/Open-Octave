@@ -6,6 +6,8 @@
 
 void promoteToMaster(){
     LOGLN("[CHAIN] Upstream lost — promoting to MASTER");
+    if (recording) stopRecording();
+    stopSequence();
     isMaster = true;
     moduleChainIndex = 0;
     configureNotes();
