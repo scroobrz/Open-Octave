@@ -1,4 +1,10 @@
 // Chord synthesis.ino
+// Audio runs on its own FreeRTOS task so the blocking i2s_write() call
+// doesn't stall the main loop (WiFi, sequences, button scanning, etc.).
+
+#define AUDIO_TASK_STACK_SIZE 4096
+#define AUDIO_TASK_PRIORITY 2  // Above loop()'s default priority of 1
+#define AUDIO_TASK_CORE 1      // Same core as loop(); higher priority preempts it
 
 #define SINE_TABLE_SIZE 1024
 #define NUM_HARMONICS 5
@@ -64,15 +70,41 @@ void noteSetup() {
     envelopes[i].value = 0.0f;
     envelopes[i].wasPressed = false;
   }
+
+  // Launch the audio task on its own FreeRTOS task.
+  // Priority 2 lets it preempt loop() (priority 1) to fill DMA buffers
+  // on time, while loop() still gets all remaining CPU for WiFi, sequences, etc.
+  xTaskCreatePinnedToCore(
+    audioTask,              // task function
+    "audio",                // name (for debugging)
+    AUDIO_TASK_STACK_SIZE,  // stack size in bytes
+    NULL,                   // parameter
+    AUDIO_TASK_PRIORITY,    // priority (2 > loop's 1)
+    NULL,                   // task handle (not needed)
+    AUDIO_TASK_CORE         // core 1 (same as loop)
+  );
+}
+
+// FreeRTOS task that continuously fills the I2S DMA buffer.
+// Runs independently of loop() so WiFi/sequence/button handling
+// never starves the audio, and audio never blocks those systems.
+void audioTask(void *param) {
+  (void)param;
+  for (;;) {
+    playPressedKeys();
+  }
 }
 
 void playPressedKeys() {
-  // --- Snapshot key states atomically at the start ---
-  // Never read keys[i].isPressed more than once per call,
-  // prevents race condition if button scanning runs on another core
-  bool pressedSnapshot[MAX_TOTAL_KEYS];
+  // --- Snapshot key states and frequencies atomically at the start ---
+  // This function runs on a separate task from handleKeyPresses() and
+  // configureNotes(), so we snapshot both isPressed and noteFreq to
+  // avoid reading partially-updated state mid-buffer.
+  bool pressedSnapshot[NUM_KEYS];
+  int freqSnapshot[NUM_KEYS];
   for (int i = 0; i < NUM_KEYS; i++) {
-    pressedSnapshot[i] = keys[i].isPressed && keys[i].noteFreq > 0;
+    freqSnapshot[i] = keys[i].noteFreq;
+    pressedSnapshot[i] = keys[i].isPressed && freqSnapshot[i] > 0;
   }
 
   // --- 1. Update envelopes from snapshot ---
@@ -94,7 +126,7 @@ void playPressedKeys() {
   }
 
   // --- 2. Collect active keys (pressed or still releasing) ---
-  int activeIndices[MAX_TOTAL_KEYS];
+  int activeIndices[NUM_KEYS];
   int activeCount = 0;
 
   for (int i = 0; i < NUM_KEYS; i++) {
@@ -120,7 +152,7 @@ void playPressedKeys() {
 
     for (int v = 0; v < activeCount; v++) {
       int keyIdx = activeIndices[v];
-      float freq = (float)keys[keyIdx].noteFreq;
+      float freq = (float)freqSnapshot[keyIdx];
       float noteSample = 0.0f;
 
       for (int h = 0; h < NUM_HARMONICS; h++) {

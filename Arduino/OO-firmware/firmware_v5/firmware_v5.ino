@@ -245,8 +245,12 @@ void loop() {
     }
 
     handleKeyPresses();
-    playPressedKeys();
   }
+
+  // Audio now runs on its own FreeRTOS task, so the loop is no longer
+  // throttled by i2s_write(). Yield for 1ms to avoid hammering the I2C
+  // bus with thousands of ioport.pinStates() reads per second.
+  vTaskDelay(1);
 }
 
 void checkOnOffButton(){
