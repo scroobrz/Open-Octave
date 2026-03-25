@@ -273,6 +273,12 @@ export default function App() {
     return modulesList.filter(m => m.connected).length;
   }, [modulesList]);
 
+  const connectedPhysicalModuleCount = useMemo(() => {
+    return modulesList
+      .filter(m => m.connected)
+      .reduce((sum, m) => sum + (Number.isFinite(m.chainLength) ? m.chainLength : 1), 0);
+  }, [modulesList]);
+
   const smallestChainKeys = useMemo(() => {
     const connected = modulesList.filter(m => m.connected);
     if (connected.length === 0) return 0;
@@ -337,9 +343,8 @@ export default function App() {
         return next;
       });
     } catch {
-      setModulesList([]);
-      setChainSequences({});
-      setChainSeqData({});
+      // Demo stability patch: keep the last known module state on brief API hiccups
+      // so the UI does not flicker or collapse controls during short disconnects.
     }
   }
 
@@ -466,6 +471,17 @@ export default function App() {
       setDbSeqError(`Control failed: ${e.message}`);
     }
   }
+
+  // async function setModuleOctaveOffset(moduleIp, octaveOffset) {
+  //   try {
+  //     await apiPost(`/api/modules/${encodeURIComponent(moduleIp)}/octave-offset`, {
+  //       octaveOffset
+  //     });
+  //     await refreshModules();
+  //   } catch (e) {
+  //     setDbSeqError(`Octave offset update failed: ${e.message}`);
+  //   }
+  // }
 
   async function sendAllControl(cmd, mode) {
     try {
@@ -786,21 +802,22 @@ export default function App() {
 
   function startAutoLogs() {
     if (timerRef.current) clearInterval(timerRef.current);
-    timerRef.current = setInterval(refreshLogs, 1000);
+    timerRef.current = setInterval(refreshLogs, 2000);
   }
   function stopAutoLogs() {
     if (timerRef.current) { clearInterval(timerRef.current); timerRef.current = null; }
   }
   function startAutoState() {
     if (stateTimerRef.current) clearInterval(stateTimerRef.current);
-    stateTimerRef.current = setInterval(refreshControllerState, 1000);
+    timerRef.current;
+    stateTimerRef.current = setInterval(refreshControllerState, 3000);
   }
   function stopAutoState() {
     if (stateTimerRef.current) { clearInterval(stateTimerRef.current); stateTimerRef.current = null; }
   }
   function startAutoModules() {
     if (modulesTimerRef.current) clearInterval(modulesTimerRef.current);
-    modulesTimerRef.current = setInterval(refreshModules, 2000);
+    modulesTimerRef.current = setInterval(refreshModules, 5000);
   }
   function stopAutoModules() {
     if (modulesTimerRef.current) { clearInterval(modulesTimerRef.current); modulesTimerRef.current = null; }
@@ -907,10 +924,6 @@ export default function App() {
             </span>
           </div>
           <div className="chain-header-right">
-            {/* laptop hosting / module power control */}
-            <span className={mod.connected ? 'pill pill-green' : 'pill pill-coral'}>
-              {mod.connected ? 'Powered' : 'Off'}
-            </span>
             {mod.currentSequenceName && (
               <span className="pill pill-teal">{mod.currentSequenceName}</span>
             )}
@@ -920,11 +933,11 @@ export default function App() {
           </div>
         </div>
 
-        <div className="chain-keyboard-row">
+        <div className="chain-keyboard-row" style={{ overflowX: 'auto'}}>
           {octaveGroups.map((group, gi) => (
-            <div className="octave-group" key={gi}>
+            <div className="octave-group" key={gi} style={{ minWidth: 560, flex: '0 0 auto' }}>
               <div className="octave-label">Module {group.moduleNum}</div>
-              <div className="keyboard-vis">
+              <div className="keyboard-vis" style={{ width: '100%', minWidth: 560 }}>
                 {group.keys.filter(k => !k.isBlack).map(k => {
                   const active = keyHits[k.globalIdx] > 0;
                   const color = keyColors[k.globalIdx] ? `#${displayColor(keyColors[k.globalIdx])}` : null;
@@ -937,8 +950,6 @@ export default function App() {
                     >
                       {active && <span className="kb-led" style={{ backgroundColor: color }} />}
                       <span className="kb-note">{k.note}</span>
-                      <span className="kb-idx">{k.globalIdx}</span>
-                      {active && <span className="kb-hits">{keyHits[k.globalIdx]}x</span>}
                     </div>
                   );
                 })}
@@ -960,7 +971,6 @@ export default function App() {
                     >
                       {active && <span className="kb-led" style={{ backgroundColor: color }} />}
                       <span className="kb-note">{k.note}</span>
-                      {active && <span className="kb-hits">{keyHits[k.globalIdx]}x</span>}
                     </div>
                   );
                 })}
@@ -971,33 +981,38 @@ export default function App() {
 
         {steps.length > 0 ? (
           <div className="hint">
-            <b>{steps.length}</b> steps across <b>{activeKeyCount}</b> keys
+            <b>{steps.length}</b> steps loaded for this chain.
           </div>
         ) : (
-          <div className="hint">Select a sequence to see which keys are used.</div>
+          <div className="hint">Select a sequence to preview the notes used.</div>
         )}
 
         {/* Per-chain controls */}
         <div className="chain-controls">
-          <div className="chain-controls-left">
-            <select
-              className="input chain-seq-select"
-              value={chainSequences[mod.ip] || mod.currentSequenceId || ''}
-              onChange={(e) => {
-                const val = e.target.value;
-                if (val) uploadSequenceToModule(mod.ip, val);
-              }}
-              disabled={dbActionBusy || !mod.connected}
-            >
-              <option value="">Select sequence...</option>
-              {dbSeqItems
-                .filter(s => s.maxKey < totalKeys)
-                .map(s => (
-                  <option key={s.id} value={s.id}>
-                    {s.name} ({s.stepCount} steps)
-                  </option>
-                ))}
-            </select>
+        <div className="chain-controls-left" style={{ display: 'flex', flexDirection: 'column', gap: 10, alignItems: 'flex-start', textAlign: 'left' }}>
+
+            <div className="row" style={{ gap: 10, alignItems: 'center', flexWrap: 'wrap', justifyContent: 'flex-start', width: '100%' }}>
+              <label className="label" style={{ marginBottom: 0 }}>Sequence</label>
+              <select
+                className="input chain-seq-select"
+                style={{ maxWidth: 300 }}
+                value={chainSequences[mod.ip] || mod.currentSequenceId || ''}
+                onChange={(e) => {
+                  const val = e.target.value;
+                  if (val) uploadSequenceToModule(mod.ip, val);
+                }}
+                disabled={dbActionBusy || !mod.connected}
+              >
+                <option value="">Select sequence...</option>
+                {dbSeqItems
+                  .filter(s => s.maxKey < totalKeys)
+                  .map(s => (
+                    <option key={s.id} value={s.id}>
+                      {s.name} ({s.stepCount} steps)
+                    </option>
+                  ))}
+              </select>
+            </div>
           </div>
           <div className="chain-controls-right">
             <button className="btn btn-sm btn-green" disabled={!mod.connected} onClick={() => sendModuleControl(mod.ip, 'start', 'guided')}>
@@ -1008,9 +1023,6 @@ export default function App() {
             </button>
             <button className="btn btn-sm btn-coral" disabled={!mod.connected} onClick={() => sendModuleControl(mod.ip, 'stop')}>
               Stop
-            </button>
-            <button className="btn btn-sm btn-secondary" disabled={!mod.connected} onClick={() => sendModuleControl(mod.ip, 'power_toggle')}>
-              Power
             </button>
           </div>
         </div>
@@ -1157,7 +1169,9 @@ export default function App() {
           <Badge connected={isConnected} />
           {connectedModuleCount > 0 && (
             <div className="sidebar-module-count">
-              {connectedModuleCount} module{connectedModuleCount !== 1 ? 's' : ''} connected
+              {connectedModuleCount} controller{connectedModuleCount !== 1 ? 's' : ''} connected
+              <br />
+              {connectedPhysicalModuleCount} physical module{connectedPhysicalModuleCount !== 1 ? 's' : ''}
             </div>
           )}
         </div>
@@ -1171,14 +1185,19 @@ export default function App() {
             <h1>Connect</h1>
 
             <div className="card card-accent-teal">
-              <h2>WebSocket Server</h2>
+              <h2>{uiMode === 'developer' ? 'WebSocket Server' : 'Connected Modules'}</h2>
               <div className="row">
                 <div className="pill-row">
-                  <span className={isConnected ? 'pill pill-green' : 'pill pill-muted'}>
-                    WS Server: Port {health?.wsServerPort || 81}
-                  </span>
+                  {uiMode === 'developer' && (
+                    <span className={isConnected ? 'pill pill-green' : 'pill pill-muted'}>
+                      WS Server: Port {health?.wsServerPort || 81}
+                    </span>
+                  )}
                   <span className={connectedModuleCount > 0 ? 'pill pill-green' : 'pill pill-coral'}>
-                    {connectedModuleCount} module{connectedModuleCount !== 1 ? 's' : ''} connected
+                    {connectedModuleCount} controller{connectedModuleCount !== 1 ? 's' : ''} connected
+                  </span>
+                  <span className={connectedPhysicalModuleCount > 0 ? 'pill pill-green' : 'pill pill-muted'}>
+                    {connectedPhysicalModuleCount} physical module{connectedPhysicalModuleCount !== 1 ? 's' : ''}
                   </span>
                 </div>
                 <button className="btn btn-secondary" onClick={() => { refreshHealth(); refreshModules(); }} type="button">
@@ -1191,9 +1210,9 @@ export default function App() {
                   <table className="seq-table">
                     <thead>
                       <tr>
-                        <th>Module</th>
-                        <th>IP</th>
-                        <th>Chain</th>
+                        <th>Controller</th>
+                        {uiMode === 'developer' && <th>IP</th>}
+                        <th>Physical chain</th>
                         <th>Status</th>
                       </tr>
                     </thead>
@@ -1201,7 +1220,7 @@ export default function App() {
                       {modulesList.filter(m => m.connected).map(m => (
                         <tr key={m.ip}>
                           <td>{m.label}</td>
-                          <td><code>{m.ip}</code></td>
+                          {uiMode === 'developer' && <td><code>{m.ip}</code></td>}
                           <td>{m.chainLength} module{m.chainLength !== 1 ? 's' : ''} ({m.totalKeys} keys)</td>
                           <td><span className="pill pill-green">Connected</span></td>
                         </tr>
@@ -1212,32 +1231,34 @@ export default function App() {
               )}
 
               <div className="hint">
-                Modules connect to the controller automatically via WiFi. No manual connection needed.
+                Controllers connect to the server automatically via WiFi. A chained pair should appear as 1 controller with 2 physical modules.
               </div>
             </div>
 
             {/* Serial fallback */}
-            <details className="diagnostics">
-              <summary>Serial Fallback (debugging)</summary>
-              <div className="card">
-                <h2>Serial Connection</h2>
-                <div className="row">
-                  <input
-                    className="input"
-                    value={serialPortPath}
-                    onChange={(e) => setSerialPortPath(e.target.value)}
-                    placeholder="Serial port path (e.g. /dev/cu.usbmodemXXXX)"
-                  />
-                  <div className="btn-row">
-                    <button className="btn btn-green" onClick={connectSerial} type="button">Connect Serial</button>
-                    <button className="btn btn-coral" onClick={disconnectAll} type="button">Disconnect</button>
+            {uiMode === 'developer' && (
+              <details className="diagnostics">
+                <summary>Serial Fallback (debugging)</summary>
+                <div className="card">
+                  <h2>Serial Connection</h2>
+                  <div className="row">
+                    <input
+                      className="input"
+                      value={serialPortPath}
+                      onChange={(e) => setSerialPortPath(e.target.value)}
+                      placeholder="Serial port path (e.g. /dev/cu.usbmodemXXXX)"
+                    />
+                    <div className="btn-row">
+                      <button className="btn btn-green" onClick={connectSerial} type="button">Connect Serial</button>
+                      <button className="btn btn-coral" onClick={disconnectAll} type="button">Disconnect</button>
+                    </div>
+                  </div>
+                  <div className="hint">
+                    Serial is for single-module debugging only. In production, modules connect via WiFi.
                   </div>
                 </div>
-                <div className="hint">
-                  Serial is for single-module debugging only. In production, modules connect via WiFi.
-                </div>
-              </div>
-            </details>
+              </details>
+            )}
 
             {healthError && <pre className="pre">{healthError}</pre>}
 
@@ -1302,9 +1323,6 @@ export default function App() {
                   </button>
                   <button className="btn btn-coral" disabled={!isConnected} onClick={() => sendAllControl('stop')}>
                     Stop All
-                  </button>
-                  <button className="btn btn-secondary" disabled={!isConnected} onClick={() => sendAllControl('power_toggle')}>
-                    On/Off All
                   </button>
                 </div>
               </div>
