@@ -924,10 +924,6 @@ export default function App() {
             </span>
           </div>
           <div className="chain-header-right">
-            {/* laptop hosting / module power control */}
-            <span className={mod.connected ? 'pill pill-green' : 'pill pill-coral'}>
-              {mod.connected ? 'Powered' : 'Off'}
-            </span>
             {mod.currentSequenceName && (
               <span className="pill pill-teal">{mod.currentSequenceName}</span>
             )}
@@ -1027,9 +1023,6 @@ export default function App() {
             </button>
             <button className="btn btn-sm btn-coral" disabled={!mod.connected} onClick={() => sendModuleControl(mod.ip, 'stop')}>
               Stop
-            </button>
-            <button className="btn btn-sm btn-secondary" disabled={!mod.connected} onClick={() => sendModuleControl(mod.ip, 'power_toggle')}>
-              Power
             </button>
           </div>
         </div>
@@ -1330,9 +1323,6 @@ export default function App() {
                   </button>
                   <button className="btn btn-coral" disabled={!isConnected} onClick={() => sendAllControl('stop')}>
                     Stop All
-                  </button>
-                  <button className="btn btn-secondary" disabled={!isConnected} onClick={() => sendAllControl('power_toggle')}>
-                    On/Off All
                   </button>
                 </div>
               </div>

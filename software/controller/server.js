@@ -765,7 +765,6 @@ app.post('/api/modules/all/control', (req, res) => {
         const cmd = body.cmd;
         const mode = body.mode;
 
-        // laptop hosting / module power control
         let serialCmd;
         if (cmd === 'start') {
             serialCmd = mode === 'teaching' ? 't' : 'g';
@@ -775,10 +774,8 @@ app.post('/api/modules/all/control', (req, res) => {
             serialCmd = 'l';
         } else if (cmd === 'servo_test') {
             serialCmd = 's';
-        } else if (cmd === 'power_toggle') {
-            serialCmd = 'o';
         } else {
-            res.status(400).json({ ok: false, error: 'cmd must be start, stop, led_test, servo_test, or power_toggle' });
+            res.status(400).json({ ok: false, error: 'cmd must be start, stop, led_test, or servo_test' });
             return;
         }
 
@@ -852,7 +849,6 @@ app.post('/api/modules/:ip/control', (req, res) => {
         const cmd = body.cmd; // 'start' | 'stop' | 'led_test' | 'servo_test'
         const mode = body.mode; // 'guided' | 'teaching'
 
-        // laptop hosting / module power control
         let serialCmd;
         if (cmd === 'start') {
             serialCmd = mode === 'teaching' ? 't' : 'g';
@@ -862,10 +858,8 @@ app.post('/api/modules/:ip/control', (req, res) => {
             serialCmd = 'l';
         } else if (cmd === 'servo_test') {
             serialCmd = 's';
-        } else if (cmd === 'power_toggle') {
-            serialCmd = 'o';
         } else {
-            res.status(400).json({ ok: false, error: 'cmd must be start, stop, led_test, servo_test, or power_toggle' });
+            res.status(400).json({ ok: false, error: 'cmd must be start, stop, led_test, or servo_test' });
             return;
         }
 
