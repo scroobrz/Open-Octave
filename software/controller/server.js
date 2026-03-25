@@ -1458,68 +1458,120 @@ app.post('/api/db/sequences/:id/upload', async (req, res) => {
   }
 });
 
-// ============ WEBSOCKET SERVER ============
+// ============ WEBSOCKET SERVER / STARTUP ============
 
-const httpServer = app.listen(PORT, '0.0.0.0', () => {
-    console.log(`\nOPEN OCTAVE CONTROLLER`);
-    console.log(`HTTP server running at: http://localhost:${PORT}`);
-    console.log(`WebSocket server listening on port ${WS_PORT}`);
-    console.log(`Modules connect automatically via WebSocket\n`);
-});
+let httpServer = null;
+let wss = null;
+let staleCleanupTimer = null;
 
-// const wss = new WebSocket.Server({ port: Number(WS_PORT) }, () => {
-//     console.log(`[WS] WebSocket server listening on 0.0.0.0:${WS_PORT}`);
-// });
+function startServers() {
+    // avoid duplicate listeners in tests or repeated imports
+    if (httpServer && wss) {
+        return { httpServer, wss, staleCleanupTimer };
+    }
 
-// laptop hosting
-const wss = new WebSocket.Server({ host: '0.0.0.0', port: WS_PORT }, () => {
-    console.log(`[WS] WebSocket server listening on 0.0.0.0:${WS_PORT}`);
-});
+    httpServer = app.listen(PORT, '0.0.0.0', () => {
+        console.log(`\nOPEN OCTAVE CONTROLLER`);
+        console.log(`HTTP server running at: http://localhost:${PORT}`);
+        console.log(`WebSocket server listening on port ${WS_PORT}`);
+        console.log(`Modules connect automatically via WebSocket\n`);
+    });
 
-wss.on('connection', (socket, req) => {
-    const clientIp = req.socket.remoteAddress?.replace('::ffff:', '') || 'unknown';
-    console.log(`[WS] Incoming connection from ${clientIp}`);
+    wss = new WebSocket.Server({ host: '0.0.0.0', port: WS_PORT }, () => {
+        console.log(`[WS] WebSocket server listening on 0.0.0.0:${WS_PORT}`);
+    });
 
-    const entry = registerModule(clientIp, socket);
-    socket.isAlive = true;
+    wss.on('connection', (socket, req) => {
+        const clientIp = req.socket.remoteAddress?.replace('::ffff:', '') || 'unknown';
+        console.log(`[WS] Incoming connection from ${clientIp}`);
 
-    socket.on('pong', () => {
+        const entry = registerModule(clientIp, socket);
         socket.isAlive = true;
-        touchModule(clientIp);
+
+        socket.on('pong', () => {
+            socket.isAlive = true;
+            touchModule(clientIp);
+        });
+
+        socket.on('message', (data) => {
+            const msg = data.toString().trim();
+            if (msg.length === 0) return;
+
+            socket.isAlive = true;
+            touchModule(clientIp);
+            console.log(`[ESP32 ${clientIp}] ${msg}`);
+            pushLog(`ESP32:${clientIp}`, msg);
+            ingestEsp32Line(msg, clientIp);
+        });
+
+        socket.on('close', () => {
+            unregisterModule(clientIp);
+        });
+
+        socket.on('error', (err) => {
+            console.error(`[WS] Error from ${clientIp}: ${err.message}`);
+            unregisterModule(clientIp);
+        });
     });
 
-    socket.on('message', (data) => {
-        const msg = data.toString().trim();
-        if (msg.length === 0) return;
+    staleCleanupTimer = setInterval(() => {
+        cleanupStaleModules();
 
-        socket.isAlive = true;
-        touchModule(clientIp);
-        console.log(`[ESP32 ${clientIp}] ${msg}`);
-        pushLog(`ESP32:${clientIp}`, msg);
-        ingestEsp32Line(msg, clientIp);
+        for (const entry of modules.values()) {
+            if (!entry.connected || !entry.ws || entry.ws.readyState !== WebSocket.OPEN) continue;
+            try {
+                entry.ws.ping();
+            } catch (_) {}
+        }
+    }, MODULE_CLEANUP_INTERVAL_MS);
+
+    wss.on('close', () => {
+        if (staleCleanupTimer) {
+            clearInterval(staleCleanupTimer);
+            staleCleanupTimer = null;
+        }
     });
 
-    socket.on('close', () => {
-        unregisterModule(clientIp);
-    });
+    return { httpServer, wss, staleCleanupTimer };
+}
 
-    socket.on('error', (err) => {
-        console.error(`[WS] Error from ${clientIp}: ${err.message}`);
-        unregisterModule(clientIp);
-    });
-});
-
-const staleCleanupTimer = setInterval(() => {
-    cleanupStaleModules();
+function stopServers() {
+    if (staleCleanupTimer) {
+        clearInterval(staleCleanupTimer);
+        staleCleanupTimer = null;
+    }
 
     for (const entry of modules.values()) {
-        if (!entry.connected || !entry.ws || entry.ws.readyState !== WebSocket.OPEN) continue;
-        try {
-            entry.ws.ping();
-        } catch (_) {}
+        if (entry.ws) {
+            try {
+                entry.ws.terminate();
+            } catch (_) {}
+        }
+        entry.ws = null;
+        entry.connected = false;
     }
-}, MODULE_CLEANUP_INTERVAL_MS);
 
-wss.on('close', () => {
-    clearInterval(staleCleanupTimer);
-});
+    if (wss) {
+        try {
+            wss.close();
+        } catch (_) {}
+        wss = null;
+    }
+
+    if (httpServer) {
+        try {
+            httpServer.close();
+        } catch (_) {}
+        httpServer = null;
+    }
+}
+
+if (require.main === module) {
+    startServers();
+}
+
+module.exports = {
+    app,
+    startServers,
+    stopServers
+};
