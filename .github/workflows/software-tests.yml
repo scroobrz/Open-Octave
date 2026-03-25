@@ -1,0 +1,38 @@
+
+
+name: Software Tests
+
+on:
+  push:
+    branches:
+      - main
+      - '**'
+  pull_request:
+
+jobs:
+  controller-tests:
+    runs-on: ubuntu-latest
+
+    defaults:
+      run:
+        working-directory: software/controller
+
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v4
+
+      - name: Set up Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version: 20
+          cache: npm
+          cache-dependency-path: software/controller/package-lock.json
+
+      - name: Install controller dependencies
+        run: npm ci
+
+      - name: Run controller tests
+        run: npm test
+
+      - name: Run controller coverage
+        run: npm run test:coverage
