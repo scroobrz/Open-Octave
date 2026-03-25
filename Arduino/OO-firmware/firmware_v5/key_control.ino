@@ -137,8 +137,7 @@ static uint32_t getBrandGradientColor(uint8_t keyIndex) {
 }
 
 // Plays a rainbow sweep from left to right when the keyboard powers on.
-// Each key briefly shows its brand gradient color, then turns white.
-// Once all keys are white, holds for STARTUP_WHITE_HOLD ms, then all LEDs off.
+// Each key lights up with its brand gradient color in sequence, holds briefly, then all LEDs off.
 void playStartupAnimation() {
   LOGLN("[ANIM] Playing startup animation");
 
@@ -146,8 +145,6 @@ void playStartupAnimation() {
     leds.setPixelColor(keys[i].ledIndex, getBrandGradientColor(i));
     leds.show();
     delay(SWEEP_DELAY_PER_KEY);
-    leds.setPixelColor(keys[i].ledIndex, COLOR_WHITE);
-    leds.show();
   }
 
   delay(STARTUP_WHITE_HOLD);
@@ -161,23 +158,21 @@ void playStartupAnimation() {
 }
 
 // Plays a rainbow sweep from right to left when the keyboard powers off.
-// All keys flash white briefly, then each key shows its brand gradient color
-// before turning off, sweeping from right to left.
+// All keys light up with their brand gradient colors, hold briefly,
+// then turn off one by one from right to left.
 void playShutdownAnimation() {
   LOGLN("[ANIM] Playing shutdown animation");
 
   for (int i = 0; i < NUM_KEYS; i++) {
-    leds.setPixelColor(keys[i].ledIndex, COLOR_WHITE);
+    leds.setPixelColor(keys[i].ledIndex, getBrandGradientColor(i));
   }
   leds.show();
   delay(SHUTDOWN_WHITE_HOLD);
 
   for (int i = NUM_KEYS - 1; i >= 0; i--) {
-    leds.setPixelColor(keys[i].ledIndex, getBrandGradientColor(i));
-    leds.show();
-    delay(SWEEP_DELAY_PER_KEY);
     leds.setPixelColor(keys[i].ledIndex, 0);
     leds.show();
+    delay(SWEEP_DELAY_PER_KEY);
   }
 
   LOGLN("[ANIM] Shutdown animation complete");
