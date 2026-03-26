@@ -32,6 +32,16 @@ const PORT = process.env.APP_PORT || 3000;
 const WS_PORT = Number(process.env.WS_PORT || 8081);
 const SERIAL_PATH = process.env.SERIAL_PORT;
 const BAUD_RATE = 115200;
+
+// Multi-serial support: comma-separated list of serial port paths.
+// Falls back to single SERIAL_PORT for backward compatibility.
+const SERIAL_PATHS = (() => {
+    if (process.env.SERIAL_PORTS) {
+        return process.env.SERIAL_PORTS.split(',').map(s => s.trim()).filter(Boolean);
+    }
+    if (SERIAL_PATH) return [SERIAL_PATH];
+    return [];
+})();
 // Demo stability patch: be more tolerant of short WiFi/WebSocket hiccups
 // so the UI does not flicker between connected and disconnected too quickly.
 const MODULE_STALE_TIMEOUT_MS = Number(process.env.MODULE_STALE_TIMEOUT_MS || 30000);
@@ -84,28 +94,28 @@ function getModuleLabel(ip) {
     return `Module ${letter}`;
 }
 
-function registerModule(ip, ws) {
+function registerModule(ip, ws, transport = 'wifi') {
     const existing = modules.get(ip);
     const now = new Date().toISOString();
     const entry = {
         ip,
         ws,
         connected: true,
+        transport,
         connectedAt: now,
         lastSeenAt: now,
         chainLength: existing?.chainLength || 1,
         totalKeys: existing?.totalKeys || 12,
         currentSequenceId: existing?.currentSequenceId || null,
         currentSequenceName: existing?.currentSequenceName || null,
-        // octaveOffset: 0, // octave offset
         lastStatus: existing?.lastStatus || null,
         lastAck: existing?.lastAck || null,
         lastError: existing?.lastError || null,
         label: getModuleLabel(ip)
     };
     modules.set(ip, entry);
-    pushLog('WS', `Module registered: ${entry.label} (${ip}), chain=${entry.chainLength}`);
-    console.log(`[WS] Module registered: ${entry.label} (${ip})`);
+    pushLog('CTRL', `Module registered: ${entry.label} (${ip}) [${transport}], chain=${entry.chainLength}`);
+    console.log(`[${transport.toUpperCase()}] Module registered: ${entry.label} (${ip})`);
     return entry;
 }
 
@@ -134,13 +144,13 @@ function getModuleSnapshot(entry) {
         ip: entry.ip,
         label: entry.label,
         connected: entry.connected,
+        transport: entry.transport || 'wifi',
         connectedAt: entry.connectedAt,
         lastSeenAt: entry.lastSeenAt,
         chainLength: entry.chainLength,
         totalKeys: entry.totalKeys,
         currentSequenceId: entry.currentSequenceId,
         currentSequenceName: entry.currentSequenceName,
-        // octaveOffset: entry.octaveOffset ?? 0, // octave offset
         lastStatus: entry.lastStatus
     };
 }
@@ -179,16 +189,33 @@ function ingestEsp32Line(msg, moduleIp) {
     }
 
     touchModule(moduleIp);
+
+    // Handle BYE protocol — module has demoted to slave
+    if (normalized === 'BYE') {
+        const entry = modules.get(moduleIp);
+        if (entry) {
+            pushLog('CTRL', `${entry.label} (${moduleIp}): BYE — demoted to slave, pausing communication`);
+            console.log(`[SERIAL] ${entry.label}: BYE — module demoted to slave`);
+            entry.connected = false;
+            // Keep the entry in the map so it can re-register with the same label
+        }
+        return;
+    }
+
     // Handle HELLO protocol
     if (normalized.startsWith('HELLO ')) {
         const fields = parseKeyValuePairs(normalized);
         const chainLength = parseInt(fields.modules, 10) || 1;
-        const entry = modules.get(moduleIp);
+        let entry = modules.get(moduleIp);
         if (entry) {
+            // Re-activate a module that was previously BYE'd (promoted back to master)
+            entry.connected = true;
             entry.chainLength = chainLength;
             entry.totalKeys = chainLength * 12;
-            pushLog('WS', `${entry.label} (${moduleIp}): HELLO modules=${chainLength}`);
-            console.log(`[WS] ${entry.label}: HELLO modules=${chainLength}, totalKeys=${entry.totalKeys}`);
+            entry.lastSeenAt = new Date().toISOString();
+            const transport = entry.transport || 'wifi';
+            pushLog('CTRL', `${entry.label} (${moduleIp}): HELLO modules=${chainLength} [${transport}]`);
+            console.log(`[${transport.toUpperCase()}] ${entry.label}: HELLO modules=${chainLength}, totalKeys=${entry.totalKeys}`);
         }
         return;
     }
@@ -241,6 +268,9 @@ function cleanupStaleModules() {
     for (const [ip, entry] of modules) {
         if (!entry.connected) continue;
 
+        // Serial modules are managed by the serial port close handler, not stale cleanup
+        if (entry.ws && entry.ws._isSerialShim) continue;
+
         const lastSeenMs = entry.lastSeenAt ? Date.parse(entry.lastSeenAt) : NaN;
         const staleByTime = !Number.isFinite(lastSeenMs) || (now - lastSeenMs > MODULE_STALE_TIMEOUT_MS);
         const socketMissing = !entry.ws;
@@ -278,7 +308,7 @@ function cleanupStaleModules() {
 
 function sendToModule(ip, command) {
     const entry = modules.get(ip);
-    if (!entry || !entry.ws || entry.ws.readyState !== WebSocket.OPEN) {
+    if (!entry || !entry.connected || !entry.ws || entry.ws.readyState !== WebSocket.OPEN) {
         return { error: `Module ${ip} not connected` };
     }
 
@@ -320,21 +350,44 @@ function frameForSerial(cmd) {
     return `${clean}\n`;
 }
 
-// ============ SERIAL MODE SETUP (legacy fallback) ============
+// ============ MULTI-SERIAL SETUP ============
+// Each serial port gets a unique module key (serial:0, serial:1, ...) and is
+// registered in the modules Map with a WebSocket-like shim so that sendToModule()
+// and broadcastToAll() work uniformly across transports.
 
-let port;
-let parser;
+// Map<portPath, { port: SerialPort, parser: ReadlineParser, moduleKey: string }>
+const serialPorts = new Map();
+let serialKeyCounter = 0;
 
-function closeSerialPortAsync() {
+function createSerialWsShim(serialPortObj, portPath) {
+    return {
+        readyState: WebSocket.OPEN,
+        send: (payload) => {
+            // sendToModule() pre-frames with frameForWebSocket() which adds \n
+            // for multi-char commands and strips trailing newlines for single-char.
+            // Serial needs a trailing \n, so re-frame for serial.
+            if (!serialPortObj.isOpen) return;
+            const framed = frameForSerial(payload);
+            serialPortObj.write(framed);
+        },
+        ping: () => {},
+        close: () => {},
+        terminate: () => {},
+        _isSerialShim: true
+    };
+}
+
+function closeSerialPortAsync(portPath) {
     return new Promise((resolve) => {
-        if (!port || !port.isOpen) {
+        const entry = serialPorts.get(portPath);
+        if (!entry || !entry.port || !entry.port.isOpen) {
             resolve({ closed: true, alreadyClosed: true });
             return;
         }
-        console.log('[SERIAL] Closing port...');
-        port.close((err) => {
+        console.log(`[SERIAL] Closing ${portPath}...`);
+        entry.port.close((err) => {
             if (err) {
-                console.error('[SERIAL] Close error:', err.message);
+                console.error(`[SERIAL] Close error on ${portPath}:`, err.message);
                 resolve({ closed: false, error: err.message });
                 return;
             }
@@ -343,86 +396,117 @@ function closeSerialPortAsync() {
     });
 }
 
-async function connectSerial(pathOverride) {
-    const pathToUse = pathOverride || SERIAL_PATH;
-
-    if (!pathToUse) {
-        console.error('[SERIAL] SERIAL_PORT is not set');
-        return { error: 'SERIAL_PORT not set' };
+async function connectSerial(portPath) {
+    if (!portPath) {
+        console.error('[SERIAL] No port path provided');
+        return { error: 'No serial port path provided' };
     }
 
-    if (port && port.isOpen) {
-        const existingPath = port.path || SERIAL_PATH;
-        if (existingPath === pathToUse) {
-            return { success: true, mode: 'serial', alreadyOpen: true, port: pathToUse };
-        }
-        console.log(`[SERIAL] Port already open on ${existingPath}; switching to ${pathToUse}...`);
-        await closeSerialPortAsync();
-        port = undefined;
-        parser = undefined;
+    const existing = serialPorts.get(portPath);
+    if (existing && existing.port && existing.port.isOpen) {
+        return { success: true, mode: 'serial', alreadyOpen: true, port: portPath, moduleKey: existing.moduleKey };
     }
 
-    console.log(`[INIT] Starting SERIAL mode on ${pathToUse}...`);
+    console.log(`[INIT] Opening serial port ${portPath}...`);
 
     try {
-        port = new SerialPort({ path: pathToUse, baudRate: BAUD_RATE });
-        parser = port.pipe(new ReadlineParser({ delimiter: '\n' }));
+        const serialPortObj = new SerialPort({ path: portPath, baudRate: BAUD_RATE });
+        const parser = serialPortObj.pipe(new ReadlineParser({ delimiter: '\n' }));
+
+        const moduleKey = `serial:${serialKeyCounter++}`;
 
         await new Promise((resolve, reject) => {
-            port.on('open', () => {
-                console.log('[SERIAL] Port Open');
+            serialPortObj.on('open', () => {
+                console.log(`[SERIAL] Port open: ${portPath} -> ${moduleKey}`);
                 resolve();
             });
-            port.on('error', (err) => {
-                console.error('[SERIAL] Error: ', err.message);
+            serialPortObj.on('error', (err) => {
+                console.error(`[SERIAL] Error on ${portPath}: ${err.message}`);
                 reject(err);
             });
         });
 
+        serialPorts.set(portPath, { port: serialPortObj, parser, moduleKey });
+
+        // Create WS shim and register in modules Map
+        const wsShim = createSerialWsShim(serialPortObj, portPath);
+        registerModule(moduleKey, wsShim, 'serial');
+
+        // Ingest data from this serial port using the module key
         parser.on('data', (data) => {
             const msg = data.toString().trim();
             if (msg.length === 0) return;
-            console.log(`[ESP32-SERIAL] ${msg}`);
-            pushLog('ESP32', msg);
-            ingestEsp32Line(msg, 'serial');
+            console.log(`[ESP32 ${moduleKey}] ${msg}`);
+            pushLog(`ESP32:${moduleKey}`, msg);
+            ingestEsp32Line(msg, moduleKey);
         });
 
-        return { success: true, mode: 'serial', port: pathToUse };
+        // Handle port disconnection (USB cable unplugged)
+        serialPortObj.on('close', () => {
+            console.log(`[SERIAL] Port closed: ${portPath} (${moduleKey})`);
+            unregisterModule(moduleKey);
+            serialPorts.delete(portPath);
+        });
+
+        return { success: true, mode: 'serial', port: portPath, moduleKey };
     } catch (err) {
-        console.error(`[FATAL] Could not open serial port: ${err.message}`);
-        return { error: `Could not open serial port: ${err.message}` };
+        console.error(`[FATAL] Could not open serial port ${portPath}: ${err.message}`);
+        return { error: `Could not open serial port ${portPath}: ${err.message}` };
     }
 }
 
-function disconnectSerial() {
-    if (!port) {
-        return { success: true, mode: 'serial', alreadyClosed: true };
+async function connectAllSerial() {
+    const results = [];
+    for (const portPath of SERIAL_PATHS) {
+        const result = await connectSerial(portPath);
+        results.push(result);
     }
-    if (port.isOpen) {
-        console.log('[SERIAL] Closing port...');
-        try {
-            port.close((err) => {
-                if (err) console.error('[SERIAL] Close error:', err.message);
-            });
-        } catch (e) {
-            console.error('[SERIAL] Close error:', e.message);
+    return results;
+}
+
+async function disconnectSerial(portPath) {
+    if (portPath) {
+        const entry = serialPorts.get(portPath);
+        if (!entry) return { success: true, mode: 'serial', alreadyClosed: true };
+        await closeSerialPortAsync(portPath);
+        unregisterModule(entry.moduleKey);
+        serialPorts.delete(portPath);
+        return { success: true, mode: 'serial', closed: true, port: portPath };
+    }
+
+    // Disconnect all serial ports
+    const results = [];
+    for (const [path, entry] of serialPorts) {
+        await closeSerialPortAsync(path);
+        unregisterModule(entry.moduleKey);
+        results.push({ port: path, closed: true });
+    }
+    serialPorts.clear();
+    return { success: true, mode: 'serial', closed: true, ports: results };
+}
+
+function sendSerialCommand(cmd, portPath) {
+    if (portPath) {
+        const entry = serialPorts.get(portPath);
+        if (!entry || !entry.port || !entry.port.isOpen) {
+            console.error(`[SERIAL] Port ${portPath} closed`);
+            return { error: `Serial port ${portPath} closed` };
+        }
+        const serialPayload = frameForSerial(cmd);
+        console.log(`[SERIAL] Sending to ${portPath}: '${cmd}'`);
+        pushLog('CTRL', `SERIAL ${portPath} send: ${cmd}`);
+        entry.port.write(serialPayload);
+        return { success: true, mode: 'serial', cmd, port: portPath };
+    }
+
+    // Send to first open serial port (backward compat)
+    for (const [path, entry] of serialPorts) {
+        if (entry.port && entry.port.isOpen) {
+            return sendSerialCommand(cmd, path);
         }
     }
-    port = undefined;
-    parser = undefined;
-    return { success: true, mode: 'serial', closed: true };
-}
-
-function sendSerialCommand(cmd) {
-    if (!port || !port.isOpen) {
-        console.error('[SERIAL] Port closed');
-        return { error: 'Serial port closed' };
-    }
-    const serialPayload = frameForSerial(cmd);
-    console.log(`[SERIAL] Sending: '${cmd}'`);
-    pushLog('CTRL', `SERIAL send: ${cmd}`);
-    port.write(serialPayload);
-    return { success: true, mode: 'serial', cmd: cmd };
+    console.error('[SERIAL] No open serial ports');
+    return { error: 'No open serial ports' };
 }
 
 // Helper: send a raw line to a specific module or via serial fallback
@@ -431,13 +515,8 @@ function sendRawLine(line, moduleIp) {
         return { error: 'Empty upload line' };
     }
 
-    if (moduleIp && moduleIp !== 'serial') {
+    if (moduleIp) {
         return sendToModule(moduleIp, line);
-    }
-
-    // Serial fallback
-    if (port && port.isOpen) {
-        return sendSerialCommand(line);
     }
 
     return { error: 'No transport available' };
@@ -465,19 +544,6 @@ function uploadLinesToAllModules(lines) {
         moduleResults.push({ module: ip, sentCount: result.sentCount, failed: !result.ok });
     }
     return moduleResults;
-}
-
-// Sends all upload lines via serial. Returns { ok, sent, error }.
-function uploadLinesToSerial(lines) {
-    const sent = [];
-    for (const line of lines) {
-        const r = sendSerialCommand(String(line));
-        sent.push({ line, result: r });
-        if (r && r.error) {
-            return { ok: false, error: r.error, sent };
-        }
-    }
-    return { ok: true, sent, sentCount: sent.length };
 }
 
 // Marks a module's current sequence after a successful upload.
@@ -524,16 +590,20 @@ function translateToSerialCmd(endpoint, query) {
 
 // ============ API ROUTES ============
 
-// Connect serial (legacy fallback for single-module debugging)
+// Connect serial ports
 app.post('/api/connect', async (req, res) => {
     try {
         const body = req.body || {};
         const transport = String(body.transport || '').toUpperCase();
 
         if (transport === 'SERIAL') {
-            const serialPort = body.serialPort ? String(body.serialPort) : undefined;
-            const serialResult = await connectSerial(serialPort);
-            res.json({ success: true, result: { transport: 'SERIAL', serial: serialResult } });
+            // Support single port or array of ports
+            const ports = body.serialPorts || (body.serialPort ? [String(body.serialPort)] : SERIAL_PATHS);
+            const results = [];
+            for (const p of ports) {
+                results.push(await connectSerial(p));
+            }
+            res.json({ success: true, result: { transport: 'SERIAL', serial: results } });
             return;
         }
 
@@ -550,7 +620,7 @@ app.post('/api/connect', async (req, res) => {
     }
 });
 
-app.post('/api/disconnect', (req, res) => {
+app.post('/api/disconnect', async (req, res) => {
     try {
         const body = req.body || {};
         const moduleIp = body.module;
@@ -559,7 +629,17 @@ app.post('/api/disconnect', (req, res) => {
             // Disconnect a specific module
             const entry = modules.get(moduleIp);
             if (entry && entry.ws) {
-                entry.ws.close();
+                if (entry.ws._isSerialShim) {
+                    // Find and close the serial port for this module
+                    for (const [path, se] of serialPorts) {
+                        if (se.moduleKey === moduleIp) {
+                            await disconnectSerial(path);
+                            break;
+                        }
+                    }
+                } else {
+                    entry.ws.close();
+                }
             }
             res.json({ success: true, disconnected: moduleIp });
             return;
@@ -567,11 +647,11 @@ app.post('/api/disconnect', (req, res) => {
 
         // Disconnect all
         for (const [ip, entry] of modules) {
-            if (entry.ws) {
+            if (entry.ws && !entry.ws._isSerialShim) {
                 try { entry.ws.close(); } catch (_) {}
             }
         }
-        const serialResult = disconnectSerial();
+        const serialResult = await disconnectSerial();
         res.json({ success: true, result: { serial: serialResult, modulesDisconnected: modules.size } });
     } catch (e) {
         res.status(500).json({ error: e.message });
@@ -649,7 +729,11 @@ app.get('/api/status', async (req, res) => {
 // Health endpoint — returns module list with connection status
 app.get('/api/health', (req, res) => {
     const connectedModules = getAllModuleSnapshots();
-    const serialOpen = !!(port && port.isOpen);
+    const serialStatus = Array.from(serialPorts.entries()).map(([path, s]) => ({
+        path,
+        open: s.port.isOpen,
+        moduleKey: s.moduleKey
+    }));
 
     res.json({
         ok: true,
@@ -658,8 +742,7 @@ app.get('/api/health', (req, res) => {
         connectedModules: connectedModules.length,
         modules: connectedModules,
         serial: {
-            port: SERIAL_PATH || null,
-            open: serialOpen
+            ports: serialStatus
         }
     });
 });
@@ -691,7 +774,11 @@ app.get('/api/logs', (req, res) => {
 // Returns per-module state
 app.get('/api/state', (req, res) => {
     const connectedModules = getAllModuleSnapshots();
-    const serialOpen = !!(port && port.isOpen);
+    const serialStatus = Array.from(serialPorts.entries()).map(([path, s]) => ({
+        path,
+        open: s.port.isOpen,
+        moduleKey: s.moduleKey
+    }));
 
     res.json({
         ok: true,
@@ -700,8 +787,7 @@ app.get('/api/state', (req, res) => {
             connectedModules: connectedModules.length,
             modules: connectedModules,
             serial: {
-                port: SERIAL_PATH || null,
-                open: serialOpen
+                ports: serialStatus
             }
         }
     });
@@ -1432,7 +1518,7 @@ app.post('/api/db/sequences/:id/upload', async (req, res) => {
       return;
     }
 
-    // Default: try connected modules first, then serial fallback
+    // Default: broadcast to all connected modules (serial modules are now in the Map too)
     const connectedModules = [...modules.values()].filter(e => e.connected && e.ws);
     if (connectedModules.length > 0) {
       const moduleResults = uploadLinesToAllModules(lines);
@@ -1441,18 +1527,7 @@ app.post('/api/db/sequences/:id/upload', async (req, res) => {
       return;
     }
 
-    // Serial fallback
-    if (port && port.isOpen) {
-      const result = uploadLinesToSerial(lines);
-      if (!result.ok) {
-        res.status(500).json({ ok: false, error: result.error, sent: result.sent });
-        return;
-      }
-      res.json({ ok: true, uploaded: id, sentCount: result.sentCount, sent: result.sent });
-      return;
-    }
-
-    res.status(400).json({ ok: false, error: 'No module connected and no serial port open' });
+    res.status(400).json({ ok: false, error: 'No module connected' });
   } catch (e) {
     res.status(500).json({ ok: false, error: e.message });
   }
@@ -1460,11 +1535,22 @@ app.post('/api/db/sequences/:id/upload', async (req, res) => {
 
 // ============ WEBSOCKET SERVER ============
 
-const httpServer = app.listen(PORT, '0.0.0.0', () => {
+const httpServer = app.listen(PORT, '0.0.0.0', async () => {
     console.log(`\nOPEN OCTAVE CONTROLLER`);
     console.log(`HTTP server running at: http://localhost:${PORT}`);
     console.log(`WebSocket server listening on port ${WS_PORT}`);
-    console.log(`Modules connect automatically via WebSocket\n`);
+
+    // Auto-connect configured serial ports on startup
+    if (SERIAL_PATHS.length > 0) {
+        console.log(`[SERIAL] Auto-connecting ${SERIAL_PATHS.length} serial port(s): ${SERIAL_PATHS.join(', ')}`);
+        const results = await connectAllSerial();
+        for (const r of results) {
+            if (r.error) console.error(`[SERIAL] Failed: ${r.error}`);
+        }
+    } else {
+        console.log(`Modules connect automatically via WebSocket`);
+    }
+    console.log();
 });
 
 // const wss = new WebSocket.Server({ port: Number(WS_PORT) }, () => {
@@ -1513,7 +1599,8 @@ const staleCleanupTimer = setInterval(() => {
     cleanupStaleModules();
 
     for (const entry of modules.values()) {
-        if (!entry.connected || !entry.ws || entry.ws.readyState !== WebSocket.OPEN) continue;
+        if (!entry.connected || !entry.ws || entry.ws._isSerialShim) continue;
+        if (entry.ws.readyState !== WebSocket.OPEN) continue;
         try {
             entry.ws.ping();
         } catch (_) {}
