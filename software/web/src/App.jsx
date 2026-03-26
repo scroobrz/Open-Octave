@@ -872,6 +872,67 @@ export default function App() {
 
   // ============ RENDER HELPERS ============
 
+  // Two-module demo: detect chained vs independent state
+  const demoChainState = useMemo(() => {
+    const allMods = modulesList; // includes disconnected (BYE'd) modules
+    const connected = allMods.filter(m => m.connected);
+    const disconnected = allMods.filter(m => !m.connected);
+
+    // Check if any connected module has chainLength >= 2 (it's the master of a chain)
+    const chainedMaster = connected.find(m => m.chainLength >= 2);
+    if (chainedMaster) {
+      return { mode: 'chained', master: chainedMaster, slave: disconnected[0] || null };
+    }
+
+    // Multiple independent modules
+    if (connected.length >= 2) {
+      return { mode: 'independent', modules: connected };
+    }
+
+    // Single module or none
+    return { mode: connected.length === 1 ? 'single' : 'none', modules: connected };
+  }, [modulesList]);
+
+  // Render the two-module demo status banner
+  function renderDemoChainStatus() {
+    const { mode, master, slave } = demoChainState;
+
+    if (mode === 'chained') {
+      return (
+        <div className="card card-accent-teal" style={{ textAlign: 'center', padding: '12px 16px' }}>
+          <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'center', gap: 12, flexWrap: 'wrap' }}>
+            <span className="pill pill-green">Chained</span>
+            <span>
+              <strong>{master.label}</strong> (master) controls{' '}
+              <strong>{master.chainLength}</strong> module{master.chainLength !== 1 ? 's' : ''} /{' '}
+              <strong>{master.totalKeys}</strong> keys
+            </span>
+            {slave && (
+              <span style={{ opacity: 0.6 }}>
+                {slave.label} linked as slave
+              </span>
+            )}
+          </div>
+        </div>
+      );
+    }
+
+    if (mode === 'independent') {
+      return (
+        <div className="card" style={{ textAlign: 'center', padding: '12px 16px' }}>
+          <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'center', gap: 12, flexWrap: 'wrap' }}>
+            <span className="pill pill-muted">Independent</span>
+            <span>
+              <strong>{demoChainState.modules.length}</strong> modules connected independently (not chained)
+            </span>
+          </div>
+        </div>
+      );
+    }
+
+    return null;
+  }
+
   // Render a chain of piano keys for module visualization
   function renderChainKeyboard(mod) {
     const totalKeys = mod.totalKeys || 12;
@@ -921,6 +982,7 @@ export default function App() {
             <strong>{mod.label}</strong>
             <span className="chain-info">
               ({mod.chainLength} module{mod.chainLength !== 1 ? 's' : ''}, {totalKeys} keys)
+              {mod.transport === 'serial' && <span className="pill pill-muted" style={{ marginLeft: 6, fontSize: '0.7em' }}>USB</span>}
             </span>
           </div>
           <div className="chain-header-right">
@@ -1222,7 +1284,10 @@ export default function App() {
                           <td>{m.label}</td>
                           {uiMode === 'developer' && <td><code>{m.ip}</code></td>}
                           <td>{m.chainLength} module{m.chainLength !== 1 ? 's' : ''} ({m.totalKeys} keys)</td>
-                          <td><span className="pill pill-green">Connected</span></td>
+                          <td>
+                            <span className="pill pill-green">Connected</span>
+                            {m.transport === 'serial' && <span className="pill pill-muted" style={{ marginLeft: 4 }}>USB</span>}
+                          </td>
                         </tr>
                       ))}
                     </tbody>
@@ -1231,7 +1296,7 @@ export default function App() {
               )}
 
               <div className="hint">
-                Controllers connect to the server automatically via WiFi. A chained pair should appear as 1 controller with 2 physical modules.
+                Modules connect automatically via USB serial. When two modules are daisy-chained, one becomes the master (with 2 physical modules) and the other goes silent.
               </div>
             </div>
 
@@ -1353,10 +1418,13 @@ export default function App() {
 
             {dbSeqError && <pre className="pre">{dbSeqError}</pre>}
 
+            {/* Two-module demo: chain status banner */}
+            {renderDemoChainStatus()}
+
             {/* Module visualization */}
             {modulesList.filter(m => m.connected).length === 0 ? (
               <div className="card">
-                <div className="hint">No modules connected. Modules connect automatically via WiFi.</div>
+                <div className="hint">No modules connected. Waiting for USB serial connections...</div>
               </div>
             ) : (
               modulesList.filter(m => m.connected).map(mod => renderChainKeyboard(mod))
