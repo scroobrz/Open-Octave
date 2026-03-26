@@ -221,6 +221,11 @@ void setup() {
   LOGLN("========================================");
   LOGLN("[SETUP] Complete!");
   LOGLN("========================================\n");
+
+  // Always announce over USB Serial so the controller can register this module
+  // even when WiFi is not available (USB-only demo mode).
+  sendHelloToController();
+
   playStartupAnimation();
 }
 

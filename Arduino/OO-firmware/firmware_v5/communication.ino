@@ -887,13 +887,25 @@ bool processSequenceEndCommand(char *cmd){
 
 // Sends the HELLO registration message to the controller.
 // Called on initial WS connect and whenever the chain length changes.
+// Sends over WebSocket if available, otherwise over USB Serial.
 void sendHelloToController() {
-  if (!wsReady) return;
-
   char buf[24];
   snprintf(buf, sizeof(buf), "HELLO modules=%d", numModulesInChain);
-  webSocket.sendTXT(buf);
-  LOGF("[WS] Sent: %s\n", buf);
+
+  if (wsReady) {
+    webSocket.sendTXT(buf);
+  } else if (isMaster) {
+    Serial.println(buf);
+  }
+
+  LOGF("[CTRL] Sent: %s\n", buf);
+}
+
+// Sends BYE over USB Serial to tell the controller this module is now a slave.
+// The controller should stop sending commands to this port until a new HELLO arrives.
+void sendByeToController() {
+  Serial.println(F("BYE"));
+  LOGLN("[CTRL] Sent: BYE (demoted to slave)");
 }
 
 void chainSendKeyCmd(HardwareSerial &serialPort, char cmd, int key) {

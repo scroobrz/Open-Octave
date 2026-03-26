@@ -8,6 +8,10 @@ void demoteToSlave(){
     LOGLN("[CHAIN] Upstream detected — demoting to SLAVE");
     if (recording) stopRecording();
     stopSequence();
+
+    // Notify controller over USB Serial before going silent
+    sendByeToController();
+
     isMaster = false;
 
     LOGLN("[SETUP] Disconnecting from WiFi...");
