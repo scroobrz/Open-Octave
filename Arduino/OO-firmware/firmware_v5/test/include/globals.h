@@ -12,6 +12,9 @@ extern bool isMaster;
 extern uint8_t moduleChainIndex;
 extern uint8_t numModulesInChain;
 
+// Key array (defined in firmware)
+extern struct Key keys[NUM_KEYS];
+
 extern unsigned long timeLastHeartbeatSent;
 extern unsigned long timeLastHeartbeatReceived;
 extern unsigned long timeLastHeartbeatReplyReceived;

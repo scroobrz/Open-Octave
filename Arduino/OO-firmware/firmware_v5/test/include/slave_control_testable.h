@@ -6,4 +6,6 @@
 void demoteToSlave();
 void configureNotes();
 
+extern const int baseNoteFreqs[NUM_KEYS];
+
 #endif // SLAVE_CONTROL_TESTABLE_H

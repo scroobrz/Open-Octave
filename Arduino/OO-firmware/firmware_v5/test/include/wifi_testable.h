@@ -1,9 +1,11 @@
 #ifndef WIFI_TESTABLE_H
 #define WIFI_TESTABLE_H
 
+#include <cstdint>
+
 void connectToWifi();
 void disconnectWifi();
-void checkWifiStatus();
+float checkWifiStatus();
 void connectToWebsocket();
 void disconnectWebsocket();
 
