@@ -755,6 +755,10 @@ export default function App() {
   function closeEditor() {
     setEditorOpen(false);
     setEditorEditingStep(null);
+    // If editing a MIDI import, restore the preview so Accept/Discard reappears
+    if (midiImportResult?.editing) {
+      setMidiImportResult({ ...midiImportResult, editing: false });
+    }
   }
 
   function startEditStep(idx) {
