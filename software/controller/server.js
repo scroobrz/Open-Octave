@@ -1182,310 +1182,314 @@ app.post('/api/db/sequences/seed', (req, res) => {
       return { keys, colors, duration: d };
     }
 
+    // ── Key index reference ──────────────────────────────────
+    // 0=C4  1=C#4  2=D4  3=D#4  4=E4   5=F4
+    // 6=F#4 7=G4   8=G#4 9=A4  10=A#4 11=B4
+    // 12=C5 13=C#5 14=D5 15=D#5 16=E5  17=F5
+    // 18=F#5 19=G5 20=G#5 21=A5 22=A#5 23=B5
+    // colorFor12KeyIndex uses key%12 to assign finger colours.
+
+    const C4=0, D4=2, E4=4, F4=5, G4=7, A4=9, B4=11;
+    const C5=12, D5=14, E5=16, F5=17, G5=19, A5=21, B5=23;
+    // Sharps/flats
+    const Cs4=1, Eb4=3, Fs4=6, Gs4=8, Bb4=10;
+    const Cs5=13, Eb5=15, Fs5=18, Gs5=20, Bb5=22;
+
+    // Shorthand: colour from 12-key index (wraps via modulo internally)
+    const c = (k) => colorFor12KeyIndex(k % 12);
+
     const presets = [
+      // ═══════════ 3-KEY TEST SEQUENCES (keys 0-2) ═══════════
       {
-        id: '0',
-        name: 'Ping Pong',
-        description: 'Sequence 0: alternating pattern across keys 0-2.',
-        data: {
-          steps: [
-            step(0, colorFor3KeyIndex(0), 500),
-            step(1, colorFor3KeyIndex(1), 500),
-            step(2, colorFor3KeyIndex(2), 500),
-            step(1, colorFor3KeyIndex(1), 500),
-            step(0, colorFor3KeyIndex(0), 500)
-          ]
-        },
-        uploadLines: []
+        id: '0', name: 'Ping Pong',
+        description: 'Alternating pattern across keys 0-2.',
+        data: { steps: [
+          step(0, colorFor3KeyIndex(0), 500), step(1, colorFor3KeyIndex(1), 500),
+          step(2, colorFor3KeyIndex(2), 500), step(1, colorFor3KeyIndex(1), 500),
+          step(0, colorFor3KeyIndex(0), 500)
+        ]}, uploadLines: []
       },
       {
-        id: '1',
-        name: 'Up & Down',
-        description: 'Sequence 1: three-key ascending/descending.',
-        data: {
-          steps: [
-            step(0, colorFor3KeyIndex(0), 400),
-            step(1, colorFor3KeyIndex(1), 400),
-            step(1, colorFor3KeyIndex(1), 400),
-            step(0, colorFor3KeyIndex(0), 400),
-            step(2, colorFor3KeyIndex(2), 400),
-            step(0, colorFor3KeyIndex(0), 400)
-          ]
-        },
-        uploadLines: []
+        id: '1', name: 'Up and Down',
+        description: 'Three-key ascending/descending.',
+        data: { steps: [
+          step(0, colorFor3KeyIndex(0), 400), step(1, colorFor3KeyIndex(1), 400),
+          step(2, colorFor3KeyIndex(2), 400), step(1, colorFor3KeyIndex(1), 400),
+          step(0, colorFor3KeyIndex(0), 400), step(2, colorFor3KeyIndex(2), 400),
+          step(0, colorFor3KeyIndex(0), 400)
+        ]}, uploadLines: []
       },
       {
-        id: '2',
-        name: 'Quick Repeat',
-        description: 'Sequence 2: repeating pattern across keys 0-2.',
-        data: {
-          steps: [
-            step(1, colorFor3KeyIndex(1), 500),
-            step(1, colorFor3KeyIndex(1), 500),
-            step(0, colorFor3KeyIndex(0), 500),
-            step(2, colorFor3KeyIndex(2), 500),
-            step(2, colorFor3KeyIndex(2), 500),
-            step(1, colorFor3KeyIndex(1), 500)
-          ]
-        },
-        uploadLines: []
+        id: '2', name: 'Quick Repeat',
+        description: 'Repeating pattern across keys 0-2.',
+        data: { steps: [
+          step(1, colorFor3KeyIndex(1), 500), step(1, colorFor3KeyIndex(1), 500),
+          step(0, colorFor3KeyIndex(0), 500), step(2, colorFor3KeyIndex(2), 500),
+          step(2, colorFor3KeyIndex(2), 500), step(1, colorFor3KeyIndex(1), 500)
+        ]}, uploadLines: []
+      },
+
+      // ═══════════ 1-OCTAVE MELODIES (keys 0-11) ═══════════
+      {
+        id: '3', name: 'Mary Had a Little Lamb',
+        description: 'Classic nursery rhyme. Keys: C4-G4.',
+        data: { steps: [
+          step(E4,c(E4),500), step(D4,c(D4),500), step(C4,c(C4),500), step(D4,c(D4),500),
+          step(E4,c(E4),500), step(E4,c(E4),500), step(E4,c(E4),1000),
+          step(D4,c(D4),500), step(D4,c(D4),500), step(D4,c(D4),1000),
+          step(E4,c(E4),500), step(G4,c(G4),500), step(G4,c(G4),1000),
+          step(E4,c(E4),500), step(D4,c(D4),500), step(C4,c(C4),500), step(D4,c(D4),500),
+          step(E4,c(E4),500), step(E4,c(E4),500), step(E4,c(E4),500), step(E4,c(E4),500),
+          step(D4,c(D4),500), step(D4,c(D4),500), step(E4,c(E4),500), step(D4,c(D4),500),
+          step(C4,c(C4),1200)
+        ]}, uploadLines: []
       },
       {
-        id: '3',
-        name: 'Sweep',
-        description: 'Sequence 3: slow-fast-slow arc across RGB keys.',
-        data: {
-          steps: [
-            step(0, colorFor3KeyIndex(0), 600),
-            step(1, colorFor3KeyIndex(1), 500),
-            step(2, colorFor3KeyIndex(2), 400),
-            step(0, colorFor3KeyIndex(0), 300),
-            step(1, colorFor3KeyIndex(1), 300),
-            step(2, colorFor3KeyIndex(2), 300),
-            step(0, colorFor3KeyIndex(0), 300),
-            step(1, colorFor3KeyIndex(1), 300),
-            step(2, colorFor3KeyIndex(2), 300),
-            step(0, colorFor3KeyIndex(0), 300),
-            step(1, colorFor3KeyIndex(1), 400),
-            step(2, colorFor3KeyIndex(2), 500),
-            step(0, colorFor3KeyIndex(0), 600),
-            step(1, colorFor3KeyIndex(1), 700)
-          ]
-        },
-        uploadLines: []
+        id: '4', name: 'Twinkle Twinkle',
+        description: 'Twinkle Twinkle Little Star. Keys: C4-A4.',
+        data: { steps: [
+          step(C4,c(C4),500), step(C4,c(C4),500), step(G4,c(G4),500), step(G4,c(G4),500),
+          step(A4,c(A4),500), step(A4,c(A4),500), step(G4,c(G4),1000),
+          step(F4,c(F4),500), step(F4,c(F4),500), step(E4,c(E4),500), step(E4,c(E4),500),
+          step(D4,c(D4),500), step(D4,c(D4),500), step(C4,c(C4),1000),
+          step(G4,c(G4),500), step(G4,c(G4),500), step(F4,c(F4),500), step(F4,c(F4),500),
+          step(E4,c(E4),500), step(E4,c(E4),500), step(D4,c(D4),1000),
+          step(G4,c(G4),500), step(G4,c(G4),500), step(F4,c(F4),500), step(F4,c(F4),500),
+          step(E4,c(E4),500), step(E4,c(E4),500), step(D4,c(D4),1000),
+          step(C4,c(C4),500), step(C4,c(C4),500), step(G4,c(G4),500), step(G4,c(G4),500),
+          step(A4,c(A4),500), step(A4,c(A4),500), step(G4,c(G4),1000),
+          step(F4,c(F4),500), step(F4,c(F4),500), step(E4,c(E4),500), step(E4,c(E4),500),
+          step(D4,c(D4),500), step(D4,c(D4),500), step(C4,c(C4),1200)
+        ]}, uploadLines: []
       },
       {
-        id: '4',
-        name: 'Syncopated',
-        description: 'Sequence 4: irregular rhythm across all keys.',
-        data: {
-          steps: [
-            step(0, colorFor3KeyIndex(0), 300),
-            step(2, colorFor3KeyIndex(2), 300),
-            step(1, colorFor3KeyIndex(1), 600),
-            step(0, colorFor3KeyIndex(0), 300),
-            step(2, colorFor3KeyIndex(2), 300),
-            step(1, colorFor3KeyIndex(1), 300),
-            step(0, colorFor3KeyIndex(0), 300),
-            step(1, colorFor3KeyIndex(1), 300),
-            step(2, colorFor3KeyIndex(2), 300),
-            step(0, colorFor3KeyIndex(0), 500),
-            step(1, colorFor3KeyIndex(1), 300),
-            step(2, colorFor3KeyIndex(2), 300),
-            step(0, colorFor3KeyIndex(0), 400),
-            step(1, colorFor3KeyIndex(1), 300),
-            step(2, colorFor3KeyIndex(2), 300),
-            step(0, colorFor3KeyIndex(0), 700)
-          ]
-        },
-        uploadLines: []
+        id: '5', name: 'Happy Birthday',
+        description: 'Happy Birthday To You. Keys: C4-C5.',
+        data: { steps: [
+          step(C4,c(C4),300), step(C4,c(C4),300), step(D4,c(D4),600), step(C4,c(C4),600),
+          step(F4,c(F4),600), step(E4,c(E4),1200),
+          step(C4,c(C4),300), step(C4,c(C4),300), step(D4,c(D4),600), step(C4,c(C4),600),
+          step(G4,c(G4),600), step(F4,c(F4),1200),
+          step(C4,c(C4),300), step(C4,c(C4),300), step(C5,c(C5),600), step(A4,c(A4),600),
+          step(F4,c(F4),600), step(E4,c(E4),600), step(D4,c(D4),1200),
+          step(B4,c(B4),300), step(B4,c(B4),300), step(A4,c(A4),600), step(F4,c(F4),600),
+          step(G4,c(G4),600), step(F4,c(F4),1200)
+        ]}, uploadLines: []
       },
       {
-        id: '5',
-        name: 'Ode to Joy',
-        description: 'Sequence 5: Ode to Joy (adapted for 3 keys).',
-        data: {
-          steps: [
-            step(1, colorFor3KeyIndex(1), 400),
-            step(1, colorFor3KeyIndex(1), 400),
-            step(0, colorFor3KeyIndex(0), 400),
-            step(0, colorFor3KeyIndex(0), 400),
-            step(0, colorFor3KeyIndex(0), 400),
-            step(0, colorFor3KeyIndex(0), 400),
-            step(1, colorFor3KeyIndex(1), 400),
-            step(1, colorFor3KeyIndex(1), 400),
-            step(2, colorFor3KeyIndex(2), 400),
-            step(2, colorFor3KeyIndex(2), 400),
-            step(1, colorFor3KeyIndex(1), 400),
-            step(1, colorFor3KeyIndex(1), 400),
-            step(1, colorFor3KeyIndex(1), 600),
-            step(2, colorFor3KeyIndex(2), 400),
-            step(2, colorFor3KeyIndex(2), 800)
-          ]
-        },
-        uploadLines: []
+        id: '6', name: 'Ode to Joy',
+        description: 'Beethoven - Ode to Joy theme. Keys: C4-G4.',
+        data: { steps: [
+          step(E4,c(E4),500), step(E4,c(E4),500), step(F4,c(F4),500), step(G4,c(G4),500),
+          step(G4,c(G4),500), step(F4,c(F4),500), step(E4,c(E4),500), step(D4,c(D4),500),
+          step(C4,c(C4),500), step(C4,c(C4),500), step(D4,c(D4),500), step(E4,c(E4),500),
+          step(E4,c(E4),750), step(D4,c(D4),250), step(D4,c(D4),1000),
+          step(E4,c(E4),500), step(E4,c(E4),500), step(F4,c(F4),500), step(G4,c(G4),500),
+          step(G4,c(G4),500), step(F4,c(F4),500), step(E4,c(E4),500), step(D4,c(D4),500),
+          step(C4,c(C4),500), step(C4,c(C4),500), step(D4,c(D4),500), step(E4,c(E4),500),
+          step(D4,c(D4),750), step(C4,c(C4),250), step(C4,c(C4),1200)
+        ]}, uploadLines: []
       },
       {
-        id: '6',
-        name: 'Lullaby',
-        description: 'Sequence 6: gentle arpeggio (adapted for 3 keys).',
-        data: {
-          steps: [
-            step(2, colorFor3KeyIndex(2), 500),
-            step(1, colorFor3KeyIndex(1), 500),
-            step(0, colorFor3KeyIndex(0), 500),
-            step(1, colorFor3KeyIndex(1), 500),
-            step(2, colorFor3KeyIndex(2), 500),
-            step(1, colorFor3KeyIndex(1), 500),
-            step(0, colorFor3KeyIndex(0), 700),
-            step(0, colorFor3KeyIndex(0), 300),
-            step(1, colorFor3KeyIndex(1), 500),
-            step(2, colorFor3KeyIndex(2), 500),
-            step(1, colorFor3KeyIndex(1), 400),
-            step(0, colorFor3KeyIndex(0), 600),
-            step(1, colorFor3KeyIndex(1), 500),
-            step(2, colorFor3KeyIndex(2), 900)
-          ]
-        },
-        uploadLines: []
+        id: '7', name: 'Jingle Bells',
+        description: 'Jingle Bells chorus. Keys: C4-A4.',
+        data: { steps: [
+          step(E4,c(E4),400), step(E4,c(E4),400), step(E4,c(E4),800),
+          step(E4,c(E4),400), step(E4,c(E4),400), step(E4,c(E4),800),
+          step(E4,c(E4),400), step(G4,c(G4),400), step(C4,c(C4),400), step(D4,c(D4),400),
+          step(E4,c(E4),1200),
+          step(F4,c(F4),400), step(F4,c(F4),400), step(F4,c(F4),400), step(F4,c(F4),400),
+          step(F4,c(F4),400), step(E4,c(E4),400), step(E4,c(E4),400), step(E4,c(E4),400),
+          step(E4,c(E4),400), step(D4,c(D4),400), step(D4,c(D4),400), step(E4,c(E4),400),
+          step(D4,c(D4),800), step(G4,c(G4),800)
+        ]}, uploadLines: []
       },
       {
-        id: '7',
-        name: 'Mary Had a Lamb',
-        description: 'Sequence 7: Mary Had a Little Lamb (adapted for 3 keys).',
-        data: {
-          steps: [
-            step(1, colorFor3KeyIndex(1), 400),
-            step(2, colorFor3KeyIndex(2), 400),
-            step(2, colorFor3KeyIndex(2), 400),
-            step(2, colorFor3KeyIndex(2), 400),
-            step(1, colorFor3KeyIndex(1), 400),
-            step(1, colorFor3KeyIndex(1), 400),
-            step(1, colorFor3KeyIndex(1), 800),
-            step(2, colorFor3KeyIndex(2), 400),
-            step(2, colorFor3KeyIndex(2), 400),
-            step(2, colorFor3KeyIndex(2), 800),
-            step(1, colorFor3KeyIndex(1), 400),
-            step(0, colorFor3KeyIndex(0), 400),
-            step(0, colorFor3KeyIndex(0), 800)
-          ]
-        },
-        uploadLines: []
+        id: '8', name: 'Hot Cross Buns',
+        description: 'Simple beginner melody. Keys: C4-E4.',
+        data: { steps: [
+          step(E4,c(E4),600), step(D4,c(D4),600), step(C4,c(C4),1200),
+          step(E4,c(E4),600), step(D4,c(D4),600), step(C4,c(C4),1200),
+          step(C4,c(C4),300), step(C4,c(C4),300), step(C4,c(C4),300), step(C4,c(C4),300),
+          step(D4,c(D4),300), step(D4,c(D4),300), step(D4,c(D4),300), step(D4,c(D4),300),
+          step(E4,c(E4),600), step(D4,c(D4),600), step(C4,c(C4),1200)
+        ]}, uploadLines: []
       },
       {
-        id: '8',
-        name: 'Mary Had a Little Lamb (12-key)',
-        description: 'Right-hand only. Slow pace for guided/teaching tests.',
-        data: {
-          steps: [
-            step(4, colorFor12KeyIndex(4), 700),
-            step(2, colorFor12KeyIndex(2), 700),
-            step(0, colorFor12KeyIndex(0), 700),
-            step(2, colorFor12KeyIndex(2), 700),
-            step(4, colorFor12KeyIndex(4), 700),
-            step(4, colorFor12KeyIndex(4), 700),
-            step(4, colorFor12KeyIndex(4), 1000),
-            step(2, colorFor12KeyIndex(2), 700),
-            step(2, colorFor12KeyIndex(2), 700),
-            step(2, colorFor12KeyIndex(2), 1000),
-            step(4, colorFor12KeyIndex(4), 700),
-            step(7, colorFor12KeyIndex(7), 700),
-            step(7, colorFor12KeyIndex(7), 1000),
-            step(4, colorFor12KeyIndex(4), 700),
-            step(2, colorFor12KeyIndex(2), 700),
-            step(0, colorFor12KeyIndex(0), 700),
-            step(2, colorFor12KeyIndex(2), 700),
-            step(4, colorFor12KeyIndex(4), 700),
-            step(4, colorFor12KeyIndex(4), 700),
-            step(4, colorFor12KeyIndex(4), 1000),
-            step(4, colorFor12KeyIndex(4), 700),
-            step(2, colorFor12KeyIndex(2), 700),
-            step(2, colorFor12KeyIndex(2), 700),
-            step(4, colorFor12KeyIndex(4), 700),
-            step(2, colorFor12KeyIndex(2), 700),
-            step(0, colorFor12KeyIndex(0), 1200)
-          ]
-        },
-        uploadLines: []
+        id: '9', name: 'When The Saints',
+        description: 'When The Saints Go Marching In. Keys: C4-A4.',
+        data: { steps: [
+          step(C4,c(C4),400), step(E4,c(E4),400), step(F4,c(F4),400), step(G4,c(G4),1200),
+          step(C4,c(C4),400), step(E4,c(E4),400), step(F4,c(F4),400), step(G4,c(G4),1200),
+          step(C4,c(C4),400), step(E4,c(E4),400), step(F4,c(F4),400), step(G4,c(G4),800),
+          step(E4,c(E4),800), step(C4,c(C4),800), step(E4,c(E4),800), step(D4,c(D4),1200),
+          step(E4,c(E4),400), step(E4,c(E4),400), step(D4,c(D4),400), step(C4,c(C4),800),
+          step(C4,c(C4),400), step(E4,c(E4),800), step(G4,c(G4),800),
+          step(G4,c(G4),400), step(F4,c(F4),1200), step(E4,c(E4),400), step(F4,c(F4),400),
+          step(G4,c(G4),800), step(E4,c(E4),800), step(D4,c(D4),800), step(C4,c(C4),1200)
+        ]}, uploadLines: []
       },
-      // === NEW MULTI-MODULE SEQUENCES ===
       {
-        id: '9',
-        name: 'Two_Octave_Scale',
+        id: '10', name: 'C Major Scale',
+        description: 'C major scale, ascending and descending within one octave.',
+        data: { steps: [
+          step(C4,c(C4),500), step(D4,c(D4),500), step(E4,c(E4),500), step(F4,c(F4),500),
+          step(G4,c(G4),500), step(A4,c(A4),500), step(B4,c(B4),500), step(C5,c(C5),800),
+          step(B4,c(B4),500), step(A4,c(A4),500), step(G4,c(G4),500), step(F4,c(F4),500),
+          step(E4,c(E4),500), step(D4,c(D4),500), step(C4,c(C4),800)
+        ]}, uploadLines: []
+      },
+
+      // ═══════════ 2-OCTAVE MELODIES (keys 0-23) ═══════════
+      {
+        id: '11', name: 'Two Octave Scale',
         description: 'C major scale across 2 octaves, ascending and descending.',
-        data: {
-          steps: [
-            // Ascending: C4 D4 E4 F4 G4 A4 B4 C5 D5 E5 F5 G5 A5 B5
-            step(0, colorFor12KeyIndex(0), 400),
-            step(2, colorFor12KeyIndex(2), 400),
-            step(4, colorFor12KeyIndex(4), 400),
-            step(5, colorFor12KeyIndex(5), 400),
-            step(7, colorFor12KeyIndex(7), 400),
-            step(9, colorFor12KeyIndex(9), 400),
-            step(11, colorFor12KeyIndex(11), 400),
-            step(12, colorFor12KeyIndex(0), 400),
-            step(14, colorFor12KeyIndex(2), 400),
-            step(16, colorFor12KeyIndex(4), 400),
-            step(17, colorFor12KeyIndex(5), 400),
-            step(19, colorFor12KeyIndex(7), 400),
-            step(21, colorFor12KeyIndex(9), 400),
-            step(23, colorFor12KeyIndex(11), 600),
-            // Descending: B5 A5 G5 F5 E5 D5 C5 B4 A4 G4 F4 E4 D4 C4
-            step(23, colorFor12KeyIndex(11), 400),
-            step(21, colorFor12KeyIndex(9), 400),
-            step(19, colorFor12KeyIndex(7), 400),
-            step(17, colorFor12KeyIndex(5), 400),
-            step(16, colorFor12KeyIndex(4), 400),
-            step(14, colorFor12KeyIndex(2), 400),
-            step(12, colorFor12KeyIndex(0), 400),
-            step(11, colorFor12KeyIndex(11), 400),
-            step(9, colorFor12KeyIndex(9), 400),
-            step(7, colorFor12KeyIndex(7), 400),
-            step(5, colorFor12KeyIndex(5), 400),
-            step(4, colorFor12KeyIndex(4), 400),
-            step(2, colorFor12KeyIndex(2), 400),
-            step(0, colorFor12KeyIndex(0), 600)
-          ]
-        },
-        uploadLines: []
+        data: { steps: [
+          step(C4,c(C4),400), step(D4,c(D4),400), step(E4,c(E4),400), step(F4,c(F4),400),
+          step(G4,c(G4),400), step(A4,c(A4),400), step(B4,c(B4),400),
+          step(C5,c(C5),400), step(D5,c(D5),400), step(E5,c(E5),400), step(F5,c(F5),400),
+          step(G5,c(G5),400), step(A5,c(A5),400), step(B5,c(B5),600),
+          step(B5,c(B5),400), step(A5,c(A5),400), step(G5,c(G5),400), step(F5,c(F5),400),
+          step(E5,c(E5),400), step(D5,c(D5),400), step(C5,c(C5),400),
+          step(B4,c(B4),400), step(A4,c(A4),400), step(G4,c(G4),400), step(F4,c(F4),400),
+          step(E4,c(E4),400), step(D4,c(D4),400), step(C4,c(C4),600)
+        ]}, uploadLines: []
       },
       {
-        id: '10',
-        name: 'Cross_Octave_Chords',
-        description: 'Chords that span both octaves (C4+C5, E4+E5, G4+G5, etc.).',
-        data: {
-          steps: [
-            chord([0, 12], [colorFor12KeyIndex(0), colorFor12KeyIndex(0)], 800),
-            chord([4, 16], [colorFor12KeyIndex(4), colorFor12KeyIndex(4)], 800),
-            chord([7, 19], [colorFor12KeyIndex(7), colorFor12KeyIndex(7)], 800),
-            chord([0, 4, 7], [colorFor12KeyIndex(0), colorFor12KeyIndex(4), colorFor12KeyIndex(7)], 1000),
-            chord([12, 16, 19], [colorFor12KeyIndex(0), colorFor12KeyIndex(4), colorFor12KeyIndex(7)], 1000),
-            chord([0, 7, 12, 19], [colorFor12KeyIndex(0), colorFor12KeyIndex(7), colorFor12KeyIndex(0), colorFor12KeyIndex(7)], 1200),
-            chord([5, 9], [colorFor12KeyIndex(5), colorFor12KeyIndex(9)], 800),
-            chord([17, 21], [colorFor12KeyIndex(5), colorFor12KeyIndex(9)], 800),
-            chord([5, 9, 12], [colorFor12KeyIndex(5), colorFor12KeyIndex(9), colorFor12KeyIndex(0)], 1000),
-            chord([0, 12], [colorFor12KeyIndex(0), colorFor12KeyIndex(0)], 1200)
-          ]
-        },
-        uploadLines: []
+        id: '12', name: 'Fur Elise',
+        description: 'Beethoven - Fur Elise opening theme across two octaves.',
+        data: { steps: [
+          step(E5,c(E5),300), step(Eb5,c(Eb5),300), step(E5,c(E5),300), step(Eb5,c(Eb5),300),
+          step(E5,c(E5),300), step(B4,c(B4),300), step(D5,c(D5),300), step(C5,c(C5),300),
+          step(A4,c(A4),600),
+          step(C4,c(C4),300), step(E4,c(E4),300), step(A4,c(A4),300), step(B4,c(B4),600),
+          step(E4,c(E4),300), step(Gs4,c(Gs4),300), step(B4,c(B4),300), step(C5,c(C5),600),
+          step(E4,c(E4),300),
+          step(E5,c(E5),300), step(Eb5,c(Eb5),300), step(E5,c(E5),300), step(Eb5,c(Eb5),300),
+          step(E5,c(E5),300), step(B4,c(B4),300), step(D5,c(D5),300), step(C5,c(C5),300),
+          step(A4,c(A4),600),
+          step(C4,c(C4),300), step(E4,c(E4),300), step(A4,c(A4),300), step(B4,c(B4),600),
+          step(E4,c(E4),300), step(C5,c(C5),300), step(B4,c(B4),300), step(A4,c(A4),900)
+        ]}, uploadLines: []
       },
       {
-        id: '11',
-        name: 'Octave_Jump',
-        description: 'Alternating notes between octave 1 and octave 2.',
-        data: {
-          steps: [
-            step(0, colorFor12KeyIndex(0), 400),
-            step(12, colorFor12KeyIndex(0), 400),
-            step(2, colorFor12KeyIndex(2), 400),
-            step(14, colorFor12KeyIndex(2), 400),
-            step(4, colorFor12KeyIndex(4), 400),
-            step(16, colorFor12KeyIndex(4), 400),
-            step(5, colorFor12KeyIndex(5), 400),
-            step(17, colorFor12KeyIndex(5), 400),
-            step(7, colorFor12KeyIndex(7), 400),
-            step(19, colorFor12KeyIndex(7), 400),
-            step(9, colorFor12KeyIndex(9), 400),
-            step(21, colorFor12KeyIndex(9), 400),
-            step(11, colorFor12KeyIndex(11), 400),
-            step(23, colorFor12KeyIndex(11), 600),
-            step(23, colorFor12KeyIndex(11), 400),
-            step(11, colorFor12KeyIndex(11), 400),
-            step(21, colorFor12KeyIndex(9), 400),
-            step(9, colorFor12KeyIndex(9), 400),
-            step(19, colorFor12KeyIndex(7), 400),
-            step(7, colorFor12KeyIndex(7), 400),
-            step(17, colorFor12KeyIndex(5), 400),
-            step(5, colorFor12KeyIndex(5), 400),
-            step(16, colorFor12KeyIndex(4), 400),
-            step(4, colorFor12KeyIndex(4), 400),
-            step(14, colorFor12KeyIndex(2), 400),
-            step(2, colorFor12KeyIndex(2), 400),
-            step(12, colorFor12KeyIndex(0), 400),
-            step(0, colorFor12KeyIndex(0), 600)
-          ]
-        },
-        uploadLines: []
+        id: '13', name: 'Canon in D',
+        description: 'Pachelbel - Canon in D simplified melody across two octaves.',
+        data: { steps: [
+          step(Fs5,c(Fs5),500), step(E5,c(E5),500), step(D5,c(D5),500), step(Cs5,c(Cs5),500),
+          step(B4,c(B4),500), step(A4,c(A4),500), step(B4,c(B4),500), step(Cs5,c(Cs5),500),
+          step(D5,c(D5),500), step(Cs5,c(Cs5),500), step(B4,c(B4),500), step(A4,c(A4),500),
+          step(G4,c(G4),500), step(Fs4,c(Fs4),500), step(G4,c(G4),500), step(A4,c(A4),500),
+          step(D4,c(D4),500), step(Fs4,c(Fs4),500), step(A4,c(A4),500), step(G4,c(G4),500),
+          step(Fs4,c(Fs4),500), step(D4,c(D4),500), step(Fs4,c(Fs4),500), step(E4,c(E4),500),
+          step(D4,c(D4),500), step(B4,c(B4),500), step(A4,c(A4),500), step(G4,c(G4),500),
+          step(A4,c(A4),500), step(Fs4,c(Fs4),500), step(D4,c(D4),500), step(D5,c(D5),1000)
+        ]}, uploadLines: []
+      },
+      {
+        id: '14', name: 'Greensleeves',
+        description: 'Traditional English melody (What Child Is This). Two octaves.',
+        data: { steps: [
+          step(A4,c(A4),600),
+          step(C5,c(C5),900), step(D5,c(D5),300), step(E5,c(E5),600),
+          step(F5,c(F5),300), step(E5,c(E5),600), step(D5,c(D5),900),
+          step(B4,c(B4),600), step(G4,c(G4),300), step(B4,c(B4),600),
+          step(C5,c(C5),900), step(A4,c(A4),600),
+          step(A4,c(A4),300), step(Gs4,c(Gs4),600), step(A4,c(A4),900),
+          step(B4,c(B4),600), step(Gs4,c(Gs4),300), step(E4,c(E4),900),
+          step(A4,c(A4),600),
+          step(C5,c(C5),900), step(D5,c(D5),300), step(E5,c(E5),600),
+          step(F5,c(F5),300), step(E5,c(E5),600), step(D5,c(D5),900),
+          step(B4,c(B4),600), step(G4,c(G4),300), step(B4,c(B4),600),
+          step(C5,c(C5),300), step(B4,c(B4),600),
+          step(A4,c(A4),300), step(Gs4,c(Gs4),600), step(A4,c(A4),1200)
+        ]}, uploadLines: []
+      },
+      {
+        id: '15', name: 'Amazing Grace',
+        description: 'Traditional hymn arranged across two octaves.',
+        data: { steps: [
+          step(G4,c(G4),600),
+          step(C5,c(C5),900), step(E5,c(E5),300), step(C5,c(C5),600),
+          step(E5,c(E5),900), step(D5,c(D5),600),
+          step(C5,c(C5),900), step(A4,c(A4),600),
+          step(G4,c(G4),1200), step(G4,c(G4),600),
+          step(C5,c(C5),900), step(E5,c(E5),300), step(C5,c(C5),600),
+          step(E5,c(E5),900), step(D5,c(D5),600),
+          step(G5,c(G5),1800),
+          step(E5,c(E5),600),
+          step(G5,c(G5),300), step(E5,c(E5),600), step(G5,c(G5),300), step(E5,c(E5),600),
+          step(C5,c(C5),900), step(A4,c(A4),600),
+          step(G4,c(G4),1200), step(G4,c(G4),600),
+          step(C5,c(C5),900), step(E5,c(E5),300), step(C5,c(C5),600),
+          step(E5,c(E5),900), step(D5,c(D5),600),
+          step(C5,c(C5),1800)
+        ]}, uploadLines: []
+      },
+      {
+        id: '16', name: 'Twinkle Twinkle (2 Oct)',
+        description: 'Twinkle Twinkle Little Star arranged across two octaves with harmony.',
+        data: { steps: [
+          step(C4,c(C4),500), step(C4,c(C4),500), step(G4,c(G4),500), step(G4,c(G4),500),
+          step(A4,c(A4),500), step(A4,c(A4),500), step(G4,c(G4),1000),
+          step(F4,c(F4),500), step(F4,c(F4),500), step(E4,c(E4),500), step(E4,c(E4),500),
+          step(D4,c(D4),500), step(D4,c(D4),500), step(C4,c(C4),1000),
+          // Second verse up an octave
+          step(C5,c(C5),500), step(C5,c(C5),500), step(G5,c(G5),500), step(G5,c(G5),500),
+          step(A5,c(A5),500), step(A5,c(A5),500), step(G5,c(G5),1000),
+          step(F5,c(F5),500), step(F5,c(F5),500), step(E5,c(E5),500), step(E5,c(E5),500),
+          step(D5,c(D5),500), step(D5,c(D5),500), step(C5,c(C5),1000),
+          // Back down to octave 1 for ending
+          step(C4,c(C4),500), step(C4,c(C4),500), step(G4,c(G4),500), step(G4,c(G4),500),
+          step(A4,c(A4),500), step(A4,c(A4),500), step(G4,c(G4),1000),
+          step(F4,c(F4),500), step(F4,c(F4),500), step(E4,c(E4),500), step(E4,c(E4),500),
+          step(D4,c(D4),500), step(D4,c(D4),500), step(C4,c(C4),1200)
+        ]}, uploadLines: []
+      },
+      {
+        id: '17', name: 'Ode to Joy (2 Oct)',
+        description: 'Beethoven - Ode to Joy with two-octave run. Keys span C4-G5.',
+        data: { steps: [
+          step(E4,c(E4),500), step(E4,c(E4),500), step(F4,c(F4),500), step(G4,c(G4),500),
+          step(G4,c(G4),500), step(F4,c(F4),500), step(E4,c(E4),500), step(D4,c(D4),500),
+          step(C4,c(C4),500), step(C4,c(C4),500), step(D4,c(D4),500), step(E4,c(E4),500),
+          step(E4,c(E4),750), step(D4,c(D4),250), step(D4,c(D4),1000),
+          // Repeat up an octave
+          step(E5,c(E5),500), step(E5,c(E5),500), step(F5,c(F5),500), step(G5,c(G5),500),
+          step(G5,c(G5),500), step(F5,c(F5),500), step(E5,c(E5),500), step(D5,c(D5),500),
+          step(C5,c(C5),500), step(C5,c(C5),500), step(D5,c(D5),500), step(E5,c(E5),500),
+          step(D5,c(D5),750), step(C5,c(C5),250), step(C5,c(C5),1200)
+        ]}, uploadLines: []
+      },
+      {
+        id: '18', name: 'Octave Jump Drill',
+        description: 'Alternating notes between octave 1 and octave 2 for practice.',
+        data: { steps: [
+          step(C4,c(C4),400), step(C5,c(C5),400), step(D4,c(D4),400), step(D5,c(D5),400),
+          step(E4,c(E4),400), step(E5,c(E5),400), step(F4,c(F4),400), step(F5,c(F5),400),
+          step(G4,c(G4),400), step(G5,c(G5),400), step(A4,c(A4),400), step(A5,c(A5),400),
+          step(B4,c(B4),400), step(B5,c(B5),600),
+          step(B5,c(B5),400), step(B4,c(B4),400), step(A5,c(A5),400), step(A4,c(A4),400),
+          step(G5,c(G5),400), step(G4,c(G4),400), step(F5,c(F5),400), step(F4,c(F4),400),
+          step(E5,c(E5),400), step(E4,c(E4),400), step(D5,c(D5),400), step(D4,c(D4),400),
+          step(C5,c(C5),400), step(C4,c(C4),600)
+        ]}, uploadLines: []
+      },
+      {
+        id: '19', name: 'Cross Octave Chords',
+        description: 'Chords spanning both octaves for multi-module practice.',
+        data: { steps: [
+          chord([C4,C5], [c(C4),c(C5)], 800),
+          chord([E4,E5], [c(E4),c(E5)], 800),
+          chord([G4,G5], [c(G4),c(G5)], 800),
+          chord([C4,E4,G4],[c(C4),c(E4),c(G4)], 1000),
+          chord([C5,E5,G5],[c(C5),c(E5),c(G5)], 1000),
+          chord([C4,G4,C5,G5],[c(C4),c(G4),c(C5),c(G5)], 1200),
+          chord([F4,A4], [c(F4),c(A4)], 800),
+          chord([F5,A5], [c(F5),c(A5)], 800),
+          chord([F4,A4,C5],[c(F4),c(A4),c(C5)], 1000),
+          chord([C4,C5], [c(C4),c(C5)], 1200)
+        ]}, uploadLines: []
       }
     ];
 
