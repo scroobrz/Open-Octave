@@ -7,7 +7,10 @@
     "start": "node server.js",
     "start:laptop": "node server.js",
     "dev": "nodemon server.js",
-    "mock:esp32": "node mock_esp32_ws.js"
+    "mock:esp32": "node mock_esp32_ws.js",
+    "test": "vitest run --globals",
+    "test:watch": "vitest --globals",
+    "test:coverage": "vitest run --globals --coverage --coverage.exclude=mock_esp32_ws.js"
   },
   "dependencies": {
     "@tonejs/midi": "^2.0.28",
@@ -20,6 +23,9 @@
     "ws": "^8.16.0"
   },
   "devDependencies": {
-    "nodemon": "^3.1.0"
+    "@vitest/coverage-v8": "^3.2.4",
+    "nodemon": "^3.1.0",
+    "supertest": "^7.1.1",
+    "vitest": "^3.2.4"
   }
 }

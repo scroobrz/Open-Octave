@@ -1533,7 +1533,7 @@ app.post('/api/db/sequences/:id/upload', async (req, res) => {
   }
 });
 
-// ============ WEBSOCKET SERVER ============
+// ============ WEBSOCKET SERVER / STARTUP ============
 
 const httpServer = app.listen(PORT, '0.0.0.0', async () => {
     console.log(`\nOPEN OCTAVE CONTROLLER`);
@@ -1553,50 +1553,45 @@ const httpServer = app.listen(PORT, '0.0.0.0', async () => {
     console.log();
 });
 
-// const wss = new WebSocket.Server({ port: Number(WS_PORT) }, () => {
-//     console.log(`[WS] WebSocket server listening on 0.0.0.0:${WS_PORT}`);
-// });
+    wss = new WebSocket.Server({ host: '0.0.0.0', port: WS_PORT }, () => {
+        console.log(`[WS] WebSocket server listening on 0.0.0.0:${WS_PORT}`);
+    });
 
-// laptop hosting
-const wss = new WebSocket.Server({ host: '0.0.0.0', port: WS_PORT }, () => {
-    console.log(`[WS] WebSocket server listening on 0.0.0.0:${WS_PORT}`);
-});
+    wss.on('connection', (socket, req) => {
+        const clientIp = req.socket.remoteAddress?.replace('::ffff:', '') || 'unknown';
+        console.log(`[WS] Incoming connection from ${clientIp}`);
 
-wss.on('connection', (socket, req) => {
-    const clientIp = req.socket.remoteAddress?.replace('::ffff:', '') || 'unknown';
-    console.log(`[WS] Incoming connection from ${clientIp}`);
-
-    const entry = registerModule(clientIp, socket);
-    socket.isAlive = true;
-
-    socket.on('pong', () => {
+        const entry = registerModule(clientIp, socket);
         socket.isAlive = true;
-        touchModule(clientIp);
+
+        socket.on('pong', () => {
+            socket.isAlive = true;
+            touchModule(clientIp);
+        });
+
+        socket.on('message', (data) => {
+            const msg = data.toString().trim();
+            if (msg.length === 0) return;
+
+            socket.isAlive = true;
+            touchModule(clientIp);
+            console.log(`[ESP32 ${clientIp}] ${msg}`);
+            pushLog(`ESP32:${clientIp}`, msg);
+            ingestEsp32Line(msg, clientIp);
+        });
+
+        socket.on('close', () => {
+            unregisterModule(clientIp);
+        });
+
+        socket.on('error', (err) => {
+            console.error(`[WS] Error from ${clientIp}: ${err.message}`);
+            unregisterModule(clientIp);
+        });
     });
 
-    socket.on('message', (data) => {
-        const msg = data.toString().trim();
-        if (msg.length === 0) return;
-
-        socket.isAlive = true;
-        touchModule(clientIp);
-        console.log(`[ESP32 ${clientIp}] ${msg}`);
-        pushLog(`ESP32:${clientIp}`, msg);
-        ingestEsp32Line(msg, clientIp);
-    });
-
-    socket.on('close', () => {
-        unregisterModule(clientIp);
-    });
-
-    socket.on('error', (err) => {
-        console.error(`[WS] Error from ${clientIp}: ${err.message}`);
-        unregisterModule(clientIp);
-    });
-});
-
-const staleCleanupTimer = setInterval(() => {
-    cleanupStaleModules();
+    staleCleanupTimer = setInterval(() => {
+        cleanupStaleModules();
 
     for (const entry of modules.values()) {
         if (!entry.connected || !entry.ws || entry.ws._isSerialShim) continue;
