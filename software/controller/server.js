@@ -1250,11 +1250,11 @@ app.post('/api/db/sequences/seed', (req, res) => {
           step(E4,c(E4),500), step(E4,c(E4),500), step(F4,c(F4),500), step(G4,c(G4),500),
           step(G4,c(G4),500), step(F4,c(F4),500), step(E4,c(E4),500), step(D4,c(D4),500),
           step(C4,c(C4),500), step(C4,c(C4),500), step(D4,c(D4),500), step(E4,c(E4),500),
-          step(E4,c(E4),750), step(D4,c(D4),250), step(D4,c(D4),1000),
+          step(E4,c(E4),700), step(D4,c(D4),300), step(D4,c(D4),1000),
           step(E4,c(E4),500), step(E4,c(E4),500), step(F4,c(F4),500), step(G4,c(G4),500),
           step(G4,c(G4),500), step(F4,c(F4),500), step(E4,c(E4),500), step(D4,c(D4),500),
           step(C4,c(C4),500), step(C4,c(C4),500), step(D4,c(D4),500), step(E4,c(E4),500),
-          step(D4,c(D4),750), step(C4,c(C4),250), step(C4,c(C4),1200)
+          step(D4,c(D4),700), step(C4,c(C4),300), step(C4,c(C4),1200)
         ]}, uploadLines: []
       },
       {
@@ -1420,12 +1420,12 @@ app.post('/api/db/sequences/seed', (req, res) => {
           step(E4,c(E4),500), step(E4,c(E4),500), step(F4,c(F4),500), step(G4,c(G4),500),
           step(G4,c(G4),500), step(F4,c(F4),500), step(E4,c(E4),500), step(D4,c(D4),500),
           step(C4,c(C4),500), step(C4,c(C4),500), step(D4,c(D4),500), step(E4,c(E4),500),
-          step(E4,c(E4),750), step(D4,c(D4),250), step(D4,c(D4),1000),
+          step(E4,c(E4),700), step(D4,c(D4),300), step(D4,c(D4),1000),
           // Repeat up an octave
           step(E5,c(E5),500), step(E5,c(E5),500), step(F5,c(F5),500), step(G5,c(G5),500),
           step(G5,c(G5),500), step(F5,c(F5),500), step(E5,c(E5),500), step(D5,c(D5),500),
           step(C5,c(C5),500), step(C5,c(C5),500), step(D5,c(D5),500), step(E5,c(E5),500),
-          step(D5,c(D5),750), step(C5,c(C5),250), step(C5,c(C5),1200)
+          step(D5,c(D5),700), step(C5,c(C5),300), step(C5,c(C5),1200)
         ]}, uploadLines: []
       },
       {
