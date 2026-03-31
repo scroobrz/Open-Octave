@@ -1162,10 +1162,7 @@ app.post('/api/db/sequences/seed', (req, res) => {
       return COLORS.fingerColors[key] || COLORS.fallbackColor;
     }
 
-    function colorFor3KeyIndex(k) {
-      const finger = COLORS.keyToFinger3Key[String(k)];
-      return colorForFinger(finger);
-    }
+
 
     function colorFor12KeyIndex(k) {
       const finger = COLORS.keyToFinger[String(k)];
@@ -1199,39 +1196,9 @@ app.post('/api/db/sequences/seed', (req, res) => {
     const c = (k) => colorFor12KeyIndex(k % 12);
 
     const presets = [
-      // ═══════════ 3-KEY TEST SEQUENCES (keys 0-2) ═══════════
-      {
-        id: '0', name: 'Ping Pong',
-        description: 'Alternating pattern across keys 0-2.',
-        data: { steps: [
-          step(0, colorFor3KeyIndex(0), 500), step(1, colorFor3KeyIndex(1), 500),
-          step(2, colorFor3KeyIndex(2), 500), step(1, colorFor3KeyIndex(1), 500),
-          step(0, colorFor3KeyIndex(0), 500)
-        ]}, uploadLines: []
-      },
-      {
-        id: '1', name: 'Up and Down',
-        description: 'Three-key ascending/descending.',
-        data: { steps: [
-          step(0, colorFor3KeyIndex(0), 400), step(1, colorFor3KeyIndex(1), 400),
-          step(2, colorFor3KeyIndex(2), 400), step(1, colorFor3KeyIndex(1), 400),
-          step(0, colorFor3KeyIndex(0), 400), step(2, colorFor3KeyIndex(2), 400),
-          step(0, colorFor3KeyIndex(0), 400)
-        ]}, uploadLines: []
-      },
-      {
-        id: '2', name: 'Quick Repeat',
-        description: 'Repeating pattern across keys 0-2.',
-        data: { steps: [
-          step(1, colorFor3KeyIndex(1), 500), step(1, colorFor3KeyIndex(1), 500),
-          step(0, colorFor3KeyIndex(0), 500), step(2, colorFor3KeyIndex(2), 500),
-          step(2, colorFor3KeyIndex(2), 500), step(1, colorFor3KeyIndex(1), 500)
-        ]}, uploadLines: []
-      },
-
       // ═══════════ 1-OCTAVE MELODIES (keys 0-11) ═══════════
       {
-        id: '3', name: 'Mary Had a Little Lamb',
+        id: '0', name: 'Mary Had a Little Lamb',
         description: 'Classic nursery rhyme. Keys: C4-G4.',
         data: { steps: [
           step(E4,c(E4),500), step(D4,c(D4),500), step(C4,c(C4),500), step(D4,c(D4),500),
@@ -1245,7 +1212,7 @@ app.post('/api/db/sequences/seed', (req, res) => {
         ]}, uploadLines: []
       },
       {
-        id: '4', name: 'Twinkle Twinkle',
+        id: '1', name: 'Twinkle Twinkle',
         description: 'Twinkle Twinkle Little Star. Keys: C4-A4.',
         data: { steps: [
           step(C4,c(C4),500), step(C4,c(C4),500), step(G4,c(G4),500), step(G4,c(G4),500),
@@ -1263,7 +1230,7 @@ app.post('/api/db/sequences/seed', (req, res) => {
         ]}, uploadLines: []
       },
       {
-        id: '5', name: 'Happy Birthday',
+        id: '2', name: 'Happy Birthday',
         description: 'Happy Birthday To You. Keys: C4-C5.',
         data: { steps: [
           step(C4,c(C4),300), step(C4,c(C4),300), step(D4,c(D4),600), step(C4,c(C4),600),
@@ -1277,7 +1244,7 @@ app.post('/api/db/sequences/seed', (req, res) => {
         ]}, uploadLines: []
       },
       {
-        id: '6', name: 'Ode to Joy',
+        id: '3', name: 'Ode to Joy',
         description: 'Beethoven - Ode to Joy theme. Keys: C4-G4.',
         data: { steps: [
           step(E4,c(E4),500), step(E4,c(E4),500), step(F4,c(F4),500), step(G4,c(G4),500),
@@ -1291,7 +1258,7 @@ app.post('/api/db/sequences/seed', (req, res) => {
         ]}, uploadLines: []
       },
       {
-        id: '7', name: 'Jingle Bells',
+        id: '4', name: 'Jingle Bells',
         description: 'Jingle Bells chorus. Keys: C4-A4.',
         data: { steps: [
           step(E4,c(E4),400), step(E4,c(E4),400), step(E4,c(E4),800),
@@ -1305,7 +1272,7 @@ app.post('/api/db/sequences/seed', (req, res) => {
         ]}, uploadLines: []
       },
       {
-        id: '8', name: 'Hot Cross Buns',
+        id: '5', name: 'Hot Cross Buns',
         description: 'Simple beginner melody. Keys: C4-E4.',
         data: { steps: [
           step(E4,c(E4),600), step(D4,c(D4),600), step(C4,c(C4),1200),
@@ -1316,7 +1283,7 @@ app.post('/api/db/sequences/seed', (req, res) => {
         ]}, uploadLines: []
       },
       {
-        id: '9', name: 'When The Saints',
+        id: '6', name: 'When The Saints',
         description: 'When The Saints Go Marching In. Keys: C4-A4.',
         data: { steps: [
           step(C4,c(C4),400), step(E4,c(E4),400), step(F4,c(F4),400), step(G4,c(G4),1200),
@@ -1330,7 +1297,7 @@ app.post('/api/db/sequences/seed', (req, res) => {
         ]}, uploadLines: []
       },
       {
-        id: '10', name: 'C Major Scale',
+        id: '7', name: 'C Major Scale',
         description: 'C major scale, ascending and descending within one octave.',
         data: { steps: [
           step(C4,c(C4),500), step(D4,c(D4),500), step(E4,c(E4),500), step(F4,c(F4),500),
@@ -1342,7 +1309,7 @@ app.post('/api/db/sequences/seed', (req, res) => {
 
       // ═══════════ 2-OCTAVE MELODIES (keys 0-23) ═══════════
       {
-        id: '11', name: 'Two Octave Scale',
+        id: '8', name: 'Two Octave Scale',
         description: 'C major scale across 2 octaves, ascending and descending.',
         data: { steps: [
           step(C4,c(C4),400), step(D4,c(D4),400), step(E4,c(E4),400), step(F4,c(F4),400),
@@ -1356,7 +1323,7 @@ app.post('/api/db/sequences/seed', (req, res) => {
         ]}, uploadLines: []
       },
       {
-        id: '12', name: 'Fur Elise',
+        id: '9', name: 'Fur Elise',
         description: 'Beethoven - Fur Elise opening theme across two octaves.',
         data: { steps: [
           step(E5,c(E5),300), step(Eb5,c(Eb5),300), step(E5,c(E5),300), step(Eb5,c(Eb5),300),
@@ -1373,7 +1340,7 @@ app.post('/api/db/sequences/seed', (req, res) => {
         ]}, uploadLines: []
       },
       {
-        id: '13', name: 'Canon in D',
+        id: '10', name: 'Canon in D',
         description: 'Pachelbel - Canon in D simplified melody across two octaves.',
         data: { steps: [
           step(Fs5,c(Fs5),500), step(E5,c(E5),500), step(D5,c(D5),500), step(Cs5,c(Cs5),500),
@@ -1387,7 +1354,7 @@ app.post('/api/db/sequences/seed', (req, res) => {
         ]}, uploadLines: []
       },
       {
-        id: '14', name: 'Greensleeves',
+        id: '11', name: 'Greensleeves',
         description: 'Traditional English melody (What Child Is This). Two octaves.',
         data: { steps: [
           step(A4,c(A4),600),
@@ -1406,7 +1373,7 @@ app.post('/api/db/sequences/seed', (req, res) => {
         ]}, uploadLines: []
       },
       {
-        id: '15', name: 'Amazing Grace',
+        id: '12', name: 'Amazing Grace',
         description: 'Traditional hymn arranged across two octaves.',
         data: { steps: [
           step(G4,c(G4),600),
@@ -1427,7 +1394,7 @@ app.post('/api/db/sequences/seed', (req, res) => {
         ]}, uploadLines: []
       },
       {
-        id: '16', name: 'Twinkle Twinkle (2 Oct)',
+        id: '13', name: 'Twinkle Twinkle (2 Oct)',
         description: 'Twinkle Twinkle Little Star arranged across two octaves with harmony.',
         data: { steps: [
           step(C4,c(C4),500), step(C4,c(C4),500), step(G4,c(G4),500), step(G4,c(G4),500),
@@ -1447,7 +1414,7 @@ app.post('/api/db/sequences/seed', (req, res) => {
         ]}, uploadLines: []
       },
       {
-        id: '17', name: 'Ode to Joy (2 Oct)',
+        id: '14', name: 'Ode to Joy (2 Oct)',
         description: 'Beethoven - Ode to Joy with two-octave run. Keys span C4-G5.',
         data: { steps: [
           step(E4,c(E4),500), step(E4,c(E4),500), step(F4,c(F4),500), step(G4,c(G4),500),
@@ -1462,7 +1429,7 @@ app.post('/api/db/sequences/seed', (req, res) => {
         ]}, uploadLines: []
       },
       {
-        id: '18', name: 'Octave Jump Drill',
+        id: '15', name: 'Octave Jump Drill',
         description: 'Alternating notes between octave 1 and octave 2 for practice.',
         data: { steps: [
           step(C4,c(C4),400), step(C5,c(C5),400), step(D4,c(D4),400), step(D5,c(D5),400),
@@ -1476,7 +1443,7 @@ app.post('/api/db/sequences/seed', (req, res) => {
         ]}, uploadLines: []
       },
       {
-        id: '19', name: 'Cross Octave Chords',
+        id: '16', name: 'Cross Octave Chords',
         description: 'Chords spanning both octaves for multi-module practice.',
         data: { steps: [
           chord([C4,C5], [c(C4),c(C5)], 800),
