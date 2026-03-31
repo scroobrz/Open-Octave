@@ -1020,7 +1020,8 @@ app.post('/api/modules/:ip/control', (req, res) => {
 
 // midi import
 // POST /api/midi/import — upload a MIDI file, convert it into an Open Octave
-// sequence, save it into SQLite, and return the created item + metadata.
+// sequence, and either preview or save it into SQLite.
+// Pass ?preview=1 to return the parsed result without saving (for user review).
 app.post('/api/midi/import', upload.single('file'), (req, res) => {
     try {
         if (!req.file) {
@@ -1037,6 +1038,7 @@ app.post('/api/midi/import', upload.single('file'), (req, res) => {
         }
 
         const nameOverride = req.body?.name ? String(req.body.name).trim() : undefined;
+        const isPreview = req.query.preview === '1' || req.query.preview === 'true';
 
         const result = importMidiBufferToSequence(req.file.buffer, {
             filename: originalName,
@@ -1052,11 +1054,26 @@ app.post('/api/midi/import', upload.single('file'), (req, res) => {
             return;
         }
 
+        if (isPreview) {
+            // Preview mode: return the parsed sequence without saving
+            res.json({
+                ok: true,
+                preview: true,
+                message: 'MIDI parsed successfully. Review and confirm to save.',
+                sequence: result.sequence,
+                meta: result.meta,
+                warnings: result.warnings || []
+            });
+            return;
+        }
+
+        // Non-preview: save immediately (backwards-compatible)
         const savedId = upsertSequence(result.sequence);
         const item = getSequence(savedId);
 
         res.json({
             ok: true,
+            preview: false,
             message: 'MIDI imported successfully.',
             item,
             meta: result.meta,
