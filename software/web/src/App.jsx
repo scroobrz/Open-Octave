@@ -616,7 +616,7 @@ export default function App() {
   }
 
   // ============ MIDI IMPORT ============
-  async function previewMidiFile() {
+  async function importMidiFile() {
     if (!midiFile) {
       setMidiImportError('Please choose a MIDI file first.');
       return;
@@ -630,7 +630,7 @@ export default function App() {
       const formData = new FormData();
       formData.append('file', midiFile);
 
-      const res = await fetch('/api/midi/import?preview=1', {
+      const res = await fetch('/api/midi/import', {
         method: 'POST',
         body: formData
       });
@@ -642,44 +642,6 @@ export default function App() {
       }
 
       setMidiImportResult(data);
-    } catch (e) {
-      setMidiImportError(e.message);
-    } finally {
-      setMidiImportBusy(false);
-    }
-  }
-
-  async function confirmMidiImport() {
-    if (!midiImportResult?.sequence) return;
-
-    try {
-      setMidiImportBusy(true);
-      setMidiImportError('');
-
-      const res = await fetch('/api/db/sequences', {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({
-          name: midiImportResult.sequence.name,
-          description: midiImportResult.sequence.description || '',
-          steps: midiImportResult.sequence.data?.steps || []
-        })
-      });
-
-      const data = await res.json();
-
-      if (!res.ok || !data?.ok) {
-        throw new Error(data?.error || `Failed to save: ${res.status}`);
-      }
-
-      // Replace preview result with the saved item
-      setMidiImportResult({
-        ...midiImportResult,
-        preview: false,
-        saved: true,
-        item: data.item,
-        message: 'MIDI imported and saved successfully.'
-      });
       setMidiFile(null);
       await refreshDbSequences();
     } catch (e) {
@@ -689,7 +651,14 @@ export default function App() {
     }
   }
 
-  function discardMidiImport() {
+  async function discardMidiImport() {
+    const seqId = midiImportResult?.item?.id;
+    if (seqId) {
+      try {
+        await fetch(`/api/db/sequences/${seqId}`, { method: 'DELETE' });
+        await refreshDbSequences();
+      } catch (_) { /* best-effort cleanup */ }
+    }
     setMidiImportResult(null);
     setMidiImportError('');
   }
@@ -1600,10 +1569,10 @@ export default function App() {
                   <button
                     className="btn btn-green"
                     type="button"
-                    onClick={previewMidiFile}
+                    onClick={importMidiFile}
                     disabled={midiImportBusy || !midiFile}
                   >
-                    {midiImportBusy ? 'Processing...' : 'Preview MIDI'}
+                    {midiImportBusy ? 'Importing...' : 'Import MIDI'}
                   </button>
                 </div>
               </div>
@@ -1618,22 +1587,17 @@ export default function App() {
 
               {midiImportResult?.ok && (
                 <div className="card" style={{ marginTop: 12, marginBottom: 0 }}>
-                  <h2>{midiImportResult.saved ? 'Import Result' : 'Import Preview'}</h2>
+                  <h2>Import Result</h2>
                   <div className="hint" style={{ marginTop: 0 }}>
-                    {midiImportResult.saved
-                      ? <><b>{midiImportResult.item?.name}</b> imported and saved successfully.</>
-                      : <><b>{midiImportResult.sequence?.name}</b> — review the details below, then save or discard.</>
-                    }
+                    <b>{midiImportResult.item?.name}</b> imported successfully.
                   </div>
 
                   <table className="seq-table" style={{ marginTop: 10 }}>
                     <tbody>
-                      {midiImportResult.saved && (
-                        <tr>
-                          <td><b>Sequence ID</b></td>
-                          <td>{midiImportResult.item?.id ?? '--'}</td>
-                        </tr>
-                      )}
+                      <tr>
+                        <td><b>Sequence ID</b></td>
+                        <td>{midiImportResult.item?.id ?? '--'}</td>
+                      </tr>
                       <tr>
                         <td><b>Required modules</b></td>
                         <td>{midiImportResult.meta?.requiredModules ?? '--'}</td>
@@ -1678,34 +1642,20 @@ export default function App() {
                   )}
 
                   <div className="btn-row" style={{ marginTop: 12 }}>
-                    {midiImportResult.saved ? (
-                      <button
-                        className="btn btn-secondary"
-                        type="button"
-                        onClick={() => openEditor(midiImportResult.item?.id)}
-                      >
-                        Open in Editor
-                      </button>
-                    ) : (
-                      <>
-                        <button
-                          className="btn btn-green"
-                          type="button"
-                          onClick={confirmMidiImport}
-                          disabled={midiImportBusy}
-                        >
-                          {midiImportBusy ? 'Saving...' : 'Save Sequence'}
-                        </button>
-                        <button
-                          className="btn btn-red"
-                          type="button"
-                          onClick={discardMidiImport}
-                          disabled={midiImportBusy}
-                        >
-                          Discard
-                        </button>
-                      </>
-                    )}
+                    <button
+                      className="btn btn-secondary"
+                      type="button"
+                      onClick={() => openEditor(midiImportResult.item?.id)}
+                    >
+                      Open in Editor
+                    </button>
+                    <button
+                      className="btn btn-red"
+                      type="button"
+                      onClick={discardMidiImport}
+                    >
+                      Discard
+                    </button>
                   </div>
                 </div>
               )}
