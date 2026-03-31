@@ -817,7 +817,7 @@ export default function App() {
   }
   function startAutoModules() {
     if (modulesTimerRef.current) clearInterval(modulesTimerRef.current);
-    modulesTimerRef.current = setInterval(refreshModules, 5000);
+    modulesTimerRef.current = setInterval(refreshModules, 2000);
   }
   function stopAutoModules() {
     if (modulesTimerRef.current) { clearInterval(modulesTimerRef.current); modulesTimerRef.current = null; }
