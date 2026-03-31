@@ -650,7 +650,11 @@ export default function App() {
   }
 
   async function acceptMidiImport() {
-    if (!midiImportResult?.sequence) return;
+    if (!midiImportResult?.sequence) {
+      console.error('acceptMidiImport: no sequence data in import result', midiImportResult);
+      setMidiImportError('No sequence data available. Please re-import the MIDI file.');
+      return;
+    }
 
     try {
       setMidiImportBusy(true);
