@@ -84,6 +84,7 @@ bool sequenceRunning = false;
 int currentSequenceStepIndex = 0;
 unsigned long currentStepStartTime = 0;
 unsigned long lastSequenceButtonPressTime = 0;
+unsigned long promotionSuppressionTime = 0;  // suppress buttons briefly after promotion
 #define CURRENT_STEP currentSequence.steps[currentSequenceStepIndex]
 #define PREVIOUS_STEP currentSequence.steps[currentSequenceStepIndex - 1]
 
@@ -222,11 +223,15 @@ void setup() {
   LOGLN("[SETUP] Complete!");
   LOGLN("========================================\n");
 
-  // Always announce over USB Serial so the controller can register this module
-  // even when WiFi is not available (USB-only demo mode).
-  sendHelloToController();
-
   playStartupAnimation();
+
+  // Announce over USB Serial AFTER the startup animation, giving the
+  // heartbeat protocol ~1.5s to stabilize. If an upstream module is
+  // connected, we'll have received a heartbeat by now and demoted to slave
+  // (which sends BYE instead). Only masters reach this point.
+  if (isMaster) {
+    sendHelloToController();
+  }
 }
 
 // runs repeatedly forever
