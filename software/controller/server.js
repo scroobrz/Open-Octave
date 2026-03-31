@@ -266,7 +266,15 @@ function cleanupStaleModules() {
     const now = Date.now();
 
     for (const [ip, entry] of modules) {
-        if (!entry.connected) continue;
+        // Remove fully disconnected entries that have been inactive for a while
+        // (e.g. old serial modules that sent BYE and never came back).
+        if (!entry.connected) {
+            const lastSeenMs = entry.lastSeenAt ? Date.parse(entry.lastSeenAt) : NaN;
+            if (!Number.isFinite(lastSeenMs) || (now - lastSeenMs > MODULE_STALE_TIMEOUT_MS)) {
+                modules.delete(ip);
+            }
+            continue;
+        }
 
         // Serial modules are managed by the serial port close handler, not stale cleanup
         if (entry.ws && entry.ws._isSerialShim) continue;
@@ -357,7 +365,6 @@ function frameForSerial(cmd) {
 
 // Map<portPath, { port: SerialPort, parser: ReadlineParser, moduleKey: string }>
 const serialPorts = new Map();
-let serialKeyCounter = 0;
 
 function createSerialWsShim(serialPortObj, portPath) {
     return {
@@ -413,7 +420,10 @@ async function connectSerial(portPath) {
         const serialPortObj = new SerialPort({ path: portPath, baudRate: BAUD_RATE });
         const parser = serialPortObj.pipe(new ReadlineParser({ delimiter: '\n' }));
 
-        const moduleKey = `serial:${serialKeyCounter++}`;
+        // Use a deterministic key derived from the port path so that
+        // reconnecting the same USB cable reuses the same module entry
+        // instead of creating ghost entries (serial:0, serial:1, ...).
+        const moduleKey = `serial:${portPath}`;
 
         await new Promise((resolve, reject) => {
             serialPortObj.on('open', () => {
