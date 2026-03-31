@@ -216,6 +216,23 @@ function ingestEsp32Line(msg, moduleIp) {
             const transport = entry.transport || 'wifi';
             pushLog('CTRL', `${entry.label} (${moduleIp}): HELLO modules=${chainLength} [${transport}]`);
             console.log(`[${transport.toUpperCase()}] ${entry.label}: HELLO modules=${chainLength}, totalKeys=${entry.totalKeys}`);
+        } else {
+            // Entry was deleted (e.g., stale cleanup after BYE).
+            // Look up the serial port to re-create the WS shim and re-register.
+            let ws = null;
+            let transport = 'wifi';
+            for (const [portPath, sp] of serialPorts) {
+                if (sp.moduleKey === moduleIp) {
+                    ws = createSerialWsShim(sp.port, portPath);
+                    transport = 'serial';
+                    break;
+                }
+            }
+            entry = registerModule(moduleIp, ws, transport);
+            entry.chainLength = chainLength;
+            entry.totalKeys = chainLength * 12;
+            pushLog('CTRL', `${entry.label} (${moduleIp}): HELLO modules=${chainLength} [${transport}] (re-registered after BYE)`);
+            console.log(`[${transport.toUpperCase()}] ${entry.label}: HELLO modules=${chainLength} (re-registered)`);
         }
         return;
     }
