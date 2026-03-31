@@ -1116,6 +1116,27 @@ app.post('/api/db/sequences', (req, res) => {
       res.status(400).json({ ok: false, error: 'steps must be an array' });
       return;
     }
+    if (steps.length > 128) {
+      res.status(400).json({ ok: false, error: `Too many steps (${steps.length}). Firmware maximum is 128.` });
+      return;
+    }
+    for (let i = 0; i < steps.length; i++) {
+      const s = steps[i];
+      const keys = Array.isArray(s.keys) ? s.keys : [];
+      const dur = s.duration !== undefined ? s.duration : s.d;
+      if (keys.length === 0) {
+        res.status(400).json({ ok: false, error: `Step ${i}: missing keys` });
+        return;
+      }
+      if (keys.length > 4) {
+        res.status(400).json({ ok: false, error: `Step ${i}: max 4 keys per step` });
+        return;
+      }
+      if (dur === undefined || dur < 300 || dur > 10000) {
+        res.status(400).json({ ok: false, error: `Step ${i}: duration must be 300-10000ms` });
+        return;
+      }
+    }
 
     const seq = {
       id,
