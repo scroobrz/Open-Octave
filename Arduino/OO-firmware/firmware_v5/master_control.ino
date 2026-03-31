@@ -28,6 +28,14 @@ void promoteToMaster(){
 
     updateDefaultSequenceForChainSize();
 
+    // Suppress sequence button triggers for 500ms after promotion.
+    // While the module was a slave, handleSequenceButtons() was never called,
+    // so its static debounce variables are stale. Without this cooldown, any
+    // held or bouncing button registers as a rising edge and auto-starts
+    // the default sequence.
+    promotionSuppressionTime = millis();
+    lastSequenceButtonPressTime = millis();
+
     // Re-announce to controller over USB serial (was previously BYE'd as slave)
     sendHelloToController();
 

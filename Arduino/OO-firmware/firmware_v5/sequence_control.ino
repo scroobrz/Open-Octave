@@ -7,6 +7,13 @@
 void handleSequenceButtons() {
   if (sequenceRunning || recording) return;
 
+  // Suppress button triggers for 500ms after promotion to master.
+  // The static debounce variables below don't update while the module is a
+  // slave (handleSequenceButtons isn't called by slaves), so on the first
+  // call after promotion, any held or bouncing button would register as a
+  // rising edge and auto-start a sequence.
+  if (millis() - promotionSuppressionTime < 500) return;
+
   static bool lastGuidedState = false;
   static bool lastTeachingState = false;
 

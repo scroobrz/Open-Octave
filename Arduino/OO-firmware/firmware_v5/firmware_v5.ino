@@ -84,6 +84,7 @@ bool sequenceRunning = false;
 int currentSequenceStepIndex = 0;
 unsigned long currentStepStartTime = 0;
 unsigned long lastSequenceButtonPressTime = 0;
+unsigned long promotionSuppressionTime = 0;  // suppress buttons briefly after promotion
 #define CURRENT_STEP currentSequence.steps[currentSequenceStepIndex]
 #define PREVIOUS_STEP currentSequence.steps[currentSequenceStepIndex - 1]
 
