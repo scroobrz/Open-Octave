@@ -1607,6 +1607,34 @@ const staleCleanupTimer = setInterval(() => {
     }
 }, MODULE_CLEANUP_INTERVAL_MS);
 
+// Auto-reconnect: periodically try to re-open configured serial ports that
+// have been lost (e.g. USB cable unplugged and replugged).
+const SERIAL_RECONNECT_INTERVAL_MS = 5000;
+let serialReconnecting = false;
+
+const serialReconnectTimer = setInterval(async () => {
+    if (SERIAL_PATHS.length === 0 || serialReconnecting) return;
+
+    // Check if any configured port is missing from the active map
+    const missing = SERIAL_PATHS.filter(p => !serialPorts.has(p));
+    if (missing.length === 0) return;
+
+    serialReconnecting = true;
+    for (const portPath of missing) {
+        try {
+            const result = await connectSerial(portPath);
+            if (result.success) {
+                console.log(`[SERIAL] Auto-reconnected ${portPath} -> ${result.moduleKey}`);
+                pushLog('CTRL', `Auto-reconnected serial port ${portPath}`);
+            }
+        } catch (_) {
+            // Port not available yet — will retry next interval
+        }
+    }
+    serialReconnecting = false;
+}, SERIAL_RECONNECT_INTERVAL_MS);
+
 wss.on('close', () => {
     clearInterval(staleCleanupTimer);
+    clearInterval(serialReconnectTimer);
 });
