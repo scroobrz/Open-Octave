@@ -174,6 +174,12 @@ void handleCommandsFromUpstream(){
 }
 
 void handleHeartbeatFromUpstream(uint8_t num){
+  // Reject implausible chain indices — likely UART noise during cable insertion
+  if (num >= MAX_MODULES) {
+    LOGF("[CHAIN] Ignoring bogus upstream heartbeat: index=%d (max=%d)\n", num, MAX_MODULES - 1);
+    return;
+  }
+
   timeLastHeartbeatReceived = millis();
 
   numModulesInChain = num + 1;
@@ -289,6 +295,12 @@ void handleCommandsFromDownstream(){
 }
 
 void handleHeartbeatFromDownstream(uint8_t num){
+  // Reject implausible chain indices — likely UART noise during cable insertion
+  if (num >= MAX_MODULES) {
+    LOGF("[CHAIN] Ignoring bogus downstream heartbeat reply: index=%d (max=%d)\n", num, MAX_MODULES - 1);
+    return;
+  }
+
   timeLastHeartbeatReplyReceived = millis();
 
   // Only accept if this represents a higher count than we currently know.
