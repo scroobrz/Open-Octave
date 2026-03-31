@@ -696,6 +696,25 @@ export default function App() {
     setMidiFile(null);
   }
 
+  function openEditorWithImport() {
+    const seq = midiImportResult?.sequence;
+    if (!seq) return;
+    const steps = seq.data?.steps || [];
+    setEditorSeqId(null); // null ID = new sequence (will create on save)
+    setEditorName(seq.name || '');
+    setEditorDesc(seq.description || '');
+    setEditorSteps(steps.map(s => ({
+      keys: Array.isArray(s.keys) ? [...s.keys] : [s.k ?? 0],
+      colors: (Array.isArray(s.colors) ? [...s.colors] : [s.c ?? COLORS.fingerColors.thumb]).map(c => canonicalColor(c)),
+      duration: s.duration ?? s.d ?? 300
+    })));
+    setEditorErrors({});
+    setEditorEditingStep(null);
+    setEditorOpen(true);
+    setMidiImportResult(null);
+    setMidiFile(null);
+  }
+
   // ============ SEQUENCE EDITOR ============
 
   function openEditor(seqId) {
@@ -1706,6 +1725,14 @@ export default function App() {
                           disabled={midiImportBusy}
                         >
                           {midiImportBusy ? 'Saving...' : 'Accept'}
+                        </button>
+                        <button
+                          className="btn btn-secondary"
+                          type="button"
+                          onClick={openEditorWithImport}
+                          disabled={midiImportBusy}
+                        >
+                          Edit Before Saving
                         </button>
                         <button
                           className="btn btn-red"
