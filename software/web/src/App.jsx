@@ -94,6 +94,7 @@ export default function App() {
   const [tab, setTab] = useState('connect');
   const [uiMode, setUiMode] = useState(() => localStorage.getItem('oo-ui-mode') || 'user');
   const [colorMode, setColorMode] = useState(() => localStorage.getItem('oo-color-mode') || 'default');
+  const [connectionMode, setConnectionMode] = useState(() => localStorage.getItem('oo-connection-mode') || 'wifi');
   // Persist developer mode toggle across page reloads.
   useEffect(() => {
     localStorage.setItem('oo-ui-mode', uiMode);
@@ -103,6 +104,10 @@ export default function App() {
   useEffect(() => {
     localStorage.setItem('oo-color-mode', colorMode);
   }, [colorMode]);
+
+  useEffect(() => {
+    localStorage.setItem('oo-connection-mode', connectionMode);
+  }, [connectionMode]);
 
   // Resolve active finger colours based on colour mode.
   const activeFingerColors = useMemo(() => {
@@ -265,19 +270,35 @@ export default function App() {
 
   // ============ COMPUTED ============
 
-  const isConnected = useMemo(() => {
+  const usbInfo = health?.serial || null;
+
+  const wifiConnected = useMemo(() => {
     return modulesList.some(m => m.connected);
   }, [modulesList]);
 
+  const usbConnected = useMemo(() => {
+    return !!(usbInfo?.open && usbInfo?.connected);
+  }, [usbInfo]);
+
+  const isConnected = useMemo(() => {
+    return connectionMode === 'usb' ? usbConnected : wifiConnected;
+  }, [connectionMode, usbConnected, wifiConnected]);
+
   const connectedModuleCount = useMemo(() => {
+    if (connectionMode === 'usb') {
+      return usbConnected ? 1 : 0;
+    }
     return modulesList.filter(m => m.connected).length;
-  }, [modulesList]);
+  }, [connectionMode, modulesList, usbConnected]);
 
   const connectedPhysicalModuleCount = useMemo(() => {
+    if (connectionMode === 'usb') {
+      return usbConnected ? (Number.isFinite(usbInfo?.chainLength) ? usbInfo.chainLength : 1) : 0;
+    }
     return modulesList
       .filter(m => m.connected)
       .reduce((sum, m) => sum + (Number.isFinite(m.chainLength) ? m.chainLength : 1), 0);
-  }, [modulesList]);
+  }, [connectionMode, modulesList, usbConnected, usbInfo]);
 
   const smallestChainKeys = useMemo(() => {
     const connected = modulesList.filter(m => m.connected);
@@ -303,6 +324,15 @@ export default function App() {
     return items;
   }, [logs, logsPrefixedOnly, logsSearch]);
 
+  function transportValue(mode = connectionMode) {
+    return mode === 'usb' ? 'USB' : 'WIFI';
+  }
+
+  function withTransportQuery(path, mode = connectionMode) {
+    const separator = path.includes('?') ? '&' : '?';
+    return `${path}${separator}transport=${encodeURIComponent(transportValue(mode))}`;
+  }
+
   // ============ API FUNCTIONS ============
 
   async function refreshHealth() {
@@ -326,11 +356,14 @@ export default function App() {
       // in the current controller snapshot. This prevents stale mock/local state from
       // reusing cached sequence data for an old connection.
       const activeIps = new Set(nextModules.filter(m => m.connected).map(m => m.ip));
+      const keepUsb = connectionMode === 'usb';
 
       setChainSequences(prev => {
         const next = {};
         for (const [ip, sequenceId] of Object.entries(prev)) {
-          if (activeIps.has(ip)) next[ip] = sequenceId;
+          if (activeIps.has(ip) || (keepUsb && ip === 'usb')) {
+            next[ip] = sequenceId;
+          }
         }
         return next;
       });
@@ -338,7 +371,9 @@ export default function App() {
       setChainSeqData(prev => {
         const next = {};
         for (const [ip, value] of Object.entries(prev)) {
-          if (activeIps.has(ip)) next[ip] = value;
+          if (activeIps.has(ip) || (keepUsb && ip === 'usb')) {
+            next[ip] = value;
+          }
         }
         return next;
       });
@@ -361,7 +396,7 @@ export default function App() {
   async function refreshControllerState() {
     try {
       setCtrlStateError('');
-      const data = await apiGet('/api/state');
+      const data = await apiGet(withTransportQuery('/api/state'));
       setCtrlState(data?.state || null);
     } catch (e) {
       setCtrlState(null);
@@ -416,7 +451,8 @@ export default function App() {
       setDbActionBusy(true);
       await apiPost(`/api/modules/${encodeURIComponent(moduleIp)}/upload`, {
         sequenceId,
-        colorMode
+        colorMode,
+        transport: transportValue()
       });
       setChainSequences(prev => ({ ...prev, [moduleIp]: sequenceId }));
       await fetchAndCacheSeqData(moduleIp, sequenceId);
@@ -433,24 +469,38 @@ export default function App() {
       setDbActionBusy(true);
       await apiPost('/api/modules/all/upload', {
         sequenceId,
-        colorMode
+        colorMode,
+        transport: transportValue()
       });
       const newChains = {};
-      for (const m of modulesList) {
-        if (m.connected) newChains[m.ip] = sequenceId;
+      if (connectionMode === 'usb') {
+        if (usbConnected) newChains.usb = sequenceId;
+      } else {
+        for (const m of modulesList) {
+          if (m.connected) newChains[m.ip] = sequenceId;
+        }
       }
       setChainSequences(prev => ({ ...prev, ...newChains }));
-      // Fetch full sequence data once, cache for all modules
+      // Fetch full sequence data once, cache for the active transport target(s)
       try {
         const data = await apiGet(`/api/db/sequences/${encodeURIComponent(sequenceId)}`);
         const steps = data?.item?.data?.steps || [];
         const newSeqData = {};
-        for (const m of modulesList) {
-          if (m.connected) {
-            newSeqData[m.ip] = {
+        if (connectionMode === 'usb') {
+          if (usbConnected) {
+            newSeqData.usb = {
               sequenceId: String(sequenceId),
               steps
             };
+          }
+        } else {
+          for (const m of modulesList) {
+            if (m.connected) {
+              newSeqData[m.ip] = {
+                sequenceId: String(sequenceId),
+                steps
+              };
+            }
           }
         }
         setChainSeqData(prev => ({ ...prev, ...newSeqData }));
@@ -465,7 +515,11 @@ export default function App() {
 
   async function sendModuleControl(moduleIp, cmd, mode) {
     try {
-      await apiPost(`/api/modules/${encodeURIComponent(moduleIp)}/control`, { cmd, mode });
+      await apiPost(`/api/modules/${encodeURIComponent(moduleIp)}/control`, {
+        cmd,
+        mode,
+        transport: transportValue()
+      });
       await refreshModules();
     } catch (e) {
       setDbSeqError(`Control failed: ${e.message}`);
@@ -485,7 +539,11 @@ export default function App() {
 
   async function sendAllControl(cmd, mode) {
     try {
-      await apiPost('/api/modules/all/control', { cmd, mode });
+      await apiPost('/api/modules/all/control', {
+        cmd,
+        mode,
+        transport: transportValue()
+      });
       await refreshModules();
     } catch (e) {
       setDbSeqError(`Control all failed: ${e.message}`);
@@ -497,7 +555,7 @@ export default function App() {
   async function connectSerial() {
     try {
       const data = await apiPost('/api/connect', {
-        transport: 'SERIAL',
+        transport: 'USB',
         serialPort: serialPortPath
       });
       setLastResult(data);
@@ -527,7 +585,7 @@ export default function App() {
       let statusResp = null;
       let statusOk = false;
       try {
-        statusResp = await apiGet('/api/status');
+        statusResp = await apiGet(withTransportQuery('/api/status'));
         statusOk = !statusResp?.error;
       } catch (e) {
         statusResp = { error: e.message };
@@ -537,7 +595,7 @@ export default function App() {
       let seqListResp = null;
       let seqListOk = false;
       try {
-        seqListResp = await apiGet('/api/seq/list');
+        seqListResp = await apiGet(withTransportQuery('/api/seq/list'));
         seqListOk = !seqListResp?.error;
       } catch (e) {
         seqListResp = { error: e.message };
@@ -872,6 +930,163 @@ export default function App() {
 
   // ============ RENDER HELPERS ============
 
+  function renderUsbKeyboard() {
+    const totalKeys = usbInfo?.totalKeys || ((usbInfo?.chainLength || 1) * 12);
+    const chainLength = usbInfo?.chainLength || 1;
+    const cachedSeq = chainSeqData.usb;
+    const steps = cachedSeq?.steps || [];
+    const keyHits = {};
+    const keyColors = {};
+
+    for (const s of steps) {
+      const keys = Array.isArray(s.keys) ? s.keys : (s.k !== undefined ? [s.k] : []);
+      const colors = Array.isArray(s.colors) ? s.colors : (s.c !== undefined ? [s.c] : []);
+      for (let ki = 0; ki < keys.length; ki++) {
+        const k = keys[ki];
+        if (k >= 0 && k < totalKeys) {
+          keyHits[k] = (keyHits[k] || 0) + 1;
+          if (!keyColors[k] && colors[ki]) keyColors[k] = colors[ki];
+        }
+      }
+    }
+
+    const maxHits = Math.max(...Object.values(keyHits), 1);
+    const octaveGroups = [];
+    const modules12 = Math.ceil(totalKeys / 12);
+
+    for (let m = 0; m < modules12; m++) {
+      const startKey = m * 12;
+      const keys = [];
+      for (let i = 0; i < 12; i++) {
+        const globalIdx = startKey + i;
+        if (globalIdx >= totalKeys) break;
+        keys.push({
+          globalIdx,
+          note: keyToNote(globalIdx),
+          isBlack: IS_BLACK[i],
+          localIdx: i
+        });
+      }
+      octaveGroups.push({ moduleNum: m + 1, keys });
+    }
+
+    return (
+      <div className="chain-card card" key="usb-master">
+        <div className="chain-header">
+          <div className="chain-header-left">
+            <span className={`badge-dot ${usbConnected ? 'dot-green' : 'dot-red'}`} />
+            <strong>USB Controller</strong>
+            <span className="chain-info">
+              ({chainLength} module{chainLength !== 1 ? 's' : ''}, {totalKeys} keys)
+            </span>
+          </div>
+          <div className="chain-header-right">
+            {chainSequences.usb && (
+              <span className="pill pill-teal">
+                {dbSeqItems.find(s => String(s.id) === String(chainSequences.usb))?.name || `Sequence ${chainSequences.usb}`}
+              </span>
+            )}
+            {usbInfo?.lastStatus?.running && (
+              <span className="pill pill-green">{usbInfo.lastStatus.mode}</span>
+            )}
+          </div>
+        </div>
+
+        <div className="chain-keyboard-row" style={{ overflowX: 'auto' }}>
+          {octaveGroups.map((group, gi) => (
+            <div className="octave-group" key={gi} style={{ minWidth: 560, flex: '0 0 auto' }}>
+              <div className="octave-label">Module {group.moduleNum}</div>
+              <div className="keyboard-vis" style={{ width: '100%', minWidth: 560 }}>
+                {group.keys.filter(k => !k.isBlack).map(k => {
+                  const active = keyHits[k.globalIdx] > 0;
+                  const color = keyColors[k.globalIdx] ? `#${displayColor(keyColors[k.globalIdx])}` : null;
+                  const intensity = (keyHits[k.globalIdx] || 0) / maxHits;
+                  return (
+                    <div
+                      key={k.globalIdx}
+                      className={`kb-key kb-white${active ? ' kb-active' : ''}`}
+                      style={active ? { '--kb-glow': color, '--kb-intensity': intensity } : undefined}
+                    >
+                      {active && <span className="kb-led" style={{ backgroundColor: color }} />}
+                      <span className="kb-note">{k.note}</span>
+                    </div>
+                  );
+                })}
+                {group.keys.filter(k => k.isBlack).map(k => {
+                  const active = keyHits[k.globalIdx] > 0;
+                  const color = keyColors[k.globalIdx] ? `#${displayColor(keyColors[k.globalIdx])}` : null;
+                  const intensity = (keyHits[k.globalIdx] || 0) / maxHits;
+                  const BLACK_OFFSETS = { 1: 0.5, 3: 1.5, 6: 3.5, 8: 4.5, 10: 5.5 };
+                  const offset = BLACK_OFFSETS[k.localIdx];
+                  const leftPercent = ((offset + 0.5) / 7) * 100;
+                  return (
+                    <div
+                      key={k.globalIdx}
+                      className={`kb-key kb-black${active ? ' kb-active' : ''}`}
+                      style={{
+                        left: `${leftPercent}%`,
+                        ...(active ? { '--kb-glow': color, '--kb-intensity': intensity } : {})
+                      }}
+                    >
+                      {active && <span className="kb-led" style={{ backgroundColor: color }} />}
+                      <span className="kb-note">{k.note}</span>
+                    </div>
+                  );
+                })}
+              </div>
+            </div>
+          ))}
+        </div>
+
+        {steps.length > 0 ? (
+          <div className="hint">
+            <b>{steps.length}</b> steps loaded for this USB chain.
+          </div>
+        ) : (
+          <div className="hint">Select a sequence to preview the notes used.</div>
+        )}
+
+        <div className="chain-controls">
+          <div className="chain-controls-left" style={{ display: 'flex', flexDirection: 'column', gap: 10, alignItems: 'flex-start', textAlign: 'left' }}>
+            <div className="row" style={{ gap: 10, alignItems: 'center', flexWrap: 'wrap', justifyContent: 'flex-start', width: '100%' }}>
+              <label className="label" style={{ marginBottom: 0 }}>Sequence</label>
+              <select
+                className="input chain-seq-select"
+                style={{ maxWidth: 300 }}
+                value={chainSequences.usb || ''}
+                onChange={(e) => {
+                  const val = e.target.value;
+                  if (val) uploadSequenceToAll(val);
+                }}
+                disabled={dbActionBusy || !usbConnected}
+              >
+                <option value="">Select sequence...</option>
+                {dbSeqItems
+                  .filter(s => s.maxKey < totalKeys)
+                  .map(s => (
+                    <option key={s.id} value={s.id}>
+                      {s.name} ({s.stepCount} steps)
+                    </option>
+                  ))}
+              </select>
+            </div>
+          </div>
+          <div className="chain-controls-right">
+            <button className="btn btn-sm btn-green" disabled={!usbConnected} onClick={() => sendAllControl('start', 'guided')}>
+              Practice
+            </button>
+            <button className="btn btn-sm" disabled={!usbConnected} onClick={() => sendAllControl('start', 'teaching')}>
+              Watch & Learn
+            </button>
+            <button className="btn btn-sm btn-coral" disabled={!usbConnected} onClick={() => sendAllControl('stop')}>
+              Stop
+            </button>
+          </div>
+        </div>
+      </div>
+    );
+  }
+
   // Render a chain of piano keys for module visualization
   function renderChainKeyboard(mod) {
     const totalKeys = mod.totalKeys || 12;
@@ -1169,7 +1384,7 @@ export default function App() {
           <Badge connected={isConnected} />
           {connectedModuleCount > 0 && (
             <div className="sidebar-module-count">
-              {connectedModuleCount} controller{connectedModuleCount !== 1 ? 's' : ''} connected
+              {connectedModuleCount} {connectionMode === 'usb' ? 'USB controller' : 'controller'}{connectedModuleCount !== 1 ? 's' : ''} connected
               <br />
               {connectedPhysicalModuleCount} physical module{connectedPhysicalModuleCount !== 1 ? 's' : ''}
             </div>
@@ -1184,80 +1399,159 @@ export default function App() {
           <section className="panel">
             <h1>Connect</h1>
 
-            <div className="card card-accent-teal">
-              <h2>{uiMode === 'developer' ? 'WebSocket Server' : 'Connected Modules'}</h2>
+            <div className="card" style={{ marginBottom: 16 }}>
               <div className="row">
-                <div className="pill-row">
-                  {uiMode === 'developer' && (
-                    <span className={isConnected ? 'pill pill-green' : 'pill pill-muted'}>
-                      WS Server: Port {health?.wsServerPort || 81}
-                    </span>
-                  )}
-                  <span className={connectedModuleCount > 0 ? 'pill pill-green' : 'pill pill-coral'}>
-                    {connectedModuleCount} controller{connectedModuleCount !== 1 ? 's' : ''} connected
-                  </span>
-                  <span className={connectedPhysicalModuleCount > 0 ? 'pill pill-green' : 'pill pill-muted'}>
-                    {connectedPhysicalModuleCount} physical module{connectedPhysicalModuleCount !== 1 ? 's' : ''}
-                  </span>
+                <div>
+                  <h2 style={{ marginBottom: 6 }}>Connection Mode</h2>
+                  <div className="hint" style={{ marginTop: 0 }}>
+                    Choose whether the software controls modules through WiFi or USB.
+                  </div>
                 </div>
-                <button className="btn btn-secondary" onClick={() => { refreshHealth(); refreshModules(); }} type="button">
-                  Refresh
-                </button>
-              </div>
-
-              {connectedModuleCount > 0 && (
-                <div className="mt">
-                  <table className="seq-table">
-                    <thead>
-                      <tr>
-                        <th>Controller</th>
-                        {uiMode === 'developer' && <th>IP</th>}
-                        <th>Physical chain</th>
-                        <th>Status</th>
-                      </tr>
-                    </thead>
-                    <tbody>
-                      {modulesList.filter(m => m.connected).map(m => (
-                        <tr key={m.ip}>
-                          <td>{m.label}</td>
-                          {uiMode === 'developer' && <td><code>{m.ip}</code></td>}
-                          <td>{m.chainLength} module{m.chainLength !== 1 ? 's' : ''} ({m.totalKeys} keys)</td>
-                          <td><span className="pill pill-green">Connected</span></td>
-                        </tr>
-                      ))}
-                    </tbody>
-                  </table>
+                <div className="btn-row">
+                  <button
+                    className={connectionMode === 'wifi' ? 'btn' : 'btn btn-secondary'}
+                    type="button"
+                    onClick={() => setConnectionMode('wifi')}
+                  >
+                    WiFi
+                  </button>
+                  <button
+                    className={connectionMode === 'usb' ? 'btn' : 'btn btn-secondary'}
+                    type="button"
+                    onClick={() => setConnectionMode('usb')}
+                  >
+                    USB
+                  </button>
                 </div>
-              )}
-
-              <div className="hint">
-                Controllers connect to the server automatically via WiFi. A chained pair should appear as 1 controller with 2 physical modules.
               </div>
             </div>
 
-            {/* Serial fallback */}
-            {uiMode === 'developer' && (
-              <details className="diagnostics">
-                <summary>Serial Fallback (debugging)</summary>
-                <div className="card">
-                  <h2>Serial Connection</h2>
-                  <div className="row">
-                    <input
-                      className="input"
-                      value={serialPortPath}
-                      onChange={(e) => setSerialPortPath(e.target.value)}
-                      placeholder="Serial port path (e.g. /dev/cu.usbmodemXXXX)"
-                    />
-                    <div className="btn-row">
-                      <button className="btn btn-green" onClick={connectSerial} type="button">Connect Serial</button>
+            {connectionMode === 'wifi' ? (
+              <div className="card card-accent-teal">
+                <h2>{uiMode === 'developer' ? 'WiFi Controllers' : 'Connected Modules'}</h2>
+                <div className="row">
+                  <div className="pill-row">
+                    {uiMode === 'developer' && (
+                      <span className={wifiConnected ? 'pill pill-green' : 'pill pill-muted'}>
+                        WS Server: Port {health?.wsServerPort || 81}
+                      </span>
+                    )}
+                    <span className={modulesList.filter(m => m.connected).length > 0 ? 'pill pill-green' : 'pill pill-coral'}>
+                      {modulesList.filter(m => m.connected).length} controller{modulesList.filter(m => m.connected).length !== 1 ? 's' : ''} connected
+                    </span>
+                    <span className={modulesList.filter(m => m.connected).length > 0 ? 'pill pill-green' : 'pill pill-muted'}>
+                      {modulesList.filter(m => m.connected).reduce((sum, m) => sum + (Number.isFinite(m.chainLength) ? m.chainLength : 1), 0)} physical module{modulesList.filter(m => m.connected).reduce((sum, m) => sum + (Number.isFinite(m.chainLength) ? m.chainLength : 1), 0) !== 1 ? 's' : ''}
+                    </span>
+                  </div>
+                  <button className="btn btn-secondary" onClick={() => { refreshHealth(); refreshModules(); }} type="button">
+                    Refresh
+                  </button>
+                </div>
+
+                {modulesList.filter(m => m.connected).length > 0 && (
+                  <div className="mt">
+                    <table className="seq-table">
+                      <thead>
+                        <tr>
+                          <th>Controller</th>
+                          {uiMode === 'developer' && <th>IP</th>}
+                          <th>Physical chain</th>
+                          <th>Status</th>
+                        </tr>
+                      </thead>
+                      <tbody>
+                        {modulesList.filter(m => m.connected).map(m => (
+                          <tr key={m.ip}>
+                            <td>{m.label}</td>
+                            {uiMode === 'developer' && <td><code>{m.ip}</code></td>}
+                            <td>{m.chainLength} module{m.chainLength !== 1 ? 's' : ''} ({m.totalKeys} keys)</td>
+                            <td><span className="pill pill-green">Connected</span></td>
+                          </tr>
+                        ))}
+                      </tbody>
+                    </table>
+                  </div>
+                )}
+
+                <div className="hint">
+                  Controllers connect to the server automatically via WiFi. A chained pair should appear as 1 controller with 2 physical modules.
+                </div>
+              </div>
+            ) : (
+              <div className="card card-accent-teal">
+                <h2>{uiMode === 'developer' ? 'USB Controller' : 'USB Connection'}</h2>
+
+                <div className="row">
+                  <div className="pill-row">
+                    <span className={usbConnected ? 'pill pill-green' : 'pill pill-coral'}>
+                      {usbConnected ? 'USB connected' : 'USB disconnected'}
+                    </span>
+                    <span className={usbConnected ? 'pill pill-green' : 'pill pill-muted'}>
+                      {usbConnected ? `${usbInfo?.chainLength || 1} physical module${(usbInfo?.chainLength || 1) !== 1 ? 's' : ''}` : 'No modules detected'}
+                    </span>
+                    <span className={usbConnected ? 'pill pill-green' : 'pill pill-muted'}>
+                      {usbConnected ? `${usbInfo?.totalKeys || ((usbInfo?.chainLength || 1) * 12)} keys` : 'Waiting for controller'}
+                    </span>
+                  </div>
+                  <button className="btn btn-secondary" onClick={() => { refreshHealth(); refreshModules(); }} type="button">
+                    Refresh
+                  </button>
+                </div>
+
+                {uiMode === 'developer' ? (
+                  <>
+                    <div className="row" style={{ marginTop: 12 }}>
+                      <input
+                        className="input"
+                        value={serialPortPath}
+                        onChange={(e) => setSerialPortPath(e.target.value)}
+                        placeholder="Serial port path (e.g. /dev/cu.usbmodemXXXX)"
+                      />
+                      <div className="btn-row">
+                        <button className="btn btn-green" onClick={connectSerial} type="button">Connect USB</button>
+                        <button className="btn btn-coral" onClick={disconnectAll} type="button">Disconnect</button>
+                      </div>
+                    </div>
+                    <div className="hint">
+                      USB controls one connected controller path at a time. If that controller reports a chain, it is shown as one USB-controlled chain.
+                    </div>
+                    {usbInfo && (
+                      <div className="mt">
+                        <table className="seq-table">
+                          <tbody>
+                            <tr>
+                              <td><b>Port</b></td>
+                              <td>{usbInfo.portPath || '--'}</td>
+                            </tr>
+                            <tr>
+                              <td><b>Chain length</b></td>
+                              <td>{usbInfo.chainLength || 0}</td>
+                            </tr>
+                            <tr>
+                              <td><b>Total keys</b></td>
+                              <td>{usbInfo.totalKeys || 0}</td>
+                            </tr>
+                            <tr>
+                              <td><b>Last seen</b></td>
+                              <td>{usbInfo.lastSeenAt || '--'}</td>
+                            </tr>
+                          </tbody>
+                        </table>
+                      </div>
+                    )}
+                  </>
+                ) : (
+                  <>
+                    <div className="btn-row" style={{ marginTop: 12 }}>
+                      <button className="btn btn-green" onClick={connectSerial} type="button">Connect USB</button>
                       <button className="btn btn-coral" onClick={disconnectAll} type="button">Disconnect</button>
                     </div>
-                  </div>
-                  <div className="hint">
-                    Serial is for single-module debugging only. In production, modules connect via WiFi.
-                  </div>
-                </div>
-              </details>
+                    <div className="hint">
+                      Use USB when you want a wired control path for one module or one chained pair.
+                    </div>
+                  </>
+                )}
+              </div>
             )}
 
             {healthError && <pre className="pre">{healthError}</pre>}
@@ -1354,7 +1648,15 @@ export default function App() {
             {dbSeqError && <pre className="pre">{dbSeqError}</pre>}
 
             {/* Module visualization */}
-            {modulesList.filter(m => m.connected).length === 0 ? (
+            {connectionMode === 'usb' ? (
+              !usbConnected ? (
+                <div className="card">
+                  <div className="hint">No USB controller connected. Connect one module or one chained pair through USB.</div>
+                </div>
+              ) : (
+                renderUsbKeyboard()
+              )
+            ) : modulesList.filter(m => m.connected).length === 0 ? (
               <div className="card">
                 <div className="hint">No modules connected. Modules connect automatically via WiFi.</div>
               </div>
@@ -1367,15 +1669,22 @@ export default function App() {
                 <summary>Test Controls</summary>
                 <div className="card">
                   <h2>Hardware Tests</h2>
-                  <div className="btn-row">
-                    {modulesList.filter(m => m.connected).map(m => (
-                      <div key={m.ip} className="btn-row">
-                        <span className="label">{m.label}:</span>
-                        <button className="btn btn-sm" disabled={!m.connected} onClick={() => sendModuleControl(m.ip, 'led_test')}>Test LEDs</button>
-                        <button className="btn btn-sm" disabled={!m.connected} onClick={() => sendModuleControl(m.ip, 'servo_test')}>Test Servos</button>
-                      </div>
-                    ))}
-                  </div>
+                  {connectionMode === 'usb' ? (
+                    <div className="btn-row">
+                      <button className="btn btn-sm" disabled={!usbConnected} onClick={() => sendAllControl('led_test')}>Test LEDs</button>
+                      <button className="btn btn-sm" disabled={!usbConnected} onClick={() => sendAllControl('servo_test')}>Test Servos</button>
+                    </div>
+                  ) : (
+                    <div className="btn-row">
+                      {modulesList.filter(m => m.connected).map(m => (
+                        <div key={m.ip} className="btn-row">
+                          <span className="label">{m.label}:</span>
+                          <button className="btn btn-sm" disabled={!m.connected} onClick={() => sendModuleControl(m.ip, 'led_test')}>Test LEDs</button>
+                          <button className="btn btn-sm" disabled={!m.connected} onClick={() => sendModuleControl(m.ip, 'servo_test')}>Test Servos</button>
+                        </div>
+                      ))}
+                    </div>
+                  )}
                 </div>
               </details>
             )}

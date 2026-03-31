@@ -40,6 +40,65 @@ const MODULE_CLEANUP_INTERVAL_MS = Number(process.env.MODULE_CLEANUP_INTERVAL_MS
 // Module counter — assigns labels (Module A, Module B, ...) in connect order
 let moduleCounter = 0;
 
+const DEFAULT_USB_STATE = Object.freeze({
+    open: false,
+    connected: false,
+    portPath: null,
+    chainLength: 0,
+    totalKeys: 0,
+    lastSeenAt: null,
+    lastHello: null,
+    lastStatus: null,
+    lastAck: null,
+    lastError: null
+});
+
+let usbState = createDefaultUsbState();
+
+function createDefaultUsbState() {
+    return {
+        open: DEFAULT_USB_STATE.open,
+        connected: DEFAULT_USB_STATE.connected,
+        portPath: DEFAULT_USB_STATE.portPath,
+        chainLength: DEFAULT_USB_STATE.chainLength,
+        totalKeys: DEFAULT_USB_STATE.totalKeys,
+        lastSeenAt: DEFAULT_USB_STATE.lastSeenAt,
+        lastHello: DEFAULT_USB_STATE.lastHello,
+        lastStatus: DEFAULT_USB_STATE.lastStatus,
+        lastAck: DEFAULT_USB_STATE.lastAck,
+        lastError: DEFAULT_USB_STATE.lastError
+    };
+}
+
+function resetUsbState(overrides = {}) {
+    usbState = {
+        ...createDefaultUsbState(),
+        ...overrides
+    };
+    return usbState;
+}
+
+function touchUsbState() {
+    usbState.lastSeenAt = new Date().toISOString();
+    usbState.connected = true;
+    return usbState;
+}
+
+function getUsbSnapshot() {
+    return {
+        open: usbState.open,
+        connected: usbState.connected,
+        portPath: usbState.portPath,
+        chainLength: usbState.chainLength,
+        totalKeys: usbState.totalKeys,
+        lastSeenAt: usbState.lastSeenAt,
+        lastHello: usbState.lastHello,
+        lastStatus: usbState.lastStatus,
+        lastAck: usbState.lastAck,
+        lastError: usbState.lastError
+    };
+}
+
 app.use(cors());
 app.use(express.json());
 
@@ -178,25 +237,51 @@ function ingestEsp32Line(msg, moduleIp) {
         normalized = m[1];
     }
 
-    touchModule(moduleIp);
+    const isSerial = moduleIp === 'serial';
+
+    if (isSerial) {
+        touchUsbState();
+    } else {
+        touchModule(moduleIp);
+    }
+
     // Handle HELLO protocol
     if (normalized.startsWith('HELLO ')) {
         const fields = parseKeyValuePairs(normalized);
         const chainLength = parseInt(fields.modules, 10) || 1;
-        const entry = modules.get(moduleIp);
-        if (entry) {
-            entry.chainLength = chainLength;
-            entry.totalKeys = chainLength * 12;
-            pushLog('WS', `${entry.label} (${moduleIp}): HELLO modules=${chainLength}`);
-            console.log(`[WS] ${entry.label}: HELLO modules=${chainLength}, totalKeys=${entry.totalKeys}`);
+
+        if (isSerial) {
+            usbState.chainLength = chainLength;
+            usbState.totalKeys = chainLength * 12;
+            usbState.lastHello = {
+                ts: new Date().toISOString(),
+                raw: msg,
+                fields
+            };
+            pushLog('SERIAL', `USB HELLO modules=${chainLength}`);
+            console.log(`[SERIAL] HELLO modules=${chainLength}, totalKeys=${usbState.totalKeys}`);
+        } else {
+            const entry = modules.get(moduleIp);
+            if (entry) {
+                entry.chainLength = chainLength;
+                entry.totalKeys = chainLength * 12;
+                pushLog('WS', `${entry.label} (${moduleIp}): HELLO modules=${chainLength}`);
+                console.log(`[WS] ${entry.label}: HELLO modules=${chainLength}, totalKeys=${entry.totalKeys}`);
+            }
         }
         return;
     }
 
-    const entry = modules.get(moduleIp);
+    const entry = isSerial ? null : modules.get(moduleIp);
 
     if (normalized.startsWith('ACK ')) {
-        if (entry) {
+        if (isSerial) {
+            usbState.lastAck = {
+                ts: new Date().toISOString(),
+                raw: msg,
+                fields: parseKeyValuePairs(normalized)
+            };
+        } else if (entry) {
             entry.lastAck = {
                 ts: new Date().toISOString(),
                 raw: msg,
@@ -208,23 +293,29 @@ function ingestEsp32Line(msg, moduleIp) {
 
     if (normalized.startsWith('STATUS ')) {
         const fields = parseKeyValuePairs(normalized);
-        if (entry) {
-            const octaveOffset = parseInt(fields.octaveOffset, 10);
-            // entry.octaveOffset = Number.isFinite(octaveOffset) ? octaveOffset : (entry.octaveOffset ?? 0); // octave offset
-            entry.lastStatus = {
-                ts: new Date().toISOString(),
-                running: fields.running === '1',
-                seq: parseInt(fields.seq, 10) || -1,
-                step: parseInt(fields.step, 10) || -1,
-                mode: fields.mode || 'N/A',
-                // octaveOffset: entry.octaveOffset // octave offset
-            };
+        const status = {
+            ts: new Date().toISOString(),
+            running: fields.running === '1',
+            seq: parseInt(fields.seq, 10) || -1,
+            step: parseInt(fields.step, 10) || -1,
+            mode: fields.mode || 'N/A'
+        };
+
+        if (isSerial) {
+            usbState.lastStatus = status;
+        } else if (entry) {
+            entry.lastStatus = status;
         }
         return;
     }
 
     if (normalized.startsWith('ERR ')) {
-        if (entry) {
+        if (isSerial) {
+            usbState.lastError = {
+                ts: new Date().toISOString(),
+                raw: msg
+            };
+        } else if (entry) {
             entry.lastError = {
                 ts: new Date().toISOString(),
                 raw: msg
@@ -364,6 +455,12 @@ async function connectSerial(pathOverride) {
 
     console.log(`[INIT] Starting SERIAL mode on ${pathToUse}...`);
 
+    resetUsbState({
+        open: false,
+        connected: false,
+        portPath: pathToUse
+    });
+
     try {
         port = new SerialPort({ path: pathToUse, baudRate: BAUD_RATE });
         parser = port.pipe(new ReadlineParser({ delimiter: '\n' }));
@@ -371,6 +468,8 @@ async function connectSerial(pathOverride) {
         await new Promise((resolve, reject) => {
             port.on('open', () => {
                 console.log('[SERIAL] Port Open');
+                usbState.open = true;
+                usbState.portPath = pathToUse;
                 resolve();
             });
             port.on('error', (err) => {
@@ -387,6 +486,19 @@ async function connectSerial(pathOverride) {
             ingestEsp32Line(msg, 'serial');
         });
 
+        port.on('close', () => {
+            console.log('[SERIAL] Port closed');
+            resetUsbState({ open: false, connected: false, portPath: pathToUse });
+        });
+
+        port.on('error', (err) => {
+            console.error('[SERIAL] Runtime error:', err.message);
+            usbState.lastError = {
+                ts: new Date().toISOString(),
+                raw: err.message
+            };
+        });
+
         return { success: true, mode: 'serial', port: pathToUse };
     } catch (err) {
         console.error(`[FATAL] Could not open serial port: ${err.message}`);
@@ -395,9 +507,13 @@ async function connectSerial(pathOverride) {
 }
 
 function disconnectSerial() {
+    const existingPath = usbState.portPath || SERIAL_PATH || null;
+
     if (!port) {
+        resetUsbState({ open: false, connected: false, portPath: existingPath });
         return { success: true, mode: 'serial', alreadyClosed: true };
     }
+
     if (port.isOpen) {
         console.log('[SERIAL] Closing port...');
         try {
@@ -408,8 +524,10 @@ function disconnectSerial() {
             console.error('[SERIAL] Close error:', e.message);
         }
     }
+
     port = undefined;
     parser = undefined;
+    resetUsbState({ open: false, connected: false, portPath: existingPath });
     return { success: true, mode: 'serial', closed: true };
 }
 
@@ -420,8 +538,10 @@ function sendSerialCommand(cmd) {
     }
     const serialPayload = frameForSerial(cmd);
     console.log(`[SERIAL] Sending: '${cmd}'`);
-    pushLog('CTRL', `SERIAL send: ${cmd}`);
+    pushLog('CTRL', `-> USB: ${cmd}`);
     port.write(serialPayload);
+    usbState.open = true;
+    usbState.portPath = usbState.portPath || port.path || SERIAL_PATH || null;
     return { success: true, mode: 'serial', cmd: cmd };
 }
 
@@ -522,20 +642,150 @@ function translateToSerialCmd(endpoint, query) {
     return null;
 }
 
+function parseTransport(value) {
+    const normalized = String(value || 'WIFI').trim().toUpperCase();
+    return normalized === 'USB' ? 'USB' : 'WIFI';
+}
+
+function getRequestedTransport(req) {
+    if (req.body && req.body.transport !== undefined) {
+        return parseTransport(req.body.transport);
+    }
+    if (req.query && req.query.transport !== undefined) {
+        return parseTransport(req.query.transport);
+    }
+    return 'WIFI';
+}
+
+function isSerialOpen() {
+    return !!(port && port.isOpen);
+}
+
+function ensureWifiModule(ip) {
+    const entry = modules.get(ip);
+    if (!entry || !entry.connected || !entry.ws || entry.ws.readyState !== WebSocket.OPEN) {
+        return { ok: false, error: `Module ${ip} not connected` };
+    }
+    return { ok: true, entry };
+}
+
+function translateControllerCommand(cmd, mode) {
+    if (cmd === 'start') {
+        return mode === 'teaching' ? 't' : 'g';
+    }
+    if (cmd === 'stop') {
+        return 'x';
+    }
+    if (cmd === 'led_test') {
+        return 'l';
+    }
+    if (cmd === 'servo_test') {
+        return 's';
+    }
+    return null;
+}
+
+function sendCommandByTransport(transport, command, moduleIp) {
+    if (transport === 'USB') {
+        const result = sendSerialCommand(command);
+        return {
+            ok: !result.error,
+            transport: 'USB',
+            target: 'usb',
+            result
+        };
+    }
+
+    if (moduleIp && moduleIp !== 'all') {
+        const result = sendToModule(moduleIp, command);
+        return {
+            ok: !result.error,
+            transport: 'WIFI',
+            target: moduleIp,
+            result
+        };
+    }
+
+    const results = broadcastToAll(command);
+    return {
+        ok: true,
+        transport: 'WIFI',
+        target: 'all',
+        results
+    };
+}
+
+function uploadSequenceByTransport(transport, target, seq, colorMode) {
+    const gen = generateUploadLinesFromData(seq.id, seq.name, seq.data, colorMode);
+    if (!gen.ok) {
+        return { ok: false, status: 400, error: gen.error };
+    }
+
+    if (transport === 'USB') {
+        const result = uploadLinesToSerial(gen.lines);
+        if (!result.ok) {
+            return { ok: false, status: 500, error: result.error, sent: result.sent };
+        }
+        return {
+            ok: true,
+            transport: 'USB',
+            uploaded: seq.id,
+            sentCount: result.sentCount,
+            sent: result.sent
+        };
+    }
+
+    if (target && target !== 'all') {
+        const moduleCheck = ensureWifiModule(target);
+        if (!moduleCheck.ok) {
+            return { ok: false, status: 404, error: moduleCheck.error };
+        }
+
+        const result = uploadLinesToModule(target, gen.lines);
+        if (!result.ok) {
+            return { ok: false, status: 500, error: result.error, sent: result.sent };
+        }
+
+        markModuleSequence(target, seq);
+        return {
+            ok: true,
+            transport: 'WIFI',
+            uploaded: seq.id,
+            module: target,
+            sentCount: result.sentCount,
+            sent: result.sent
+        };
+    }
+
+    const moduleResults = uploadLinesToAllModules(gen.lines);
+    for (const mr of moduleResults) {
+        if (!mr.failed) {
+            markModuleSequence(mr.module, seq);
+        }
+    }
+
+    return {
+        ok: true,
+        transport: 'WIFI',
+        uploaded: seq.id,
+        modules: moduleResults
+    };
+}
+
 // ============ API ROUTES ============
 
 // Connect serial (legacy fallback for single-module debugging)
 app.post('/api/connect', async (req, res) => {
     try {
         const body = req.body || {};
-        const transport = String(body.transport || '').toUpperCase();
+        const transport = parseTransport(body.transport);
 
-        if (transport === 'SERIAL') {
-            const serialPort = body.serialPort ? String(body.serialPort) : undefined;
-            const serialResult = await connectSerial(serialPort);
-            res.json({ success: true, result: { transport: 'SERIAL', serial: serialResult } });
-            return;
-        }
+    if (transport === 'USB') {
+        const serialPort = body.serialPort ? String(body.serialPort) : undefined;
+        const serialResult = await connectSerial(serialPort);
+        res.json({ success: true, result: { transport: 'USB', serial: serialResult } });
+        return;
+    }
 
         // WiFi modules connect inward; no outbound connection to establish.
         res.json({
@@ -580,6 +830,7 @@ app.post('/api/disconnect', (req, res) => {
 
 app.post('/api/seq/control', async (req, res) => {
     try {
+        const transport = getRequestedTransport(req);
         const cmd = translateToSerialCmd('/api/seq/control', req.query);
         if (!cmd) {
             res.status(400).json({ error: 'Invalid command' });
@@ -587,32 +838,60 @@ app.post('/api/seq/control', async (req, res) => {
         }
 
         const moduleIp = req.query.module;
+
+        if (transport === 'USB') {
+            if (!isSerialOpen()) {
+                res.status(400).json({ error: 'USB serial is not connected' });
+                return;
+            }
+            const result = sendSerialCommand(cmd);
+            res.json({ success: !result.error, transport, cmd, result });
+            return;
+        }
+
         if (moduleIp === 'all' || !moduleIp) {
             const results = broadcastToAll(cmd);
-            res.json({ success: true, cmd, results });
+            res.json({ success: true, transport, cmd, results });
         } else {
             const result = sendToModule(moduleIp, cmd);
-            res.json(result);
+            res.json({ success: !result.error, transport, cmd, result });
         }
-    } catch (e) { res.status(500).json({ error: e.message }); }
+    } catch (e) {
+        res.status(500).json({ error: e.message });
+    }
 });
 
 app.get('/api/seq/list', async (req, res) => {
     try {
+        const transport = getRequestedTransport(req);
         const cmd = translateToSerialCmd('/api/seq/list', {});
         const moduleIp = req.query.module;
+
+        if (transport === 'USB') {
+            if (!isSerialOpen()) {
+                res.status(400).json({ error: 'USB serial is not connected' });
+                return;
+            }
+            const result = sendSerialCommand(cmd);
+            res.json({ success: !result.error, transport, cmd, result });
+            return;
+        }
+
         if (moduleIp) {
             const result = sendToModule(moduleIp, cmd);
-            res.json(result);
+            res.json({ success: !result.error, transport, cmd, result });
         } else {
             const results = broadcastToAll(cmd);
-            res.json({ success: true, cmd, results });
+            res.json({ success: true, transport, cmd, results });
         }
-    } catch (e) { res.status(500).json({ error: e.message }); }
+    } catch (e) {
+        res.status(500).json({ error: e.message });
+    }
 });
 
 app.post('/api/test', async (req, res) => {
     try {
+        const transport = getRequestedTransport(req);
         const cmd = translateToSerialCmd('/api/test', req.query);
         if (!cmd) {
             res.status(400).json({ error: 'Invalid test target' });
@@ -620,30 +899,52 @@ app.post('/api/test', async (req, res) => {
         }
 
         const moduleIp = req.query.module;
+
+        if (transport === 'USB') {
+            if (!isSerialOpen()) {
+                res.status(400).json({ error: 'USB serial is not connected' });
+                return;
+            }
+            const result = sendSerialCommand(cmd);
+            res.json({ success: !result.error, transport, cmd, result });
+            return;
+        }
+
         if (moduleIp === 'all' || !moduleIp) {
             const results = broadcastToAll(cmd);
-            res.json({ success: true, cmd, results });
+            res.json({ success: true, transport, cmd, results });
         } else {
             const result = sendToModule(moduleIp, cmd);
-            res.json(result);
+            res.json({ success: !result.error, transport, cmd, result });
         }
-    } catch (e) { res.status(500).json({ error: e.message }); }
+    } catch (e) {
+        res.status(500).json({ error: e.message });
+    }
 });
 
 app.get('/api/status', async (req, res) => {
     try {
+        const transport = getRequestedTransport(req);
         const moduleIp = req.query.module;
+
+        if (transport === 'USB') {
+            res.json({ ok: true, transport, usb: getUsbSnapshot() });
+            return;
+        }
+
         if (moduleIp) {
             const entry = modules.get(moduleIp);
             if (!entry) {
                 res.status(404).json({ error: 'Module not found' });
                 return;
             }
-            res.json({ ok: true, module: getModuleSnapshot(entry) });
+            res.json({ ok: true, transport, module: getModuleSnapshot(entry) });
         } else {
-            res.json({ ok: true, modules: getAllModuleSnapshots() });
+            res.json({ ok: true, transport, modules: getAllModuleSnapshots() });
         }
-    } catch (e) { res.status(503).json({ online: false }); }
+    } catch (e) {
+        res.status(503).json({ online: false });
+    }
 });
 
 // Health endpoint — returns module list with connection status
@@ -657,10 +958,7 @@ app.get('/api/health', (req, res) => {
         appPort: PORT,
         connectedModules: connectedModules.length,
         modules: connectedModules,
-        serial: {
-            port: SERIAL_PATH || null,
-            open: serialOpen
-        }
+        serial: getUsbSnapshot()
     });
 });
 
@@ -699,10 +997,7 @@ app.get('/api/state', (req, res) => {
             wsServerPort: WS_PORT,
             connectedModules: connectedModules.length,
             modules: connectedModules,
-            serial: {
-                port: SERIAL_PATH || null,
-                open: serialOpen
-            }
+            serial: getUsbSnapshot()
         }
     });
 });
@@ -714,6 +1009,12 @@ app.post('/api/state/reset', (req, res) => {
         entry.lastAck = null;
         entry.lastError = null;
     }
+
+    usbState.lastStatus = null;
+    usbState.lastAck = null;
+    usbState.lastError = null;
+    usbState.lastHello = null;
+
     res.json({ ok: true, state: { modules: getAllModuleSnapshots() } });
 });
 
@@ -727,6 +1028,7 @@ app.post('/api/state/reset', (req, res) => {
 app.post('/api/modules/all/upload', (req, res) => {
     try {
         const body = req.body || {};
+        const transport = getRequestedTransport(req);
         const sequenceId = body.sequenceId;
         const colorMode = String(body.colorMode || req.query.colorMode || 'default');
 
@@ -741,18 +1043,26 @@ app.post('/api/modules/all/upload', (req, res) => {
             return;
         }
 
-        const gen = generateUploadLinesFromData(seq.id, seq.name, seq.data, colorMode);
-        if (!gen.ok) {
-            res.status(400).json({ ok: false, error: gen.error });
+        if (transport === 'USB') {
+            if (!isSerialOpen()) {
+                res.status(400).json({ ok: false, error: 'USB serial is not connected' });
+                return;
+            }
+            const result = uploadSequenceByTransport('USB', 'all', seq, colorMode);
+            if (!result.ok) {
+                res.status(result.status || 500).json({ ok: false, error: result.error, sent: result.sent });
+                return;
+            }
+            res.json(result);
             return;
         }
 
-        const moduleResults = uploadLinesToAllModules(gen.lines);
-        for (const mr of moduleResults) {
-            if (!mr.failed) markModuleSequence(mr.module, seq);
+        const result = uploadSequenceByTransport('WIFI', 'all', seq, colorMode);
+        if (!result.ok) {
+            res.status(result.status || 500).json({ ok: false, error: result.error, sent: result.sent });
+            return;
         }
-
-        res.json({ ok: true, uploaded: seq.id, modules: moduleResults });
+        res.json(result);
     } catch (e) {
         res.status(500).json({ ok: false, error: e.message });
     }
@@ -762,25 +1072,28 @@ app.post('/api/modules/all/upload', (req, res) => {
 app.post('/api/modules/all/control', (req, res) => {
     try {
         const body = req.body || {};
+        const transport = getRequestedTransport(req);
         const cmd = body.cmd;
         const mode = body.mode;
 
-        let serialCmd;
-        if (cmd === 'start') {
-            serialCmd = mode === 'teaching' ? 't' : 'g';
-        } else if (cmd === 'stop') {
-            serialCmd = 'x';
-        } else if (cmd === 'led_test') {
-            serialCmd = 'l';
-        } else if (cmd === 'servo_test') {
-            serialCmd = 's';
-        } else {
+        const serialCmd = translateControllerCommand(cmd, mode);
+        if (!serialCmd) {
             res.status(400).json({ ok: false, error: 'cmd must be start, stop, led_test, or servo_test' });
             return;
         }
 
-        const results = broadcastToAll(serialCmd);
-        res.json({ ok: true, cmd: serialCmd, results });
+        if (transport === 'USB') {
+            if (!isSerialOpen()) {
+                res.status(400).json({ ok: false, error: 'USB serial is not connected' });
+                return;
+            }
+            const routed = sendCommandByTransport('USB', serialCmd, 'all');
+            res.json({ ok: routed.ok, transport, cmd: serialCmd, result: routed.result });
+            return;
+        }
+
+        const routed = sendCommandByTransport('WIFI', serialCmd, 'all');
+        res.json({ ok: routed.ok, transport, cmd: serialCmd, results: routed.results });
     } catch (e) {
         res.status(500).json({ ok: false, error: e.message });
     }
@@ -799,14 +1112,8 @@ app.get('/api/modules', (req, res) => {
 app.post('/api/modules/:ip/upload', (req, res) => {
     try {
         const ip = req.params.ip;
-        const entry = modules.get(ip);
-
-        if (!entry || !entry.connected) {
-            res.status(404).json({ ok: false, error: `Module ${ip} not connected` });
-            return;
-        }
-
         const body = req.body || {};
+        const transport = getRequestedTransport(req);
         const sequenceId = body.sequenceId;
         const colorMode = String(body.colorMode || req.query.colorMode || 'default');
 
@@ -821,20 +1128,26 @@ app.post('/api/modules/:ip/upload', (req, res) => {
             return;
         }
 
-        const gen = generateUploadLinesFromData(seq.id, seq.name, seq.data, colorMode);
-        if (!gen.ok) {
-            res.status(400).json({ ok: false, error: gen.error });
+        if (transport === 'USB') {
+            if (!isSerialOpen()) {
+                res.status(400).json({ ok: false, error: 'USB serial is not connected' });
+                return;
+            }
+            const result = uploadSequenceByTransport('USB', ip, seq, colorMode);
+            if (!result.ok) {
+                res.status(result.status || 500).json({ ok: false, error: result.error, sent: result.sent });
+                return;
+            }
+            res.json(result);
             return;
         }
 
-        const result = uploadLinesToModule(ip, gen.lines);
+        const result = uploadSequenceByTransport('WIFI', ip, seq, colorMode);
         if (!result.ok) {
-            res.status(500).json({ ok: false, error: result.error, sent: result.sent });
+            res.status(result.status || 500).json({ ok: false, error: result.error, sent: result.sent });
             return;
         }
-
-        markModuleSequence(ip, seq);
-        res.json({ ok: true, uploaded: seq.id, module: ip, sentCount: result.sentCount, sent: result.sent });
+        res.json(result);
     } catch (e) {
         res.status(500).json({ ok: false, error: e.message });
     }
@@ -846,64 +1159,32 @@ app.post('/api/modules/:ip/control', (req, res) => {
     try {
         const ip = req.params.ip;
         const body = req.body || {};
-        const cmd = body.cmd; // 'start' | 'stop' | 'led_test' | 'servo_test'
-        const mode = body.mode; // 'guided' | 'teaching'
+        const transport = getRequestedTransport(req);
+        const cmd = body.cmd;
+        const mode = body.mode;
 
-        let serialCmd;
-        if (cmd === 'start') {
-            serialCmd = mode === 'teaching' ? 't' : 'g';
-        } else if (cmd === 'stop') {
-            serialCmd = 'x';
-        } else if (cmd === 'led_test') {
-            serialCmd = 'l';
-        } else if (cmd === 'servo_test') {
-            serialCmd = 's';
-        } else {
+        const serialCmd = translateControllerCommand(cmd, mode);
+        if (!serialCmd) {
             res.status(400).json({ ok: false, error: 'cmd must be start, stop, led_test, or servo_test' });
             return;
         }
 
-        const result = sendToModule(ip, serialCmd);
-        res.json({ ok: !result.error, ...result });
+        if (transport === 'USB') {
+            if (!isSerialOpen()) {
+                res.status(400).json({ ok: false, error: 'USB serial is not connected' });
+                return;
+            }
+            const routed = sendCommandByTransport('USB', serialCmd, ip);
+            res.json({ ok: routed.ok, transport, cmd: serialCmd, result: routed.result });
+            return;
+        }
+
+        const routed = sendCommandByTransport('WIFI', serialCmd, ip);
+        res.json({ ok: routed.ok, transport, cmd: serialCmd, result: routed.result });
     } catch (e) {
         res.status(500).json({ ok: false, error: e.message });
     }
 });
-
-// POST /api/modules/:ip/octave-offset — set chain octave offset on a specific module
-// app.post('/api/modules/:ip/octave-offset', (req, res) => {
-//     try {
-//         const ip = req.params.ip;
-//         const body = req.body || {};
-//         const rawOffset = body.octaveOffset;
-//         const octaveOffset = Number(rawOffset);
-
-//         if (!Number.isInteger(octaveOffset)) {
-//             res.status(400).json({ ok: false, error: 'octaveOffset must be an integer' });
-//             return;
-//         }
-
-//         if (octaveOffset < 0 || octaveOffset > 2) {
-//             res.status(400).json({ ok: false, error: 'octaveOffset must be between 0 and 2' });
-//             return;
-//         }
-
-//         const result = sendToModule(ip, `O v=${octaveOffset}`);
-//         if (result.error) {
-//             res.status(400).json({ ok: false, error: result.error });
-//             return;
-//         }
-
-//         const entry = modules.get(ip);
-//         if (entry) {
-//             entry.octaveOffset = octaveOffset; // octave offset
-//         }
-
-//         res.json({ ok: true, module: ip, octaveOffset, result });
-//     } catch (e) {
-//         res.status(500).json({ ok: false, error: e.message });
-//     }
-// });
 
 // midi import
 // POST /api/midi/import — upload a MIDI file, convert it into an Open Octave
@@ -1401,58 +1682,34 @@ app.post('/api/db/sequences/:id/upload', async (req, res) => {
       return;
     }
 
-    const colorMode = String(req.query.colorMode || 'default');
-    const gen = generateUploadLinesFromData(seq.id, seq.name, seq.data, colorMode);
-    if (!gen.ok) {
-      res.status(400).json({ ok: false, error: gen.error });
-      return;
-    }
-    const lines = gen.lines;
+    const transport = getRequestedTransport(req);
+    const colorMode = String((req.body && req.body.colorMode) || req.query.colorMode || 'default');
+    const moduleIp = (req.body && req.body.module) || req.query.module || 'all';
 
-    // Determine target: specific module IP from query, or broadcast/serial
-    const moduleIp = req.query.module;
-
-    if (moduleIp && moduleIp !== 'all') {
-      // Send to specific module
-      const result = uploadLinesToModule(moduleIp, lines);
-      if (!result.ok) {
-        res.status(500).json({ ok: false, error: result.error, sent: result.sent });
+    if (transport === 'USB') {
+      if (!isSerialOpen()) {
+        res.status(400).json({ ok: false, error: 'USB serial is not connected' });
         return;
       }
-      markModuleSequence(moduleIp, seq);
-      res.json({ ok: true, uploaded: id, sentCount: result.sentCount, sent: result.sent });
-      return;
-    }
 
-    if (moduleIp === 'all') {
-      // Broadcast to all modules
-      const moduleResults = uploadLinesToAllModules(lines);
-      markAllModulesSequence(seq);
-      res.json({ ok: true, uploaded: id, broadcast: true, modules: moduleResults });
-      return;
-    }
-
-    // Default: try connected modules first, then serial fallback
-    const connectedModules = [...modules.values()].filter(e => e.connected && e.ws);
-    if (connectedModules.length > 0) {
-      const moduleResults = uploadLinesToAllModules(lines);
-      markAllModulesSequence(seq);
-      res.json({ ok: true, uploaded: id, sentCount: lines.length, modules: moduleResults });
-      return;
-    }
-
-    // Serial fallback
-    if (port && port.isOpen) {
-      const result = uploadLinesToSerial(lines);
+      const result = uploadSequenceByTransport('USB', 'all', seq, colorMode);
       if (!result.ok) {
-        res.status(500).json({ ok: false, error: result.error, sent: result.sent });
+        res.status(result.status || 500).json({ ok: false, error: result.error, sent: result.sent });
         return;
       }
-      res.json({ ok: true, uploaded: id, sentCount: result.sentCount, sent: result.sent });
+
+      res.json(result);
       return;
     }
 
-    res.status(400).json({ ok: false, error: 'No module connected and no serial port open' });
+    const wifiTarget = moduleIp && moduleIp !== 'all' ? String(moduleIp) : 'all';
+    const result = uploadSequenceByTransport('WIFI', wifiTarget, seq, colorMode);
+    if (!result.ok) {
+      res.status(result.status || 500).json({ ok: false, error: result.error, sent: result.sent });
+      return;
+    }
+
+    res.json(result);
   } catch (e) {
     res.status(500).json({ ok: false, error: e.message });
   }
@@ -1550,6 +1807,8 @@ function stopServers() {
         entry.ws = null;
         entry.connected = false;
     }
+    
+    resetUsbState({ open: false, connected: false, portPath: usbState.portPath });
 
     if (wss) {
         try {
