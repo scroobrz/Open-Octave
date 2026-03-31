@@ -711,7 +711,8 @@ export default function App() {
     setEditorErrors({});
     setEditorEditingStep(null);
     setEditorOpen(true);
-    setMidiImportResult(null);
+    // Keep import result so we can show the saved state after editor save
+    setMidiImportResult({ ...midiImportResult, editing: true });
     setMidiFile(null);
   }
 
@@ -837,6 +838,15 @@ export default function App() {
         return;
       }
       await refreshDbSequences();
+      // If we were editing a MIDI import, transition to saved state
+      if (midiImportResult?.editing) {
+        setMidiImportResult({
+          ...midiImportResult,
+          editing: false,
+          saved: true,
+          item: data.item
+        });
+      }
       closeEditor();
     } catch (e) {
       setEditorErrors({ save: e.message });
@@ -1637,7 +1647,7 @@ export default function App() {
 
               {midiImportError && <pre className="pre">{midiImportError}</pre>}
 
-              {midiImportResult?.ok && (
+              {midiImportResult?.ok && !midiImportResult.editing && (
                 <div className="card" style={{ marginTop: 12, marginBottom: 0 }}>
                   <h2>{midiImportResult.saved ? 'Import Result' : 'Import Preview'}</h2>
                   <div className="hint" style={{ marginTop: 0 }}>
