@@ -1019,8 +1019,9 @@ app.post('/api/modules/:ip/control', (req, res) => {
 // });
 
 // midi import
-// POST /api/midi/import — upload a MIDI file, convert it into an Open Octave
-// sequence, save it into SQLite, and return the created item + metadata.
+// POST /api/midi/import — upload a MIDI file and convert it into an Open Octave
+// sequence. Returns the parsed result for review; the frontend saves it via
+// POST /api/db/sequences when the user accepts.
 app.post('/api/midi/import', upload.single('file'), (req, res) => {
     try {
         if (!req.file) {
@@ -1052,13 +1053,10 @@ app.post('/api/midi/import', upload.single('file'), (req, res) => {
             return;
         }
 
-        const savedId = upsertSequence(result.sequence);
-        const item = getSequence(savedId);
-
         res.json({
             ok: true,
-            message: 'MIDI imported successfully.',
-            item,
+            message: 'MIDI parsed successfully.',
+            sequence: result.sequence,
             meta: result.meta,
             warnings: result.warnings || []
         });
