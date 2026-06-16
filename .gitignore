@@ -7,3 +7,7 @@ node_modules
 *.sqlite3
 software/controller/database/*.sqlite3*
 .clangd
+.claude
+Arduino/libraries
+Arduino/audio_test
+Arduino/servo_reset
