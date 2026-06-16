@@ -8,6 +8,5 @@ node_modules
 software/controller/database/*.sqlite3*
 .clangd
 .claude
-Arduino/libraries
 Arduino/audio_test
 Arduino/servo_reset
