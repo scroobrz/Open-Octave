@@ -1,4 +1,0 @@
-metric_group,step_count,mean_ms,p95_ms,max_ms,mean_abs_ms,max_abs_ms,pct_abs_within_20ms,pct_abs_within_50ms
-AUTOPLAY_TIMING_ERROR,12,32.667,60.45,61.0,32.667,61.0,33.333,83.333
-LED_CMD_LATENCY,12,2.25,3.0,3.0,,,,
-SERVO_CMD_LATENCY,12,0.667,1.0,1.0,,,,

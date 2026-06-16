@@ -1,39 +1,8 @@
 # SDP-Open-Octave
-Workspace for SDP group 21 project; working name Open Octave.
 
 ## Project Overview
-**Open Octave** is a modular, robotically enhanced educational keyboard system designed to enhance piano learning in schools. This repository serves as a central workspace for all project materials, including code, CAD files, marketing materials, planning documents, and anything else with any importance to the project. The system will consist of three main components: the keyboard, the robotic actuators, and the software interface.
+**Open Octave** is a modular, robotically enhanced educational piano keyboard system designed to make early-stage piano education more accessible and engaging in the classroom. The physical system consists of connectable keyboard modules controlled by our firmware. The system also provides a teacher-facing frontend which allows them to control the keyboard modules remotely, and a proxy server for software-firmware communication.
 
-## Team Instructions
+**Open Octave's** robotic features, such as light-up keys and a self-playing mechanism, enable unique learning modes aimed at aiding the retention of melodic piano sequences for young learners. Its modularity also encourages less advanced learners to become familiar with the mechanics of piano playing on smaller keyboard modules without being overwhelmed by a full 88-key smart keyboard with all bells and whistles.
 
-### Subteams
-
-Hardware: 
-* Laurie
-* Ao
-* Ning
-
-Firmware & Electronics: 
-* Ahmad
-* Robin
-* Shuoshuo
-* Alvin
-* Tommy
-
-(After demo 2:)
-
-Software: 
-* Alvin
-* Robin
-
-### Standards
-
-Git Standards:
-* Checkout new branches for new features and complex tasks.
-* Create proper pull requests.
-* Use clear, concise, and descriptive commit messages and branch names.
-* Keep commits small and atomic.
-
-## Project Structure
-
-## Tech Stack
+**Open Octave** began as an undergraduate robotics project at The University of Edinburgh, and has now been made open course for further development.
