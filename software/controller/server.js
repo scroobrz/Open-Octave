@@ -566,6 +566,12 @@ function sendRawLine(line, moduleIp) {
 
 // Sends all upload lines to a single module. Returns { ok, sent, error }.
 async function uploadLinesToModule(ip, lines) {
+    const entry = modules.get(ip);
+    if (entry) {
+        entry.lastAck = null;
+        entry.lastError = null;
+    }
+
     const sent = [];
     for (const line of lines) {
         const r = sendToModule(ip, String(line));
@@ -575,19 +581,47 @@ async function uploadLinesToModule(ip, lines) {
         }
         // Delay to prevent hardware serial buffer overflow (ESP32/Arduino)
         await new Promise(resolve => setTimeout(resolve, 20));
+
+        // Early check for errors during upload stream
+        if (entry && entry.lastError && entry.lastError.raw.includes('upload=')) {
+            return { ok: false, error: entry.lastError.raw, sent };
+        }
     }
+
+    // Wait for final acknowledgment
+    if (entry) {
+        let timeout = 2500;
+        while (timeout > 0) {
+            if (entry.lastError && entry.lastError.raw.includes('upload=')) {
+                return { ok: false, error: entry.lastError.raw, sent };
+            }
+            if (entry.lastAck && entry.lastAck.raw.includes('upload=end')) {
+                return { ok: true, sent, sentCount: sent.length };
+            }
+            await new Promise(resolve => setTimeout(resolve, 50));
+            timeout -= 50;
+        }
+        return { ok: false, error: 'ERR upload_timeout: No acknowledgment received from module', sent };
+    }
+
     return { ok: true, sent, sentCount: sent.length };
 }
 
-// Broadcasts all upload lines to every connected module. Returns per-module results.
+// Broadcasts all upload lines to every connected module in parallel. Returns per-module results.
 async function uploadLinesToAllModules(lines) {
-    const moduleResults = [];
+    const promises = [];
     for (const [ip, entry] of modules) {
         if (!entry.connected || !entry.ws || entry.ws.readyState !== WebSocket.OPEN) continue;
-        const result = await uploadLinesToModule(ip, lines);
-        moduleResults.push({ module: ip, sentCount: result.sentCount, failed: !result.ok });
+        promises.push(
+            uploadLinesToModule(ip, lines).then(result => ({
+                module: ip,
+                sentCount: result.sentCount,
+                failed: !result.ok,
+                error: result.error
+            }))
+        );
     }
-    return moduleResults;
+    return Promise.all(promises);
 }
 
 // Marks a module's current sequence after a successful upload.
@@ -878,6 +912,14 @@ app.post('/api/modules/all/upload', async (req, res) => {
         }
 
         const moduleResults = await uploadLinesToAllModules(gen.lines);
+        
+        const failures = moduleResults.filter(mr => mr.failed);
+        if (failures.length > 0) {
+            const errMsgs = failures.map(f => `${f.module}: ${f.error}`).join('; ');
+            res.status(400).json({ ok: false, error: `Upload failed on some modules: ${errMsgs}` });
+            return;
+        }
+
         for (const mr of moduleResults) {
             if (!mr.failed) markModuleSequence(mr.module, seq);
         }
