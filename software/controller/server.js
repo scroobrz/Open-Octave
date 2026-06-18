@@ -486,6 +486,7 @@ async function connectSerial(portPath) {
         // Handle port disconnection (USB cable unplugged)
         serialPortObj.on('close', () => {
             console.log(`[SERIAL] Port closed: ${portPath} (${moduleKey})`);
+            wsShim.readyState = WebSocket.CLOSED;
             unregisterModule(moduleKey);
             serialPorts.delete(portPath);
             scheduleSerialReconnect(portPath);
