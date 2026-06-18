@@ -209,8 +209,8 @@ describe('controller api smoke tests', () => {
         name: 'API Saved Sequence',
         description: 'created by api test',
         steps: [
-          { keys: [0], colors: ['00B4D8'], duration: 300 },
-          { keys: [4], colors: ['FFD700'], duration: 400 }
+          { keys: [0], colors: ['0000FF'], duration: 300 },
+          { keys: [4], colors: ['FFFF00'], duration: 400 }
         ]
       });
 
@@ -238,7 +238,7 @@ describe('controller api smoke tests', () => {
       description: 'for get by id',
       data: {
         steps: [
-          { keys: [2], colors: ['4ECB71'], duration: 250 }
+          { keys: [2], colors: ['00FF00'], duration: 250 }
         ]
       },
       uploadLines: []
@@ -268,7 +268,7 @@ describe('controller api smoke tests', () => {
       description: '',
       data: {
         steps: [
-          { keys: [1], colors: ['00B4D8'], duration: 200 }
+          { keys: [1], colors: ['0000FF'], duration: 200 }
         ]
       },
       uploadLines: []
@@ -329,7 +329,7 @@ describe('controller api smoke tests', () => {
       description: '',
       data: {
         steps: [
-          { keys: [0], colors: ['00B4D8'], duration: 300 }
+          { keys: [0], colors: ['0000FF'], duration: 300 }
         ]
       },
       uploadLines: []
@@ -378,7 +378,7 @@ describe('controller api smoke tests', () => {
       description: '',
       data: {
         steps: [
-          { keys: [0], colors: ['00B4D8'], duration: 300 }
+          { keys: [0], colors: ['0000FF'], duration: 300 }
         ]
       },
       uploadLines: []

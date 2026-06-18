@@ -291,18 +291,18 @@ void loadDefaultSequence() {
   // Key map: 0=C4 1=C#4 2=D4 4=E4 5=F4 7=G4 8=G#4 9=A4 10=A#4 11=B4
   // Avoids keys 3 (D#4) and 6 (F#4)
   const SequenceStep defaultSteps[] = {
-    {3, {9, 0, 4},    {COLOR_CORAL, COLOR_CYAN, COLOR_GOLD},     800},  // A minor chord (A4+C4+E4)
-    {1, {7},           {COLOR_MAGENTA},                            400},  // G4 melody
-    {1, {5},           {COLOR_CORAL},                              400},  // F4 melody
-    {1, {4},           {COLOR_GOLD},                               400},  // E4 melody
-    {2, {2, 9},        {COLOR_GREEN, COLOR_CORAL},                 600},  // D4+A4 fifth
-    {1, {5},           {COLOR_CORAL},                              400},  // F4 melody
-    {1, {4},           {COLOR_GOLD},                               400},  // E4 melody
-    {3, {2, 5, 9},     {COLOR_GREEN, COLOR_CORAL, COLOR_CORAL},   800},  // D minor chord (D4+F4+A4)
-    {1, {0},           {COLOR_CYAN},                               400},  // C4 melody
-    {1, {2},           {COLOR_GREEN},                              400},  // D4 melody
-    {3, {4, 8, 11},    {COLOR_GOLD, COLOR_VIOLET, COLOR_INDIGO},  800},  // E major chord (E4+G#4+B4)
-    {3, {9, 0, 4},     {COLOR_CORAL, COLOR_CYAN, COLOR_GOLD},    1000},  // A minor resolve
+    {3, {9, 0, 4},    {COLOR_ORANGE, COLOR_BLUE, COLOR_YELLOW},     800},  // A minor chord (A4+C4+E4)
+    {1, {7},           {COLOR_MAGENTA},                               400},  // G4 melody
+    {1, {5},           {COLOR_ORANGE},                                400},  // F4 melody
+    {1, {4},           {COLOR_YELLOW},                                400},  // E4 melody
+    {2, {2, 9},        {COLOR_GREEN, COLOR_ORANGE},                   600},  // D4+A4 fifth
+    {1, {5},           {COLOR_ORANGE},                                400},  // F4 melody
+    {1, {4},           {COLOR_YELLOW},                                400},  // E4 melody
+    {3, {2, 5, 9},     {COLOR_GREEN, COLOR_ORANGE, COLOR_ORANGE},    800},  // D minor chord (D4+F4+A4)
+    {1, {0},           {COLOR_BLUE},                                  400},  // C4 melody
+    {1, {2},           {COLOR_GREEN},                                 400},  // D4 melody
+    {3, {4, 8, 11},    {COLOR_YELLOW, COLOR_VIOLET, COLOR_INDIGO},   800},  // E major chord (E4+G#4+B4)
+    {3, {9, 0, 4},     {COLOR_ORANGE, COLOR_BLUE, COLOR_YELLOW},    1000},  // A minor resolve
   };
 
   currentSequence.length = sizeof(defaultSteps) / sizeof(defaultSteps[0]);
@@ -316,18 +316,18 @@ void loadDefaultSequenceTwoOctave() {
   strcpy(currentSequence.name, "Default (2-Oct)");
 
   const SequenceStep defaultSteps[] = {
-    {4, {0, 4, 7, 12},    {COLOR_CYAN, COLOR_GOLD, COLOR_MAGENTA, COLOR_CYAN},       800},  // C major w/ octave
-    {1, {14},              {COLOR_GREEN},                                               400},  // D5 melody
-    {1, {16},              {COLOR_GOLD},                                                400},  // E5 melody
-    {4, {5, 9, 12, 17},   {COLOR_CORAL, COLOR_CYAN, COLOR_CYAN, COLOR_CORAL},         800},  // F major w/ octave
-    {1, {19},              {COLOR_MAGENTA},                                             400},  // G5 melody
-    {1, {16},              {COLOR_GOLD},                                                400},  // E5 melody
-    {4, {0, 7, 12, 19},   {COLOR_CYAN, COLOR_MAGENTA, COLOR_CYAN, COLOR_MAGENTA},     600},  // C+G fifths across octaves
-    {4, {7, 11, 14, 19},  {COLOR_MAGENTA, COLOR_CORAL, COLOR_GREEN, COLOR_MAGENTA},   800},  // G major w/ octave
-    {1, {17},              {COLOR_CORAL},                                               400},  // F5 melody
-    {1, {16},              {COLOR_GOLD},                                                400},  // E5 melody
-    {1, {14},              {COLOR_GREEN},                                               400},  // D5 melody
-    {4, {0, 4, 7, 12},    {COLOR_CYAN, COLOR_GOLD, COLOR_MAGENTA, COLOR_CYAN},       1000},  // C major resolve w/ octave
+    {4, {0, 4, 7, 12},    {COLOR_BLUE, COLOR_YELLOW, COLOR_MAGENTA, COLOR_BLUE},       800},  // C major w/ octave
+    {1, {14},              {COLOR_GREEN},                                                 400},  // D5 melody
+    {1, {16},              {COLOR_YELLOW},                                                400},  // E5 melody
+    {4, {5, 9, 12, 17},   {COLOR_ORANGE, COLOR_BLUE, COLOR_BLUE, COLOR_ORANGE},         800},  // F major w/ octave
+    {1, {19},              {COLOR_MAGENTA},                                               400},  // G5 melody
+    {1, {16},              {COLOR_YELLOW},                                                400},  // E5 melody
+    {4, {0, 7, 12, 19},   {COLOR_BLUE, COLOR_MAGENTA, COLOR_BLUE, COLOR_MAGENTA},       600},  // C+G fifths across octaves
+    {4, {7, 11, 14, 19},  {COLOR_MAGENTA, COLOR_ORANGE, COLOR_GREEN, COLOR_MAGENTA},    800},  // G major w/ octave
+    {1, {17},              {COLOR_ORANGE},                                                400},  // F5 melody
+    {1, {16},              {COLOR_YELLOW},                                                400},  // E5 melody
+    {1, {14},              {COLOR_GREEN},                                                 400},  // D5 melody
+    {4, {0, 4, 7, 12},    {COLOR_BLUE, COLOR_YELLOW, COLOR_MAGENTA, COLOR_BLUE},       1000},  // C major resolve w/ octave
   };
 
   currentSequence.length = sizeof(defaultSteps) / sizeof(defaultSteps[0]);

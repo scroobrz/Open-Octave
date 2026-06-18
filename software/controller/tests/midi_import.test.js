@@ -51,9 +51,9 @@ describe('importMidiBufferToSequence', () => {
     expect(result.sequence.uploadLines).toEqual([]);
 
     expect(result.sequence.data.steps).toEqual([
-      { keys: [0], colors: ['00B4D8'], duration: 400 },
-      { keys: [4], colors: ['FFD700'], duration: 350 },
-      { keys: [7], colors: ['E8368F'], duration: 600 }
+      { keys: [0], colors: ['0000FF'], duration: 400 },
+      { keys: [4], colors: ['FFFF00'], duration: 350 },
+      { keys: [7], colors: ['FF00FF'], duration: 600 }
     ]);
 
     expect(result.meta.minKey).toBe(0);
@@ -82,8 +82,8 @@ describe('importMidiBufferToSequence', () => {
     expect(result.ok).toBe(true);
     expect(result.meta.transposeSemitones).toBe(12);
     expect(result.sequence.data.steps).toEqual([
-      { keys: [0], colors: ['00B4D8'], duration: 300 },
-      { keys: [4], colors: ['FFD700'], duration: 300 }
+      { keys: [0], colors: ['0000FF'], duration: 300 },
+      { keys: [4], colors: ['FFFF00'], duration: 300 }
     ]);
     expect(result.warnings[0]).toMatch(/transposed up by 12 semitones/i);
   });

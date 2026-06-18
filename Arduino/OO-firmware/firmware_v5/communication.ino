@@ -761,7 +761,7 @@ bool processSequenceStepCommand(uint8_t stepIndex, char *cmd){
             break;
           }
 
-          // LED Colors — supports dot-separated multi-color format: c=00B4D8.FFD700.E8368F
+          // LED Colors — supports dot-separated multi-color format: c=0000FF.FFFF00.FF00FF
           case 'c': {
             char *ptr = &cmd[i+2];
             char *endPtr;
@@ -838,7 +838,7 @@ bool processSequenceStepCommand(uint8_t stepIndex, char *cmd){
   }
   keyStr[pos] = '\0';
 
-  char colorStr[56];  // e.g. "00B4D8.FFD700.E8368F"
+  char colorStr[56];  // e.g. "0000FF.FFFF00.FF00FF"
   pos = 0;
   for (uint8_t k = 0; k < numColors && pos < sizeof(colorStr) - 8; k++) {
     if (k > 0) colorStr[pos++] = '.';

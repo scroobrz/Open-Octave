@@ -145,7 +145,7 @@
 
 // ============ COLOR DEFINITIONS ============
 
-// ROYGBIV colour palette
+// Standard colour palette
 #define COLOR_RED     0xFF0000
 #define COLOR_ORANGE  0xFF8000
 #define COLOR_YELLOW  0xFFFF00
@@ -154,14 +154,11 @@
 #define COLOR_INDIGO  0x4B0082
 #define COLOR_VIOLET  0x8000FF
 #define COLOR_WHITE   0xFFFFFF
-
-// Open Octave brand gradient (finger-to-colour mapping)
-#define COLOR_CYAN    0x00B4D8
-// Green defined above in ROYGBIV palette
-#define COLOR_GOLD    0xFFD700
-#define COLOR_CORAL   0xFF6B35
-#define COLOR_MAGENTA 0xE8368F
+#define COLOR_MAGENTA 0xFF00FF
 #define COLOR_PINK    0xFF69B4
+
+// Finger-to-colour mapping (matches software/shared/colors.json):
+//   Thumb=BLUE  Index=GREEN  Middle=YELLOW  Ring=ORANGE  Pinky=MAGENTA
 
 // ============ TYPE DEFINITIONS ============
 
