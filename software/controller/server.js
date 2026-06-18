@@ -382,6 +382,22 @@ function frameForSerial(cmd) {
 
 // Map<portPath, { port: SerialPort, parser: ReadlineParser, moduleKey: string }>
 const serialPorts = new Map();
+const serialReconnectTimers = new Map();
+
+function scheduleSerialReconnect(portPath) {
+    if (serialReconnectTimers.has(portPath)) return;
+    const timer = setTimeout(async () => {
+        serialReconnectTimers.delete(portPath);
+        const result = await connectSerial(portPath);
+        if (result.error) {
+            scheduleSerialReconnect(portPath);
+        } else {
+            console.log(`[SERIAL] Auto-reconnected ${portPath} -> ${result.moduleKey}`);
+            pushLog('CTRL', `Auto-reconnected serial port ${portPath}`);
+        }
+    }, 5000);
+    serialReconnectTimers.set(portPath, timer);
+}
 
 function createSerialWsShim(serialPortObj, portPath) {
     return {
@@ -472,6 +488,7 @@ async function connectSerial(portPath) {
             console.log(`[SERIAL] Port closed: ${portPath} (${moduleKey})`);
             unregisterModule(moduleKey);
             serialPorts.delete(portPath);
+            scheduleSerialReconnect(portPath);
         });
 
         return { success: true, mode: 'serial', port: portPath, moduleKey };
@@ -479,15 +496,6 @@ async function connectSerial(portPath) {
         console.error(`[FATAL] Could not open serial port ${portPath}: ${err.message}`);
         return { error: `Could not open serial port ${portPath}: ${err.message}` };
     }
-}
-
-async function connectAllSerial() {
-    const results = [];
-    for (const portPath of SERIAL_PATHS) {
-        const result = await connectSerial(portPath);
-        results.push(result);
-    }
-    return results;
 }
 
 async function disconnectSerial(portPath) {
@@ -1552,7 +1560,6 @@ app.post('/api/db/sequences/:id/upload', async (req, res) => {
 let httpServer = null;
 let wss = null;
 let staleCleanupTimer = null;
-let serialReconnectTimer = null;
 
 async function startServers() {
     if (httpServer && wss) return;
@@ -1565,9 +1572,12 @@ async function startServers() {
         // Auto-connect configured serial ports on startup
         if (SERIAL_PATHS.length > 0) {
             console.log(`[SERIAL] Auto-connecting ${SERIAL_PATHS.length} serial port(s): ${SERIAL_PATHS.join(', ')}`);
-            const results = await connectAllSerial();
-            for (const r of results) {
-                if (r.error) console.error(`[SERIAL] Failed: ${r.error}`);
+            for (const portPath of SERIAL_PATHS) {
+                const r = await connectSerial(portPath);
+                if (r.error) {
+                    console.error(`[SERIAL] Failed: ${r.error}`);
+                    scheduleSerialReconnect(portPath);
+                }
             }
         } else {
             console.log(`Modules connect automatically via WebSocket`);
@@ -1624,36 +1634,10 @@ async function startServers() {
         }
     }, MODULE_CLEANUP_INTERVAL_MS);
 
-    // Auto-reconnect: periodically try to re-open configured serial ports that
-    // have been lost (e.g. USB cable unplugged and replugged).
-    const SERIAL_RECONNECT_INTERVAL_MS = 5000;
-    let serialReconnecting = false;
-
-    serialReconnectTimer = setInterval(async () => {
-        if (SERIAL_PATHS.length === 0 || serialReconnecting) return;
-
-        // Check if any configured port is missing from the active map
-        const missing = SERIAL_PATHS.filter(p => !serialPorts.has(p));
-        if (missing.length === 0) return;
-
-        serialReconnecting = true;
-        for (const portPath of missing) {
-            try {
-                const result = await connectSerial(portPath);
-                if (result.success) {
-                    console.log(`[SERIAL] Auto-reconnected ${portPath} -> ${result.moduleKey}`);
-                    pushLog('CTRL', `Auto-reconnected serial port ${portPath}`);
-                }
-            } catch (_) {
-                // Port not available yet — will retry next interval
-            }
-        }
-        serialReconnecting = false;
-    }, SERIAL_RECONNECT_INTERVAL_MS);
-
     wss.on('close', () => {
-        clearInterval(staleCleanupTimer);
-        clearInterval(serialReconnectTimer);
+        if (staleCleanupTimer) clearInterval(staleCleanupTimer);
+        for (const timer of serialReconnectTimers.values()) clearTimeout(timer);
+        serialReconnectTimers.clear();
     });
 }
 
@@ -1662,10 +1646,8 @@ function stopServers() {
         clearInterval(staleCleanupTimer);
         staleCleanupTimer = null;
     }
-    if (serialReconnectTimer) {
-        clearInterval(serialReconnectTimer);
-        serialReconnectTimer = null;
-    }
+    for (const timer of serialReconnectTimers.values()) clearTimeout(timer);
+    serialReconnectTimers.clear();
 
     for (const entry of modules.values()) {
         if (entry.ws) {
