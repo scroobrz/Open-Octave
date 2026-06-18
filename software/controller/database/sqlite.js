@@ -317,12 +317,16 @@ function generateUploadLinesFromData(id, name, data, colorMode = 'default') {
     // Support both new format (keys/colors/duration) and legacy (k/c/d)
     const keys = Array.isArray(step.keys) ? step.keys : (step.k !== undefined ? [step.k] : undefined);
     const colors = Array.isArray(step.colors) ? step.colors : (step.c !== undefined ? [step.c] : undefined);
-    const duration = step.duration !== undefined ? step.duration : step.d;
+    let duration = step.duration !== undefined ? step.duration : step.d;
 
     if (!keys || keys.length === 0) return { error: `Step ${stepIndex}: missing keys` };
     if (!colors || colors.length === 0) return { error: `Step ${stepIndex}: missing colors` };
     if (duration === undefined) return { error: `Step ${stepIndex}: missing duration` };
     if (keys.length !== colors.length) return { error: `Step ${stepIndex}: keys and colors arrays must have same length` };
+
+    // Clamp duration to firmware bounds to prevent "invalid duration" rejections
+    if (duration < 300) duration = 300;
+    if (duration > 10000) duration = 10000;
 
     // Validate and remap colors
     const finalColors = [];

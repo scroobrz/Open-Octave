@@ -565,7 +565,7 @@ function sendRawLine(line, moduleIp) {
 }
 
 // Sends all upload lines to a single module. Returns { ok, sent, error }.
-function uploadLinesToModule(ip, lines) {
+async function uploadLinesToModule(ip, lines) {
     const sent = [];
     for (const line of lines) {
         const r = sendToModule(ip, String(line));
@@ -573,16 +573,18 @@ function uploadLinesToModule(ip, lines) {
         if (r && r.error) {
             return { ok: false, error: r.error, sent };
         }
+        // Delay to prevent hardware serial buffer overflow (ESP32/Arduino)
+        await new Promise(resolve => setTimeout(resolve, 20));
     }
     return { ok: true, sent, sentCount: sent.length };
 }
 
 // Broadcasts all upload lines to every connected module. Returns per-module results.
-function uploadLinesToAllModules(lines) {
+async function uploadLinesToAllModules(lines) {
     const moduleResults = [];
     for (const [ip, entry] of modules) {
         if (!entry.connected || !entry.ws || entry.ws.readyState !== WebSocket.OPEN) continue;
-        const result = uploadLinesToModule(ip, lines);
+        const result = await uploadLinesToModule(ip, lines);
         moduleResults.push({ module: ip, sentCount: result.sentCount, failed: !result.ok });
     }
     return moduleResults;
@@ -852,7 +854,7 @@ app.post('/api/state/reset', (req, res) => {
 // Otherwise Express matches "/all/..." as if "all" were a module IP.
 
 // POST /api/modules/all/upload — upload sequence to ALL connected modules
-app.post('/api/modules/all/upload', (req, res) => {
+app.post('/api/modules/all/upload', async (req, res) => {
     try {
         const body = req.body || {};
         const sequenceId = body.sequenceId;
@@ -875,7 +877,7 @@ app.post('/api/modules/all/upload', (req, res) => {
             return;
         }
 
-        const moduleResults = uploadLinesToAllModules(gen.lines);
+        const moduleResults = await uploadLinesToAllModules(gen.lines);
         for (const mr of moduleResults) {
             if (!mr.failed) markModuleSequence(mr.module, seq);
         }
@@ -924,7 +926,7 @@ app.get('/api/modules', (req, res) => {
 });
 
 // POST /api/modules/:ip/upload — upload sequence to specific module
-app.post('/api/modules/:ip/upload', (req, res) => {
+app.post('/api/modules/:ip/upload', async (req, res) => {
     try {
         const ip = req.params.ip;
         const entry = modules.get(ip);
@@ -955,7 +957,7 @@ app.post('/api/modules/:ip/upload', (req, res) => {
             return;
         }
 
-        const result = uploadLinesToModule(ip, gen.lines);
+        const result = await uploadLinesToModule(ip, gen.lines);
         if (!result.ok) {
             res.status(500).json({ ok: false, error: result.error, sent: result.sent });
             return;
@@ -1532,7 +1534,7 @@ app.post('/api/db/sequences/:id/upload', async (req, res) => {
 
     if (moduleIp && moduleIp !== 'all') {
       // Send to specific module
-      const result = uploadLinesToModule(moduleIp, lines);
+      const result = await uploadLinesToModule(moduleIp, lines);
       if (!result.ok) {
         res.status(500).json({ ok: false, error: result.error, sent: result.sent });
         return;
@@ -1544,7 +1546,7 @@ app.post('/api/db/sequences/:id/upload', async (req, res) => {
 
     if (moduleIp === 'all') {
       // Broadcast to all modules
-      const moduleResults = uploadLinesToAllModules(lines);
+      const moduleResults = await uploadLinesToAllModules(lines);
       markAllModulesSequence(seq);
       res.json({ ok: true, uploaded: id, broadcast: true, modules: moduleResults });
       return;
@@ -1553,7 +1555,7 @@ app.post('/api/db/sequences/:id/upload', async (req, res) => {
     // Default: broadcast to all connected modules (serial modules are now in the Map too)
     const connectedModules = [...modules.values()].filter(e => e.connected && e.ws);
     if (connectedModules.length > 0) {
-      const moduleResults = uploadLinesToAllModules(lines);
+      const moduleResults = await uploadLinesToAllModules(lines);
       markAllModulesSequence(seq);
       res.json({ ok: true, uploaded: id, sentCount: lines.length, modules: moduleResults });
       return;
