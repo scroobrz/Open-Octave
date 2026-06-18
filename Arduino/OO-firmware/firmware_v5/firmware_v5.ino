@@ -225,10 +225,6 @@ void setup() {
 
   playStartupAnimation();
 
-  // Announce over USB Serial AFTER the startup animation, giving the
-  // heartbeat protocol ~1.5s to stabilize. If an upstream module is
-  // connected, we'll have received a heartbeat by now and demoted to slave
-  // (which sends BYE instead). Only masters reach this point.
   if (isMaster) {
     sendHelloToController();
   }
