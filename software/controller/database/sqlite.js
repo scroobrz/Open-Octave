@@ -243,6 +243,23 @@ function upsertSequence(seq) {
   }
 
   // Insert new
+  if (hasNumericId) {
+    db.prepare(`
+      INSERT INTO sequences
+      (id, name, description, data_json, upload_lines_json, created_at, updated_at)
+      VALUES (@id, @name, @description, @data_json, @upload_lines_json, @created_at, @updated_at)
+    `).run({
+      id: Number(seq.id),
+      name: seq.name,
+      description: seq.description || '',
+      data_json: JSON.stringify(seq.data || {}),
+      upload_lines_json: JSON.stringify(seq.uploadLines || []),
+      created_at: ts,
+      updated_at: ts
+    });
+    return Number(seq.id);
+  }
+
   const result = db.prepare(`
     INSERT INTO sequences
     (name, description, data_json, upload_lines_json, created_at, updated_at)
@@ -285,7 +302,7 @@ function sanitizeNameForFirmware(name) {
 
 // Updated for firmware v5 protocol: supports multi-key steps with dot-separated values.
 function generateUploadLinesFromData(id, name, data, colorMode = 'default') {
-  const cleanId = String(id || '').trim();
+  const cleanId = String(id !== undefined && id !== null ? id : '').trim();
   const cleanName = sanitizeNameForFirmware(name);
 
   if (!FIRMWARE_SEQUENCE_ID_REGEX.test(cleanId)) {

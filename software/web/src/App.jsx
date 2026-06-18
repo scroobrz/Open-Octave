@@ -719,7 +719,7 @@ export default function App() {
   // ============ SEQUENCE EDITOR ============
 
   function openEditor(seqId) {
-    if (seqId) {
+    if (seqId !== undefined && seqId !== null) {
       // Edit existing
       const seq = dbSeqItems.find(s => s.id === seqId);
       if (!seq) return;
@@ -885,7 +885,7 @@ export default function App() {
   }
 
   async function openSequenceModal(id) {
-    if (!id) return;
+    if (id === undefined || id === null) return;
     setSeqModalOpen(true);
     setSeqModalLoading(true);
     setSeqModalError('');
