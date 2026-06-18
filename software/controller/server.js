@@ -294,7 +294,7 @@ function cleanupStaleModules() {
         }
 
         // Serial modules are managed by the serial port close handler, not stale cleanup
-        if (entry.ws && entry.ws._isSerialShim) continue;
+        if (entry.transport === 'serial') continue;
 
         const lastSeenMs = entry.lastSeenAt ? Date.parse(entry.lastSeenAt) : NaN;
         const staleByTime = !Number.isFinite(lastSeenMs) || (now - lastSeenMs > MODULE_STALE_TIMEOUT_MS);
@@ -396,8 +396,7 @@ function createSerialWsShim(serialPortObj, portPath) {
         },
         ping: () => {},
         close: () => {},
-        terminate: () => {},
-        _isSerialShim: true
+        terminate: () => {}
     };
 }
 
@@ -656,7 +655,7 @@ app.post('/api/disconnect', async (req, res) => {
             // Disconnect a specific module
             const entry = modules.get(moduleIp);
             if (entry && entry.ws) {
-                if (entry.ws._isSerialShim) {
+                if (entry.transport === 'serial') {
                     // Find and close the serial port for this module
                     for (const [path, se] of serialPorts) {
                         if (se.moduleKey === moduleIp) {
@@ -674,7 +673,7 @@ app.post('/api/disconnect', async (req, res) => {
 
         // Disconnect all
         for (const [ip, entry] of modules) {
-            if (entry.ws && !entry.ws._isSerialShim) {
+            if (entry.ws && entry.transport !== 'serial') {
                 try { entry.ws.close(); } catch (_) {}
             }
         }
@@ -1611,7 +1610,7 @@ const httpServer = app.listen(PORT, '0.0.0.0', async () => {
         cleanupStaleModules();
 
     for (const entry of modules.values()) {
-        if (!entry.connected || !entry.ws || entry.ws._isSerialShim) continue;
+        if (!entry.connected || !entry.ws || entry.transport === 'serial') continue;
         if (entry.ws.readyState !== WebSocket.OPEN) continue;
         try {
             entry.ws.ping();
