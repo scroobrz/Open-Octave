@@ -400,6 +400,21 @@ h2 {
 
 .pre-logs { max-height: 520px; }
 
+.error-banner {
+  margin: 10px 0 0 0;
+  background: rgba(211, 47, 47, 0.1);
+  border: 1px solid #d32f2f;
+  border-radius: var(--radius);
+  padding: 14px;
+  color: #d32f2f;
+  font-weight: bold;
+  font-family: var(--font-mono);
+  font-size: 14px;
+  white-space: pre-wrap;
+  word-break: break-word;
+}
+
+
 /* ===== BUTTON VARIANTS ===== */
 .btn-coral {
   background: var(--secondary);

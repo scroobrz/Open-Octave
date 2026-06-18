@@ -1533,7 +1533,7 @@ export default function App() {
               )}
             </div>
 
-            {dbSeqError && <pre className="pre">{dbSeqError}</pre>}
+            {dbSeqError && <pre className="error-banner">{dbSeqError}</pre>}
 
             {/* Finger colour reference */}
             <div className="card card-accent-green">
@@ -1763,7 +1763,7 @@ export default function App() {
               )}
             </div>
 
-            {dbSeqError && <pre className="pre">{dbSeqError}</pre>}
+            {dbSeqError && <pre className="error-banner">{dbSeqError}</pre>}
 
             {/* Saved Sequences Table */}
             <div className="card card-accent-gold">
