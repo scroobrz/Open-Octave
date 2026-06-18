@@ -1510,7 +1510,7 @@ export default function App() {
               </div>
 
               {isConnected && dbSeqItems.length > 0 && (
-                <div className="row mt">
+                <div className="row mt" style={{ justifyContent: 'flex-start', gap: 10 }}>
                   <div className="label">Upload to All:</div>
                   <select
                     className="input chain-seq-select"
