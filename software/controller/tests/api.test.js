@@ -120,8 +120,7 @@ describe('controller api smoke tests', () => {
     expect(Array.isArray(res.body.modules)).toBe(true);
     expect(res.body.modules).toHaveLength(0);
     expect(res.body.serial).toBeTruthy();
-    expect(res.body.serial.open).toBe(false);
-    expect([null, '/dev/cu.usbserial-XXXX']).toContain(res.body.serial.port);
+    expect(Array.isArray(res.body.serial.ports)).toBe(true);
   });
 
   it('GET /api/colors returns shared colour config', async () => {
@@ -144,8 +143,7 @@ describe('controller api smoke tests', () => {
     expect(res.body.state.connectedModules).toBe(0);
     expect(Array.isArray(res.body.state.modules)).toBe(true);
     expect(res.body.state.serial).toBeTruthy();
-    expect(res.body.state.serial.open).toBe(false);
-    expect([null, '/dev/cu.usbserial-XXXX']).toContain(res.body.state.serial.port);
+    expect(Array.isArray(res.body.state.serial.ports)).toBe(true);
   });
 
   it('GET /api/logs returns bounded log output', async () => {
@@ -388,6 +386,6 @@ describe('controller api smoke tests', () => {
 
     expect(res.status).toBe(400);
     expect(res.body.ok).toBe(false);
-    expect(res.body.error).toBe('No module connected and no serial port open');
+    expect(res.body.error).toBe('No module connected');
   });
 });

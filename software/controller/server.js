@@ -1549,25 +1549,31 @@ app.post('/api/db/sequences/:id/upload', async (req, res) => {
   }
 });
 
-// ============ WEBSOCKET SERVER / STARTUP ============
+let httpServer = null;
+let wss = null;
+let staleCleanupTimer = null;
+let serialReconnectTimer = null;
 
-const httpServer = app.listen(PORT, '0.0.0.0', async () => {
-    console.log(`\nOPEN OCTAVE CONTROLLER`);
-    console.log(`HTTP server running at: http://localhost:${PORT}`);
-    console.log(`WebSocket server listening on port ${WS_PORT}`);
+async function startServers() {
+    if (httpServer && wss) return;
 
-    // Auto-connect configured serial ports on startup
-    if (SERIAL_PATHS.length > 0) {
-        console.log(`[SERIAL] Auto-connecting ${SERIAL_PATHS.length} serial port(s): ${SERIAL_PATHS.join(', ')}`);
-        const results = await connectAllSerial();
-        for (const r of results) {
-            if (r.error) console.error(`[SERIAL] Failed: ${r.error}`);
+    httpServer = app.listen(PORT, '0.0.0.0', async () => {
+        console.log(`\nOPEN OCTAVE CONTROLLER`);
+        console.log(`HTTP server running at: http://localhost:${PORT}`);
+        console.log(`WebSocket server listening on port ${WS_PORT}`);
+
+        // Auto-connect configured serial ports on startup
+        if (SERIAL_PATHS.length > 0) {
+            console.log(`[SERIAL] Auto-connecting ${SERIAL_PATHS.length} serial port(s): ${SERIAL_PATHS.join(', ')}`);
+            const results = await connectAllSerial();
+            for (const r of results) {
+                if (r.error) console.error(`[SERIAL] Failed: ${r.error}`);
+            }
+        } else {
+            console.log(`Modules connect automatically via WebSocket`);
         }
-    } else {
-        console.log(`Modules connect automatically via WebSocket`);
-    }
-    console.log();
-});
+        console.log();
+    });
 
     wss = new WebSocket.Server({ host: '0.0.0.0', port: WS_PORT }, () => {
         console.log(`[WS] WebSocket server listening on 0.0.0.0:${WS_PORT}`);
@@ -1609,43 +1615,85 @@ const httpServer = app.listen(PORT, '0.0.0.0', async () => {
     staleCleanupTimer = setInterval(() => {
         cleanupStaleModules();
 
-    for (const entry of modules.values()) {
-        if (!entry.connected || !entry.ws || entry.transport === 'serial') continue;
-        if (entry.ws.readyState !== WebSocket.OPEN) continue;
-        try {
-            entry.ws.ping();
-        } catch (_) {}
-    }
-}, MODULE_CLEANUP_INTERVAL_MS);
-
-// Auto-reconnect: periodically try to re-open configured serial ports that
-// have been lost (e.g. USB cable unplugged and replugged).
-const SERIAL_RECONNECT_INTERVAL_MS = 5000;
-let serialReconnecting = false;
-
-const serialReconnectTimer = setInterval(async () => {
-    if (SERIAL_PATHS.length === 0 || serialReconnecting) return;
-
-    // Check if any configured port is missing from the active map
-    const missing = SERIAL_PATHS.filter(p => !serialPorts.has(p));
-    if (missing.length === 0) return;
-
-    serialReconnecting = true;
-    for (const portPath of missing) {
-        try {
-            const result = await connectSerial(portPath);
-            if (result.success) {
-                console.log(`[SERIAL] Auto-reconnected ${portPath} -> ${result.moduleKey}`);
-                pushLog('CTRL', `Auto-reconnected serial port ${portPath}`);
-            }
-        } catch (_) {
-            // Port not available yet — will retry next interval
+        for (const entry of modules.values()) {
+            if (!entry.connected || !entry.ws || entry.transport === 'serial') continue;
+            if (entry.ws.readyState !== WebSocket.OPEN) continue;
+            try {
+                entry.ws.ping();
+            } catch (_) {}
         }
-    }
-    serialReconnecting = false;
-}, SERIAL_RECONNECT_INTERVAL_MS);
+    }, MODULE_CLEANUP_INTERVAL_MS);
 
-wss.on('close', () => {
-    clearInterval(staleCleanupTimer);
-    clearInterval(serialReconnectTimer);
-});
+    // Auto-reconnect: periodically try to re-open configured serial ports that
+    // have been lost (e.g. USB cable unplugged and replugged).
+    const SERIAL_RECONNECT_INTERVAL_MS = 5000;
+    let serialReconnecting = false;
+
+    serialReconnectTimer = setInterval(async () => {
+        if (SERIAL_PATHS.length === 0 || serialReconnecting) return;
+
+        // Check if any configured port is missing from the active map
+        const missing = SERIAL_PATHS.filter(p => !serialPorts.has(p));
+        if (missing.length === 0) return;
+
+        serialReconnecting = true;
+        for (const portPath of missing) {
+            try {
+                const result = await connectSerial(portPath);
+                if (result.success) {
+                    console.log(`[SERIAL] Auto-reconnected ${portPath} -> ${result.moduleKey}`);
+                    pushLog('CTRL', `Auto-reconnected serial port ${portPath}`);
+                }
+            } catch (_) {
+                // Port not available yet — will retry next interval
+            }
+        }
+        serialReconnecting = false;
+    }, SERIAL_RECONNECT_INTERVAL_MS);
+
+    wss.on('close', () => {
+        clearInterval(staleCleanupTimer);
+        clearInterval(serialReconnectTimer);
+    });
+}
+
+function stopServers() {
+    if (staleCleanupTimer) {
+        clearInterval(staleCleanupTimer);
+        staleCleanupTimer = null;
+    }
+    if (serialReconnectTimer) {
+        clearInterval(serialReconnectTimer);
+        serialReconnectTimer = null;
+    }
+
+    for (const entry of modules.values()) {
+        if (entry.ws) {
+            try {
+                if (entry.transport !== 'serial') entry.ws.terminate();
+            } catch (_) {}
+        }
+        entry.ws = null;
+        entry.connected = false;
+    }
+
+    if (wss) {
+        try { wss.close(); } catch (_) {}
+        wss = null;
+    }
+
+    if (httpServer) {
+        try { httpServer.close(); } catch (_) {}
+        httpServer = null;
+    }
+}
+
+if (require.main === module) {
+    startServers();
+}
+
+module.exports = {
+    app,
+    startServers,
+    stopServers
+};
