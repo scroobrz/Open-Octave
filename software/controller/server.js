@@ -30,18 +30,7 @@ const PORT = process.env.APP_PORT || 3000;
 // Use a non-privileged default WebSocket port so the controller can run on
 // macOS/Windows/Linux laptops without requiring sudo/admin privileges.
 const WS_PORT = Number(process.env.WS_PORT || 8081);
-const SERIAL_PATH = process.env.SERIAL_PORT;
 const BAUD_RATE = 115200;
-
-// Multi-serial support: comma-separated list of serial port paths.
-// Falls back to single SERIAL_PORT for backward compatibility.
-const SERIAL_PATHS = (() => {
-    if (process.env.SERIAL_PORTS) {
-        return process.env.SERIAL_PORTS.split(',').map(s => s.trim()).filter(Boolean);
-    }
-    if (SERIAL_PATH) return [SERIAL_PATH];
-    return [];
-})();
 // Demo stability patch: be more tolerant of short WiFi/WebSocket hiccups
 // so the UI does not flicker between connected and disconnected too quickly.
 const MODULE_STALE_TIMEOUT_MS = Number(process.env.MODULE_STALE_TIMEOUT_MS || 30000);
@@ -382,21 +371,40 @@ function frameForSerial(cmd) {
 
 // Map<portPath, { port: SerialPort, parser: ReadlineParser, moduleKey: string }>
 const serialPorts = new Map();
-const serialReconnectTimers = new Map();
+let serialDiscoveryTimer = null;
+let isDiscovering = false;
 
-function scheduleSerialReconnect(portPath) {
-    if (serialReconnectTimers.has(portPath)) return;
-    const timer = setTimeout(async () => {
-        serialReconnectTimers.delete(portPath);
-        const result = await connectSerial(portPath);
-        if (result.error) {
-            scheduleSerialReconnect(portPath);
-        } else {
-            console.log(`[SERIAL] Auto-reconnected ${portPath} -> ${result.moduleKey}`);
-            pushLog('CTRL', `Auto-reconnected serial port ${portPath}`);
+function startSerialAutoDiscovery() {
+    if (serialDiscoveryTimer) return;
+    
+    // Run an initial discovery immediately
+    discoverSerialPorts();
+    
+    serialDiscoveryTimer = setInterval(discoverSerialPorts, 3000);
+}
+
+async function discoverSerialPorts() {
+    if (isDiscovering) return;
+    isDiscovering = true;
+    try {
+        const ports = await SerialPort.list();
+        for (const p of ports) {
+            const path = p.path.toLowerCase();
+            if (path.includes('usb') || path.includes('acm')) {
+                if (!serialPorts.has(p.path)) {
+                    const result = await connectSerial(p.path);
+                    if (result.success) {
+                        console.log(`[SERIAL] Auto-discovered ${p.path} -> ${result.moduleKey}`);
+                        pushLog('CTRL', `Auto-discovered serial port ${p.path}`);
+                    }
+                }
+            }
         }
-    }, 5000);
-    serialReconnectTimers.set(portPath, timer);
+    } catch (err) {
+        console.error(`[SERIAL] Auto-discovery error: ${err.message}`);
+    } finally {
+        isDiscovering = false;
+    }
 }
 
 function createSerialWsShim(serialPortObj, portPath) {
@@ -489,7 +497,6 @@ async function connectSerial(portPath) {
             wsShim.readyState = WebSocket.CLOSED;
             unregisterModule(moduleKey);
             serialPorts.delete(portPath);
-            scheduleSerialReconnect(portPath);
         });
 
         return { success: true, mode: 'serial', port: portPath, moduleKey };
@@ -1570,19 +1577,9 @@ async function startServers() {
         console.log(`HTTP server running at: http://localhost:${PORT}`);
         console.log(`WebSocket server listening on port ${WS_PORT}`);
 
-        // Auto-connect configured serial ports on startup
-        if (SERIAL_PATHS.length > 0) {
-            console.log(`[SERIAL] Auto-connecting ${SERIAL_PATHS.length} serial port(s): ${SERIAL_PATHS.join(', ')}`);
-            for (const portPath of SERIAL_PATHS) {
-                const r = await connectSerial(portPath);
-                if (r.error) {
-                    console.error(`[SERIAL] Failed: ${r.error}`);
-                    scheduleSerialReconnect(portPath);
-                }
-            }
-        } else {
-            console.log(`Modules connect automatically via WebSocket`);
-        }
+        // Start auto-discovery for USB serial modules
+        console.log(`[SERIAL] Starting USB serial auto-discovery...`);
+        startSerialAutoDiscovery();
         console.log();
     });
 
@@ -1637,8 +1634,10 @@ async function startServers() {
 
     wss.on('close', () => {
         if (staleCleanupTimer) clearInterval(staleCleanupTimer);
-        for (const timer of serialReconnectTimers.values()) clearTimeout(timer);
-        serialReconnectTimers.clear();
+        if (serialDiscoveryTimer) {
+            clearInterval(serialDiscoveryTimer);
+            serialDiscoveryTimer = null;
+        }
     });
 }
 
@@ -1647,8 +1646,10 @@ function stopServers() {
         clearInterval(staleCleanupTimer);
         staleCleanupTimer = null;
     }
-    for (const timer of serialReconnectTimers.values()) clearTimeout(timer);
-    serialReconnectTimers.clear();
+    if (serialDiscoveryTimer) {
+        clearInterval(serialDiscoveryTimer);
+        serialDiscoveryTimer = null;
+    }
 
     for (const entry of modules.values()) {
         if (entry.ws) {
