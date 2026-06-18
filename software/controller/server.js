@@ -30,7 +30,6 @@ const PORT = process.env.APP_PORT || 3000;
 // Use a non-privileged default WebSocket port so the controller can run on
 // macOS/Windows/Linux laptops without requiring sudo/admin privileges.
 const WS_PORT = Number(process.env.WS_PORT || 8081);
-const SERIAL_PATH = process.env.SERIAL_PORT;
 const BAUD_RATE = 115200;
 // Demo stability patch: be more tolerant of short WiFi/WebSocket hiccups
 // so the UI does not flicker between connected and disconnected too quickly.
@@ -84,28 +83,28 @@ function getModuleLabel(ip) {
     return `Module ${letter}`;
 }
 
-function registerModule(ip, ws) {
+function registerModule(ip, ws, transport = 'wifi') {
     const existing = modules.get(ip);
     const now = new Date().toISOString();
     const entry = {
         ip,
         ws,
         connected: true,
+        transport,
         connectedAt: now,
         lastSeenAt: now,
         chainLength: existing?.chainLength || 1,
         totalKeys: existing?.totalKeys || 12,
         currentSequenceId: existing?.currentSequenceId || null,
         currentSequenceName: existing?.currentSequenceName || null,
-        // octaveOffset: 0, // octave offset
         lastStatus: existing?.lastStatus || null,
         lastAck: existing?.lastAck || null,
         lastError: existing?.lastError || null,
         label: getModuleLabel(ip)
     };
     modules.set(ip, entry);
-    pushLog('WS', `Module registered: ${entry.label} (${ip}), chain=${entry.chainLength}`);
-    console.log(`[WS] Module registered: ${entry.label} (${ip})`);
+    pushLog('CTRL', `Module registered: ${entry.label} (${ip}) [${transport}], chain=${entry.chainLength}`);
+    console.log(`[${transport.toUpperCase()}] Module registered: ${entry.label} (${ip})`);
     return entry;
 }
 
@@ -134,13 +133,13 @@ function getModuleSnapshot(entry) {
         ip: entry.ip,
         label: entry.label,
         connected: entry.connected,
+        transport: entry.transport || 'wifi',
         connectedAt: entry.connectedAt,
         lastSeenAt: entry.lastSeenAt,
         chainLength: entry.chainLength,
         totalKeys: entry.totalKeys,
         currentSequenceId: entry.currentSequenceId,
         currentSequenceName: entry.currentSequenceName,
-        // octaveOffset: entry.octaveOffset ?? 0, // octave offset
         lastStatus: entry.lastStatus
     };
 }
@@ -179,16 +178,50 @@ function ingestEsp32Line(msg, moduleIp) {
     }
 
     touchModule(moduleIp);
+
+    // Handle BYE protocol — module has demoted to slave
+    if (normalized === 'BYE') {
+        const entry = modules.get(moduleIp);
+        if (entry) {
+            pushLog('CTRL', `${entry.label} (${moduleIp}): BYE — demoted to slave, pausing communication`);
+            console.log(`[SERIAL] ${entry.label}: BYE — module demoted to slave`);
+            entry.connected = false;
+            // Keep the entry in the map so it can re-register with the same label
+        }
+        return;
+    }
+
     // Handle HELLO protocol
     if (normalized.startsWith('HELLO ')) {
         const fields = parseKeyValuePairs(normalized);
         const chainLength = parseInt(fields.modules, 10) || 1;
-        const entry = modules.get(moduleIp);
+        let entry = modules.get(moduleIp);
         if (entry) {
+            // Re-activate a module that was previously BYE'd (promoted back to master)
+            entry.connected = true;
             entry.chainLength = chainLength;
             entry.totalKeys = chainLength * 12;
-            pushLog('WS', `${entry.label} (${moduleIp}): HELLO modules=${chainLength}`);
-            console.log(`[WS] ${entry.label}: HELLO modules=${chainLength}, totalKeys=${entry.totalKeys}`);
+            entry.lastSeenAt = new Date().toISOString();
+            const transport = entry.transport || 'wifi';
+            pushLog('CTRL', `${entry.label} (${moduleIp}): HELLO modules=${chainLength} [${transport}]`);
+            console.log(`[${transport.toUpperCase()}] ${entry.label}: HELLO modules=${chainLength}, totalKeys=${entry.totalKeys}`);
+        } else {
+            // Entry was deleted (e.g., stale cleanup after BYE).
+            // Look up the serial port to re-create the WS shim and re-register.
+            let ws = null;
+            let transport = 'wifi';
+            for (const [portPath, sp] of serialPorts) {
+                if (sp.moduleKey === moduleIp) {
+                    ws = createSerialWsShim(sp.port, portPath);
+                    transport = 'serial';
+                    break;
+                }
+            }
+            entry = registerModule(moduleIp, ws, transport);
+            entry.chainLength = chainLength;
+            entry.totalKeys = chainLength * 12;
+            pushLog('CTRL', `${entry.label} (${moduleIp}): HELLO modules=${chainLength} [${transport}] (re-registered after BYE)`);
+            console.log(`[${transport.toUpperCase()}] ${entry.label}: HELLO modules=${chainLength} (re-registered)`);
         }
         return;
     }
@@ -239,7 +272,18 @@ function cleanupStaleModules() {
     const now = Date.now();
 
     for (const [ip, entry] of modules) {
-        if (!entry.connected) continue;
+        // Remove fully disconnected entries that have been inactive for a while
+        // (e.g. old serial modules that sent BYE and never came back).
+        if (!entry.connected) {
+            const lastSeenMs = entry.lastSeenAt ? Date.parse(entry.lastSeenAt) : NaN;
+            if (!Number.isFinite(lastSeenMs) || (now - lastSeenMs > MODULE_STALE_TIMEOUT_MS)) {
+                modules.delete(ip);
+            }
+            continue;
+        }
+
+        // Serial modules are managed by the serial port close handler, not stale cleanup
+        if (entry.transport === 'serial') continue;
 
         const lastSeenMs = entry.lastSeenAt ? Date.parse(entry.lastSeenAt) : NaN;
         const staleByTime = !Number.isFinite(lastSeenMs) || (now - lastSeenMs > MODULE_STALE_TIMEOUT_MS);
@@ -278,7 +322,7 @@ function cleanupStaleModules() {
 
 function sendToModule(ip, command) {
     const entry = modules.get(ip);
-    if (!entry || !entry.ws || entry.ws.readyState !== WebSocket.OPEN) {
+    if (!entry || !entry.connected || !entry.ws || entry.ws.readyState !== WebSocket.OPEN) {
         return { error: `Module ${ip} not connected` };
     }
 
@@ -320,21 +364,77 @@ function frameForSerial(cmd) {
     return `${clean}\n`;
 }
 
-// ============ SERIAL MODE SETUP (legacy fallback) ============
+// ============ MULTI-SERIAL SETUP ============
+// Each serial port gets a unique module key (serial:0, serial:1, ...) and is
+// registered in the modules Map with a WebSocket-like shim so that sendToModule()
+// and broadcastToAll() work uniformly across transports.
 
-let port;
-let parser;
+// Map<portPath, { port: SerialPort, parser: ReadlineParser, moduleKey: string }>
+const serialPorts = new Map();
+let serialDiscoveryTimer = null;
+let isDiscovering = false;
 
-function closeSerialPortAsync() {
+function startSerialAutoDiscovery() {
+    if (serialDiscoveryTimer) return;
+    
+    // Run an initial discovery immediately
+    discoverSerialPorts();
+    
+    serialDiscoveryTimer = setInterval(discoverSerialPorts, 3000);
+}
+
+async function discoverSerialPorts() {
+    if (isDiscovering) return;
+    isDiscovering = true;
+    try {
+        const ports = await SerialPort.list();
+        for (const p of ports) {
+            const path = p.path.toLowerCase();
+            if (path.includes('usb') || path.includes('acm')) {
+                if (!serialPorts.has(p.path)) {
+                    const result = await connectSerial(p.path);
+                    if (result.success) {
+                        console.log(`[SERIAL] Auto-discovered ${p.path} -> ${result.moduleKey}`);
+                        pushLog('CTRL', `Auto-discovered serial port ${p.path}`);
+                    }
+                }
+            }
+        }
+    } catch (err) {
+        console.error(`[SERIAL] Auto-discovery error: ${err.message}`);
+    } finally {
+        isDiscovering = false;
+    }
+}
+
+function createSerialWsShim(serialPortObj, portPath) {
+    return {
+        readyState: WebSocket.OPEN,
+        send: (payload) => {
+            // sendToModule() pre-frames with frameForWebSocket() which adds \n
+            // for multi-char commands and strips trailing newlines for single-char.
+            // Serial needs a trailing \n, so re-frame for serial.
+            if (!serialPortObj.isOpen) return;
+            const framed = frameForSerial(payload);
+            serialPortObj.write(framed);
+        },
+        ping: () => {},
+        close: () => {},
+        terminate: () => {}
+    };
+}
+
+function closeSerialPortAsync(portPath) {
     return new Promise((resolve) => {
-        if (!port || !port.isOpen) {
+        const entry = serialPorts.get(portPath);
+        if (!entry || !entry.port || !entry.port.isOpen) {
             resolve({ closed: true, alreadyClosed: true });
             return;
         }
-        console.log('[SERIAL] Closing port...');
-        port.close((err) => {
+        console.log(`[SERIAL] Closing ${portPath}...`);
+        entry.port.close((err) => {
             if (err) {
-                console.error('[SERIAL] Close error:', err.message);
+                console.error(`[SERIAL] Close error on ${portPath}:`, err.message);
                 resolve({ closed: false, error: err.message });
                 return;
             }
@@ -343,86 +443,112 @@ function closeSerialPortAsync() {
     });
 }
 
-async function connectSerial(pathOverride) {
-    const pathToUse = pathOverride || SERIAL_PATH;
-
-    if (!pathToUse) {
-        console.error('[SERIAL] SERIAL_PORT is not set');
-        return { error: 'SERIAL_PORT not set' };
+async function connectSerial(portPath) {
+    if (!portPath) {
+        console.error('[SERIAL] No port path provided');
+        return { error: 'No serial port path provided' };
     }
 
-    if (port && port.isOpen) {
-        const existingPath = port.path || SERIAL_PATH;
-        if (existingPath === pathToUse) {
-            return { success: true, mode: 'serial', alreadyOpen: true, port: pathToUse };
-        }
-        console.log(`[SERIAL] Port already open on ${existingPath}; switching to ${pathToUse}...`);
-        await closeSerialPortAsync();
-        port = undefined;
-        parser = undefined;
+    const existing = serialPorts.get(portPath);
+    if (existing && existing.port && existing.port.isOpen) {
+        return { success: true, mode: 'serial', alreadyOpen: true, port: portPath, moduleKey: existing.moduleKey };
     }
 
-    console.log(`[INIT] Starting SERIAL mode on ${pathToUse}...`);
+    console.log(`[INIT] Opening serial port ${portPath}...`);
 
     try {
-        port = new SerialPort({ path: pathToUse, baudRate: BAUD_RATE });
-        parser = port.pipe(new ReadlineParser({ delimiter: '\n' }));
+        const serialPortObj = new SerialPort({ path: portPath, baudRate: BAUD_RATE });
+        const parser = serialPortObj.pipe(new ReadlineParser({ delimiter: '\n' }));
+
+        // Use a deterministic key derived from the port path so that
+        // reconnecting the same USB cable reuses the same module entry
+        // instead of creating ghost entries (serial:0, serial:1, ...).
+        const moduleKey = `serial:${portPath}`;
 
         await new Promise((resolve, reject) => {
-            port.on('open', () => {
-                console.log('[SERIAL] Port Open');
+            serialPortObj.on('open', () => {
+                console.log(`[SERIAL] Port open: ${portPath} -> ${moduleKey}`);
                 resolve();
             });
-            port.on('error', (err) => {
-                console.error('[SERIAL] Error: ', err.message);
+            serialPortObj.on('error', (err) => {
+                console.error(`[SERIAL] Error on ${portPath}: ${err.message}`);
                 reject(err);
             });
         });
 
+        serialPorts.set(portPath, { port: serialPortObj, parser, moduleKey });
+
+        // Create WS shim and register in modules Map
+        const wsShim = createSerialWsShim(serialPortObj, portPath);
+        registerModule(moduleKey, wsShim, 'serial');
+
+        // Ingest data from this serial port using the module key
         parser.on('data', (data) => {
             const msg = data.toString().trim();
             if (msg.length === 0) return;
-            console.log(`[ESP32-SERIAL] ${msg}`);
-            pushLog('ESP32', msg);
-            ingestEsp32Line(msg, 'serial');
+            console.log(`[ESP32 ${moduleKey}] ${msg}`);
+            pushLog(`ESP32:${moduleKey}`, msg);
+            ingestEsp32Line(msg, moduleKey);
         });
 
-        return { success: true, mode: 'serial', port: pathToUse };
+        // Handle port disconnection (USB cable unplugged)
+        serialPortObj.on('close', () => {
+            console.log(`[SERIAL] Port closed: ${portPath} (${moduleKey})`);
+            wsShim.readyState = WebSocket.CLOSED;
+            unregisterModule(moduleKey);
+            serialPorts.delete(portPath);
+        });
+
+        return { success: true, mode: 'serial', port: portPath, moduleKey };
     } catch (err) {
-        console.error(`[FATAL] Could not open serial port: ${err.message}`);
-        return { error: `Could not open serial port: ${err.message}` };
+        console.error(`[FATAL] Could not open serial port ${portPath}: ${err.message}`);
+        return { error: `Could not open serial port ${portPath}: ${err.message}` };
     }
 }
 
-function disconnectSerial() {
-    if (!port) {
-        return { success: true, mode: 'serial', alreadyClosed: true };
+async function disconnectSerial(portPath) {
+    if (portPath) {
+        const entry = serialPorts.get(portPath);
+        if (!entry) return { success: true, mode: 'serial', alreadyClosed: true };
+        await closeSerialPortAsync(portPath);
+        unregisterModule(entry.moduleKey);
+        serialPorts.delete(portPath);
+        return { success: true, mode: 'serial', closed: true, port: portPath };
     }
-    if (port.isOpen) {
-        console.log('[SERIAL] Closing port...');
-        try {
-            port.close((err) => {
-                if (err) console.error('[SERIAL] Close error:', err.message);
-            });
-        } catch (e) {
-            console.error('[SERIAL] Close error:', e.message);
+
+    // Disconnect all serial ports
+    const results = [];
+    for (const [path, entry] of serialPorts) {
+        await closeSerialPortAsync(path);
+        unregisterModule(entry.moduleKey);
+        results.push({ port: path, closed: true });
+    }
+    serialPorts.clear();
+    return { success: true, mode: 'serial', closed: true, ports: results };
+}
+
+function sendSerialCommand(cmd, portPath) {
+    if (portPath) {
+        const entry = serialPorts.get(portPath);
+        if (!entry || !entry.port || !entry.port.isOpen) {
+            console.error(`[SERIAL] Port ${portPath} closed`);
+            return { error: `Serial port ${portPath} closed` };
+        }
+        const serialPayload = frameForSerial(cmd);
+        console.log(`[SERIAL] Sending to ${portPath}: '${cmd}'`);
+        pushLog('CTRL', `SERIAL ${portPath} send: ${cmd}`);
+        entry.port.write(serialPayload);
+        return { success: true, mode: 'serial', cmd, port: portPath };
+    }
+
+    // Send to first open serial port (backward compat)
+    for (const [path, entry] of serialPorts) {
+        if (entry.port && entry.port.isOpen) {
+            return sendSerialCommand(cmd, path);
         }
     }
-    port = undefined;
-    parser = undefined;
-    return { success: true, mode: 'serial', closed: true };
-}
-
-function sendSerialCommand(cmd) {
-    if (!port || !port.isOpen) {
-        console.error('[SERIAL] Port closed');
-        return { error: 'Serial port closed' };
-    }
-    const serialPayload = frameForSerial(cmd);
-    console.log(`[SERIAL] Sending: '${cmd}'`);
-    pushLog('CTRL', `SERIAL send: ${cmd}`);
-    port.write(serialPayload);
-    return { success: true, mode: 'serial', cmd: cmd };
+    console.error('[SERIAL] No open serial ports');
+    return { error: 'No open serial ports' };
 }
 
 // Helper: send a raw line to a specific module or via serial fallback
@@ -431,13 +557,8 @@ function sendRawLine(line, moduleIp) {
         return { error: 'Empty upload line' };
     }
 
-    if (moduleIp && moduleIp !== 'serial') {
+    if (moduleIp) {
         return sendToModule(moduleIp, line);
-    }
-
-    // Serial fallback
-    if (port && port.isOpen) {
-        return sendSerialCommand(line);
     }
 
     return { error: 'No transport available' };
@@ -465,19 +586,6 @@ function uploadLinesToAllModules(lines) {
         moduleResults.push({ module: ip, sentCount: result.sentCount, failed: !result.ok });
     }
     return moduleResults;
-}
-
-// Sends all upload lines via serial. Returns { ok, sent, error }.
-function uploadLinesToSerial(lines) {
-    const sent = [];
-    for (const line of lines) {
-        const r = sendSerialCommand(String(line));
-        sent.push({ line, result: r });
-        if (r && r.error) {
-            return { ok: false, error: r.error, sent };
-        }
-    }
-    return { ok: true, sent, sentCount: sent.length };
 }
 
 // Marks a module's current sequence after a successful upload.
@@ -524,16 +632,20 @@ function translateToSerialCmd(endpoint, query) {
 
 // ============ API ROUTES ============
 
-// Connect serial (legacy fallback for single-module debugging)
+// Connect serial ports
 app.post('/api/connect', async (req, res) => {
     try {
         const body = req.body || {};
         const transport = String(body.transport || '').toUpperCase();
 
         if (transport === 'SERIAL') {
-            const serialPort = body.serialPort ? String(body.serialPort) : undefined;
-            const serialResult = await connectSerial(serialPort);
-            res.json({ success: true, result: { transport: 'SERIAL', serial: serialResult } });
+            // Support single port or array of ports
+            const ports = body.serialPorts || (body.serialPort ? [String(body.serialPort)] : SERIAL_PATHS);
+            const results = [];
+            for (const p of ports) {
+                results.push(await connectSerial(p));
+            }
+            res.json({ success: true, result: { transport: 'SERIAL', serial: results } });
             return;
         }
 
@@ -550,7 +662,7 @@ app.post('/api/connect', async (req, res) => {
     }
 });
 
-app.post('/api/disconnect', (req, res) => {
+app.post('/api/disconnect', async (req, res) => {
     try {
         const body = req.body || {};
         const moduleIp = body.module;
@@ -559,7 +671,17 @@ app.post('/api/disconnect', (req, res) => {
             // Disconnect a specific module
             const entry = modules.get(moduleIp);
             if (entry && entry.ws) {
-                entry.ws.close();
+                if (entry.transport === 'serial') {
+                    // Find and close the serial port for this module
+                    for (const [path, se] of serialPorts) {
+                        if (se.moduleKey === moduleIp) {
+                            await disconnectSerial(path);
+                            break;
+                        }
+                    }
+                } else {
+                    entry.ws.close();
+                }
             }
             res.json({ success: true, disconnected: moduleIp });
             return;
@@ -567,11 +689,11 @@ app.post('/api/disconnect', (req, res) => {
 
         // Disconnect all
         for (const [ip, entry] of modules) {
-            if (entry.ws) {
+            if (entry.ws && entry.transport !== 'serial') {
                 try { entry.ws.close(); } catch (_) {}
             }
         }
-        const serialResult = disconnectSerial();
+        const serialResult = await disconnectSerial();
         res.json({ success: true, result: { serial: serialResult, modulesDisconnected: modules.size } });
     } catch (e) {
         res.status(500).json({ error: e.message });
@@ -649,7 +771,11 @@ app.get('/api/status', async (req, res) => {
 // Health endpoint — returns module list with connection status
 app.get('/api/health', (req, res) => {
     const connectedModules = getAllModuleSnapshots();
-    const serialOpen = !!(port && port.isOpen);
+    const serialStatus = Array.from(serialPorts.entries()).map(([path, s]) => ({
+        path,
+        open: s.port.isOpen,
+        moduleKey: s.moduleKey
+    }));
 
     res.json({
         ok: true,
@@ -658,8 +784,7 @@ app.get('/api/health', (req, res) => {
         connectedModules: connectedModules.length,
         modules: connectedModules,
         serial: {
-            port: SERIAL_PATH || null,
-            open: serialOpen
+            ports: serialStatus
         }
     });
 });
@@ -691,7 +816,11 @@ app.get('/api/logs', (req, res) => {
 // Returns per-module state
 app.get('/api/state', (req, res) => {
     const connectedModules = getAllModuleSnapshots();
-    const serialOpen = !!(port && port.isOpen);
+    const serialStatus = Array.from(serialPorts.entries()).map(([path, s]) => ({
+        path,
+        open: s.port.isOpen,
+        moduleKey: s.moduleKey
+    }));
 
     res.json({
         ok: true,
@@ -700,8 +829,7 @@ app.get('/api/state', (req, res) => {
             connectedModules: connectedModules.length,
             modules: connectedModules,
             serial: {
-                port: SERIAL_PATH || null,
-                open: serialOpen
+                ports: serialStatus
             }
         }
     });
@@ -906,8 +1034,9 @@ app.post('/api/modules/:ip/control', (req, res) => {
 // });
 
 // midi import
-// POST /api/midi/import — upload a MIDI file, convert it into an Open Octave
-// sequence, save it into SQLite, and return the created item + metadata.
+// POST /api/midi/import — upload a MIDI file and convert it into an Open Octave
+// sequence. Returns the parsed result for review; the frontend saves it via
+// POST /api/db/sequences when the user accepts.
 app.post('/api/midi/import', upload.single('file'), (req, res) => {
     try {
         if (!req.file) {
@@ -939,13 +1068,10 @@ app.post('/api/midi/import', upload.single('file'), (req, res) => {
             return;
         }
 
-        const savedId = upsertSequence(result.sequence);
-        const item = getSequence(savedId);
-
         res.json({
             ok: true,
-            message: 'MIDI imported successfully.',
-            item,
+            message: 'MIDI parsed successfully.',
+            sequence: result.sequence,
             meta: result.meta,
             warnings: result.warnings || []
         });
@@ -1003,6 +1129,27 @@ app.post('/api/db/sequences', (req, res) => {
       res.status(400).json({ ok: false, error: 'steps must be an array' });
       return;
     }
+    if (steps.length > 128) {
+      res.status(400).json({ ok: false, error: `Too many steps (${steps.length}). Firmware maximum is 128.` });
+      return;
+    }
+    for (let i = 0; i < steps.length; i++) {
+      const s = steps[i];
+      const keys = Array.isArray(s.keys) ? s.keys : [];
+      const dur = s.duration !== undefined ? s.duration : s.d;
+      if (keys.length === 0) {
+        res.status(400).json({ ok: false, error: `Step ${i}: missing keys` });
+        return;
+      }
+      if (keys.length > 4) {
+        res.status(400).json({ ok: false, error: `Step ${i}: max 4 keys per step` });
+        return;
+      }
+      if (dur === undefined || dur < 300 || dur > 10000) {
+        res.status(400).json({ ok: false, error: `Step ${i}: duration must be 300-10000ms` });
+        return;
+      }
+    }
 
     const seq = {
       id,
@@ -1049,10 +1196,7 @@ app.post('/api/db/sequences/seed', (req, res) => {
       return COLORS.fingerColors[key] || COLORS.fallbackColor;
     }
 
-    function colorFor3KeyIndex(k) {
-      const finger = COLORS.keyToFinger3Key[String(k)];
-      return colorForFinger(finger);
-    }
+
 
     function colorFor12KeyIndex(k) {
       const finger = COLORS.keyToFinger[String(k)];
@@ -1069,310 +1213,284 @@ app.post('/api/db/sequences/seed', (req, res) => {
       return { keys, colors, duration: d };
     }
 
+    // ── Key index reference ──────────────────────────────────
+    // 0=C4  1=C#4  2=D4  3=D#4  4=E4   5=F4
+    // 6=F#4 7=G4   8=G#4 9=A4  10=A#4 11=B4
+    // 12=C5 13=C#5 14=D5 15=D#5 16=E5  17=F5
+    // 18=F#5 19=G5 20=G#5 21=A5 22=A#5 23=B5
+    // colorFor12KeyIndex uses key%12 to assign finger colours.
+
+    const C4=0, D4=2, E4=4, F4=5, G4=7, A4=9, B4=11;
+    const C5=12, D5=14, E5=16, F5=17, G5=19, A5=21, B5=23;
+    // Sharps/flats
+    const Cs4=1, Eb4=3, Fs4=6, Gs4=8, Bb4=10;
+    const Cs5=13, Eb5=15, Fs5=18, Gs5=20, Bb5=22;
+
+    // Shorthand: colour from 12-key index (wraps via modulo internally)
+    const c = (k) => colorFor12KeyIndex(k % 12);
+
     const presets = [
+      // ═══════════ 1-OCTAVE MELODIES (keys 0-11) ═══════════
       {
-        id: '0',
-        name: 'Ping Pong',
-        description: 'Sequence 0: alternating pattern across keys 0-2.',
-        data: {
-          steps: [
-            step(0, colorFor3KeyIndex(0), 500),
-            step(1, colorFor3KeyIndex(1), 500),
-            step(2, colorFor3KeyIndex(2), 500),
-            step(1, colorFor3KeyIndex(1), 500),
-            step(0, colorFor3KeyIndex(0), 500)
-          ]
-        },
-        uploadLines: []
+        id: '0', name: 'Mary Had a Little Lamb',
+        description: 'Classic nursery rhyme. Keys: C4-G4.',
+        data: { steps: [
+          step(E4,c(E4),500), step(D4,c(D4),500), step(C4,c(C4),500), step(D4,c(D4),500),
+          step(E4,c(E4),500), step(E4,c(E4),500), step(E4,c(E4),1000),
+          step(D4,c(D4),500), step(D4,c(D4),500), step(D4,c(D4),1000),
+          step(E4,c(E4),500), step(G4,c(G4),500), step(G4,c(G4),1000),
+          step(E4,c(E4),500), step(D4,c(D4),500), step(C4,c(C4),500), step(D4,c(D4),500),
+          step(E4,c(E4),500), step(E4,c(E4),500), step(E4,c(E4),500), step(E4,c(E4),500),
+          step(D4,c(D4),500), step(D4,c(D4),500), step(E4,c(E4),500), step(D4,c(D4),500),
+          step(C4,c(C4),1200)
+        ]}, uploadLines: []
       },
       {
-        id: '1',
-        name: 'Up & Down',
-        description: 'Sequence 1: three-key ascending/descending.',
-        data: {
-          steps: [
-            step(0, colorFor3KeyIndex(0), 400),
-            step(1, colorFor3KeyIndex(1), 400),
-            step(1, colorFor3KeyIndex(1), 400),
-            step(0, colorFor3KeyIndex(0), 400),
-            step(2, colorFor3KeyIndex(2), 400),
-            step(0, colorFor3KeyIndex(0), 400)
-          ]
-        },
-        uploadLines: []
+        id: '1', name: 'Twinkle Twinkle',
+        description: 'Twinkle Twinkle Little Star. Keys: C4-A4.',
+        data: { steps: [
+          step(C4,c(C4),500), step(C4,c(C4),500), step(G4,c(G4),500), step(G4,c(G4),500),
+          step(A4,c(A4),500), step(A4,c(A4),500), step(G4,c(G4),1000),
+          step(F4,c(F4),500), step(F4,c(F4),500), step(E4,c(E4),500), step(E4,c(E4),500),
+          step(D4,c(D4),500), step(D4,c(D4),500), step(C4,c(C4),1000),
+          step(G4,c(G4),500), step(G4,c(G4),500), step(F4,c(F4),500), step(F4,c(F4),500),
+          step(E4,c(E4),500), step(E4,c(E4),500), step(D4,c(D4),1000),
+          step(G4,c(G4),500), step(G4,c(G4),500), step(F4,c(F4),500), step(F4,c(F4),500),
+          step(E4,c(E4),500), step(E4,c(E4),500), step(D4,c(D4),1000),
+          step(C4,c(C4),500), step(C4,c(C4),500), step(G4,c(G4),500), step(G4,c(G4),500),
+          step(A4,c(A4),500), step(A4,c(A4),500), step(G4,c(G4),1000),
+          step(F4,c(F4),500), step(F4,c(F4),500), step(E4,c(E4),500), step(E4,c(E4),500),
+          step(D4,c(D4),500), step(D4,c(D4),500), step(C4,c(C4),1200)
+        ]}, uploadLines: []
       },
       {
-        id: '2',
-        name: 'Quick Repeat',
-        description: 'Sequence 2: repeating pattern across keys 0-2.',
-        data: {
-          steps: [
-            step(1, colorFor3KeyIndex(1), 500),
-            step(1, colorFor3KeyIndex(1), 500),
-            step(0, colorFor3KeyIndex(0), 500),
-            step(2, colorFor3KeyIndex(2), 500),
-            step(2, colorFor3KeyIndex(2), 500),
-            step(1, colorFor3KeyIndex(1), 500)
-          ]
-        },
-        uploadLines: []
+        id: '2', name: 'Happy Birthday',
+        description: 'Happy Birthday To You. Keys: C4-C5.',
+        data: { steps: [
+          step(C4,c(C4),300), step(C4,c(C4),300), step(D4,c(D4),600), step(C4,c(C4),600),
+          step(F4,c(F4),600), step(E4,c(E4),1200),
+          step(C4,c(C4),300), step(C4,c(C4),300), step(D4,c(D4),600), step(C4,c(C4),600),
+          step(G4,c(G4),600), step(F4,c(F4),1200),
+          step(C4,c(C4),300), step(C4,c(C4),300), step(C5,c(C5),600), step(A4,c(A4),600),
+          step(F4,c(F4),600), step(E4,c(E4),600), step(D4,c(D4),1200),
+          step(B4,c(B4),300), step(B4,c(B4),300), step(A4,c(A4),600), step(F4,c(F4),600),
+          step(G4,c(G4),600), step(F4,c(F4),1200)
+        ]}, uploadLines: []
       },
       {
-        id: '3',
-        name: 'Sweep',
-        description: 'Sequence 3: slow-fast-slow arc across RGB keys.',
-        data: {
-          steps: [
-            step(0, colorFor3KeyIndex(0), 600),
-            step(1, colorFor3KeyIndex(1), 500),
-            step(2, colorFor3KeyIndex(2), 400),
-            step(0, colorFor3KeyIndex(0), 300),
-            step(1, colorFor3KeyIndex(1), 300),
-            step(2, colorFor3KeyIndex(2), 300),
-            step(0, colorFor3KeyIndex(0), 300),
-            step(1, colorFor3KeyIndex(1), 300),
-            step(2, colorFor3KeyIndex(2), 300),
-            step(0, colorFor3KeyIndex(0), 300),
-            step(1, colorFor3KeyIndex(1), 400),
-            step(2, colorFor3KeyIndex(2), 500),
-            step(0, colorFor3KeyIndex(0), 600),
-            step(1, colorFor3KeyIndex(1), 700)
-          ]
-        },
-        uploadLines: []
+        id: '3', name: 'Ode to Joy',
+        description: 'Beethoven - Ode to Joy theme. Keys: C4-G4.',
+        data: { steps: [
+          step(E4,c(E4),500), step(E4,c(E4),500), step(F4,c(F4),500), step(G4,c(G4),500),
+          step(G4,c(G4),500), step(F4,c(F4),500), step(E4,c(E4),500), step(D4,c(D4),500),
+          step(C4,c(C4),500), step(C4,c(C4),500), step(D4,c(D4),500), step(E4,c(E4),500),
+          step(E4,c(E4),700), step(D4,c(D4),300), step(D4,c(D4),1000),
+          step(E4,c(E4),500), step(E4,c(E4),500), step(F4,c(F4),500), step(G4,c(G4),500),
+          step(G4,c(G4),500), step(F4,c(F4),500), step(E4,c(E4),500), step(D4,c(D4),500),
+          step(C4,c(C4),500), step(C4,c(C4),500), step(D4,c(D4),500), step(E4,c(E4),500),
+          step(D4,c(D4),700), step(C4,c(C4),300), step(C4,c(C4),1200)
+        ]}, uploadLines: []
       },
       {
-        id: '4',
-        name: 'Syncopated',
-        description: 'Sequence 4: irregular rhythm across all keys.',
-        data: {
-          steps: [
-            step(0, colorFor3KeyIndex(0), 300),
-            step(2, colorFor3KeyIndex(2), 300),
-            step(1, colorFor3KeyIndex(1), 600),
-            step(0, colorFor3KeyIndex(0), 300),
-            step(2, colorFor3KeyIndex(2), 300),
-            step(1, colorFor3KeyIndex(1), 300),
-            step(0, colorFor3KeyIndex(0), 300),
-            step(1, colorFor3KeyIndex(1), 300),
-            step(2, colorFor3KeyIndex(2), 300),
-            step(0, colorFor3KeyIndex(0), 500),
-            step(1, colorFor3KeyIndex(1), 300),
-            step(2, colorFor3KeyIndex(2), 300),
-            step(0, colorFor3KeyIndex(0), 400),
-            step(1, colorFor3KeyIndex(1), 300),
-            step(2, colorFor3KeyIndex(2), 300),
-            step(0, colorFor3KeyIndex(0), 700)
-          ]
-        },
-        uploadLines: []
+        id: '4', name: 'Jingle Bells',
+        description: 'Jingle Bells chorus. Keys: C4-A4.',
+        data: { steps: [
+          step(E4,c(E4),400), step(E4,c(E4),400), step(E4,c(E4),800),
+          step(E4,c(E4),400), step(E4,c(E4),400), step(E4,c(E4),800),
+          step(E4,c(E4),400), step(G4,c(G4),400), step(C4,c(C4),400), step(D4,c(D4),400),
+          step(E4,c(E4),1200),
+          step(F4,c(F4),400), step(F4,c(F4),400), step(F4,c(F4),400), step(F4,c(F4),400),
+          step(F4,c(F4),400), step(E4,c(E4),400), step(E4,c(E4),400), step(E4,c(E4),400),
+          step(E4,c(E4),400), step(D4,c(D4),400), step(D4,c(D4),400), step(E4,c(E4),400),
+          step(D4,c(D4),800), step(G4,c(G4),800)
+        ]}, uploadLines: []
       },
       {
-        id: '5',
-        name: 'Ode to Joy',
-        description: 'Sequence 5: Ode to Joy (adapted for 3 keys).',
-        data: {
-          steps: [
-            step(1, colorFor3KeyIndex(1), 400),
-            step(1, colorFor3KeyIndex(1), 400),
-            step(0, colorFor3KeyIndex(0), 400),
-            step(0, colorFor3KeyIndex(0), 400),
-            step(0, colorFor3KeyIndex(0), 400),
-            step(0, colorFor3KeyIndex(0), 400),
-            step(1, colorFor3KeyIndex(1), 400),
-            step(1, colorFor3KeyIndex(1), 400),
-            step(2, colorFor3KeyIndex(2), 400),
-            step(2, colorFor3KeyIndex(2), 400),
-            step(1, colorFor3KeyIndex(1), 400),
-            step(1, colorFor3KeyIndex(1), 400),
-            step(1, colorFor3KeyIndex(1), 600),
-            step(2, colorFor3KeyIndex(2), 400),
-            step(2, colorFor3KeyIndex(2), 800)
-          ]
-        },
-        uploadLines: []
+        id: '5', name: 'Hot Cross Buns',
+        description: 'Simple beginner melody. Keys: C4-E4.',
+        data: { steps: [
+          step(E4,c(E4),600), step(D4,c(D4),600), step(C4,c(C4),1200),
+          step(E4,c(E4),600), step(D4,c(D4),600), step(C4,c(C4),1200),
+          step(C4,c(C4),300), step(C4,c(C4),300), step(C4,c(C4),300), step(C4,c(C4),300),
+          step(D4,c(D4),300), step(D4,c(D4),300), step(D4,c(D4),300), step(D4,c(D4),300),
+          step(E4,c(E4),600), step(D4,c(D4),600), step(C4,c(C4),1200)
+        ]}, uploadLines: []
       },
       {
-        id: '6',
-        name: 'Lullaby',
-        description: 'Sequence 6: gentle arpeggio (adapted for 3 keys).',
-        data: {
-          steps: [
-            step(2, colorFor3KeyIndex(2), 500),
-            step(1, colorFor3KeyIndex(1), 500),
-            step(0, colorFor3KeyIndex(0), 500),
-            step(1, colorFor3KeyIndex(1), 500),
-            step(2, colorFor3KeyIndex(2), 500),
-            step(1, colorFor3KeyIndex(1), 500),
-            step(0, colorFor3KeyIndex(0), 700),
-            step(0, colorFor3KeyIndex(0), 300),
-            step(1, colorFor3KeyIndex(1), 500),
-            step(2, colorFor3KeyIndex(2), 500),
-            step(1, colorFor3KeyIndex(1), 400),
-            step(0, colorFor3KeyIndex(0), 600),
-            step(1, colorFor3KeyIndex(1), 500),
-            step(2, colorFor3KeyIndex(2), 900)
-          ]
-        },
-        uploadLines: []
+        id: '6', name: 'When The Saints',
+        description: 'When The Saints Go Marching In. Keys: C4-A4.',
+        data: { steps: [
+          step(C4,c(C4),400), step(E4,c(E4),400), step(F4,c(F4),400), step(G4,c(G4),1200),
+          step(C4,c(C4),400), step(E4,c(E4),400), step(F4,c(F4),400), step(G4,c(G4),1200),
+          step(C4,c(C4),400), step(E4,c(E4),400), step(F4,c(F4),400), step(G4,c(G4),800),
+          step(E4,c(E4),800), step(C4,c(C4),800), step(E4,c(E4),800), step(D4,c(D4),1200),
+          step(E4,c(E4),400), step(E4,c(E4),400), step(D4,c(D4),400), step(C4,c(C4),800),
+          step(C4,c(C4),400), step(E4,c(E4),800), step(G4,c(G4),800),
+          step(G4,c(G4),400), step(F4,c(F4),1200), step(E4,c(E4),400), step(F4,c(F4),400),
+          step(G4,c(G4),800), step(E4,c(E4),800), step(D4,c(D4),800), step(C4,c(C4),1200)
+        ]}, uploadLines: []
       },
       {
-        id: '7',
-        name: 'Mary Had a Lamb',
-        description: 'Sequence 7: Mary Had a Little Lamb (adapted for 3 keys).',
-        data: {
-          steps: [
-            step(1, colorFor3KeyIndex(1), 400),
-            step(2, colorFor3KeyIndex(2), 400),
-            step(2, colorFor3KeyIndex(2), 400),
-            step(2, colorFor3KeyIndex(2), 400),
-            step(1, colorFor3KeyIndex(1), 400),
-            step(1, colorFor3KeyIndex(1), 400),
-            step(1, colorFor3KeyIndex(1), 800),
-            step(2, colorFor3KeyIndex(2), 400),
-            step(2, colorFor3KeyIndex(2), 400),
-            step(2, colorFor3KeyIndex(2), 800),
-            step(1, colorFor3KeyIndex(1), 400),
-            step(0, colorFor3KeyIndex(0), 400),
-            step(0, colorFor3KeyIndex(0), 800)
-          ]
-        },
-        uploadLines: []
+        id: '7', name: 'C Major Scale',
+        description: 'C major scale, ascending and descending within one octave.',
+        data: { steps: [
+          step(C4,c(C4),500), step(D4,c(D4),500), step(E4,c(E4),500), step(F4,c(F4),500),
+          step(G4,c(G4),500), step(A4,c(A4),500), step(B4,c(B4),500), step(C5,c(C5),800),
+          step(B4,c(B4),500), step(A4,c(A4),500), step(G4,c(G4),500), step(F4,c(F4),500),
+          step(E4,c(E4),500), step(D4,c(D4),500), step(C4,c(C4),800)
+        ]}, uploadLines: []
       },
+
+      // ═══════════ 2-OCTAVE MELODIES (keys 0-23) ═══════════
       {
-        id: '8',
-        name: 'Mary Had a Little Lamb (12-key)',
-        description: 'Right-hand only. Slow pace for guided/teaching tests.',
-        data: {
-          steps: [
-            step(4, colorFor12KeyIndex(4), 700),
-            step(2, colorFor12KeyIndex(2), 700),
-            step(0, colorFor12KeyIndex(0), 700),
-            step(2, colorFor12KeyIndex(2), 700),
-            step(4, colorFor12KeyIndex(4), 700),
-            step(4, colorFor12KeyIndex(4), 700),
-            step(4, colorFor12KeyIndex(4), 1000),
-            step(2, colorFor12KeyIndex(2), 700),
-            step(2, colorFor12KeyIndex(2), 700),
-            step(2, colorFor12KeyIndex(2), 1000),
-            step(4, colorFor12KeyIndex(4), 700),
-            step(7, colorFor12KeyIndex(7), 700),
-            step(7, colorFor12KeyIndex(7), 1000),
-            step(4, colorFor12KeyIndex(4), 700),
-            step(2, colorFor12KeyIndex(2), 700),
-            step(0, colorFor12KeyIndex(0), 700),
-            step(2, colorFor12KeyIndex(2), 700),
-            step(4, colorFor12KeyIndex(4), 700),
-            step(4, colorFor12KeyIndex(4), 700),
-            step(4, colorFor12KeyIndex(4), 1000),
-            step(4, colorFor12KeyIndex(4), 700),
-            step(2, colorFor12KeyIndex(2), 700),
-            step(2, colorFor12KeyIndex(2), 700),
-            step(4, colorFor12KeyIndex(4), 700),
-            step(2, colorFor12KeyIndex(2), 700),
-            step(0, colorFor12KeyIndex(0), 1200)
-          ]
-        },
-        uploadLines: []
-      },
-      // === NEW MULTI-MODULE SEQUENCES ===
-      {
-        id: '9',
-        name: 'Two_Octave_Scale',
+        id: '8', name: 'Two Octave Scale',
         description: 'C major scale across 2 octaves, ascending and descending.',
-        data: {
-          steps: [
-            // Ascending: C4 D4 E4 F4 G4 A4 B4 C5 D5 E5 F5 G5 A5 B5
-            step(0, colorFor12KeyIndex(0), 400),
-            step(2, colorFor12KeyIndex(2), 400),
-            step(4, colorFor12KeyIndex(4), 400),
-            step(5, colorFor12KeyIndex(5), 400),
-            step(7, colorFor12KeyIndex(7), 400),
-            step(9, colorFor12KeyIndex(9), 400),
-            step(11, colorFor12KeyIndex(11), 400),
-            step(12, colorFor12KeyIndex(0), 400),
-            step(14, colorFor12KeyIndex(2), 400),
-            step(16, colorFor12KeyIndex(4), 400),
-            step(17, colorFor12KeyIndex(5), 400),
-            step(19, colorFor12KeyIndex(7), 400),
-            step(21, colorFor12KeyIndex(9), 400),
-            step(23, colorFor12KeyIndex(11), 600),
-            // Descending: B5 A5 G5 F5 E5 D5 C5 B4 A4 G4 F4 E4 D4 C4
-            step(23, colorFor12KeyIndex(11), 400),
-            step(21, colorFor12KeyIndex(9), 400),
-            step(19, colorFor12KeyIndex(7), 400),
-            step(17, colorFor12KeyIndex(5), 400),
-            step(16, colorFor12KeyIndex(4), 400),
-            step(14, colorFor12KeyIndex(2), 400),
-            step(12, colorFor12KeyIndex(0), 400),
-            step(11, colorFor12KeyIndex(11), 400),
-            step(9, colorFor12KeyIndex(9), 400),
-            step(7, colorFor12KeyIndex(7), 400),
-            step(5, colorFor12KeyIndex(5), 400),
-            step(4, colorFor12KeyIndex(4), 400),
-            step(2, colorFor12KeyIndex(2), 400),
-            step(0, colorFor12KeyIndex(0), 600)
-          ]
-        },
-        uploadLines: []
+        data: { steps: [
+          step(C4,c(C4),400), step(D4,c(D4),400), step(E4,c(E4),400), step(F4,c(F4),400),
+          step(G4,c(G4),400), step(A4,c(A4),400), step(B4,c(B4),400),
+          step(C5,c(C5),400), step(D5,c(D5),400), step(E5,c(E5),400), step(F5,c(F5),400),
+          step(G5,c(G5),400), step(A5,c(A5),400), step(B5,c(B5),600),
+          step(B5,c(B5),400), step(A5,c(A5),400), step(G5,c(G5),400), step(F5,c(F5),400),
+          step(E5,c(E5),400), step(D5,c(D5),400), step(C5,c(C5),400),
+          step(B4,c(B4),400), step(A4,c(A4),400), step(G4,c(G4),400), step(F4,c(F4),400),
+          step(E4,c(E4),400), step(D4,c(D4),400), step(C4,c(C4),600)
+        ]}, uploadLines: []
       },
       {
-        id: '10',
-        name: 'Cross_Octave_Chords',
-        description: 'Chords that span both octaves (C4+C5, E4+E5, G4+G5, etc.).',
-        data: {
-          steps: [
-            chord([0, 12], [colorFor12KeyIndex(0), colorFor12KeyIndex(0)], 800),
-            chord([4, 16], [colorFor12KeyIndex(4), colorFor12KeyIndex(4)], 800),
-            chord([7, 19], [colorFor12KeyIndex(7), colorFor12KeyIndex(7)], 800),
-            chord([0, 4, 7], [colorFor12KeyIndex(0), colorFor12KeyIndex(4), colorFor12KeyIndex(7)], 1000),
-            chord([12, 16, 19], [colorFor12KeyIndex(0), colorFor12KeyIndex(4), colorFor12KeyIndex(7)], 1000),
-            chord([0, 7, 12, 19], [colorFor12KeyIndex(0), colorFor12KeyIndex(7), colorFor12KeyIndex(0), colorFor12KeyIndex(7)], 1200),
-            chord([5, 9], [colorFor12KeyIndex(5), colorFor12KeyIndex(9)], 800),
-            chord([17, 21], [colorFor12KeyIndex(5), colorFor12KeyIndex(9)], 800),
-            chord([5, 9, 12], [colorFor12KeyIndex(5), colorFor12KeyIndex(9), colorFor12KeyIndex(0)], 1000),
-            chord([0, 12], [colorFor12KeyIndex(0), colorFor12KeyIndex(0)], 1200)
-          ]
-        },
-        uploadLines: []
+        id: '9', name: 'Fur Elise',
+        description: 'Beethoven - Fur Elise opening theme across two octaves.',
+        data: { steps: [
+          step(E5,c(E5),300), step(Eb5,c(Eb5),300), step(E5,c(E5),300), step(Eb5,c(Eb5),300),
+          step(E5,c(E5),300), step(B4,c(B4),300), step(D5,c(D5),300), step(C5,c(C5),300),
+          step(A4,c(A4),600),
+          step(C4,c(C4),300), step(E4,c(E4),300), step(A4,c(A4),300), step(B4,c(B4),600),
+          step(E4,c(E4),300), step(Gs4,c(Gs4),300), step(B4,c(B4),300), step(C5,c(C5),600),
+          step(E4,c(E4),300),
+          step(E5,c(E5),300), step(Eb5,c(Eb5),300), step(E5,c(E5),300), step(Eb5,c(Eb5),300),
+          step(E5,c(E5),300), step(B4,c(B4),300), step(D5,c(D5),300), step(C5,c(C5),300),
+          step(A4,c(A4),600),
+          step(C4,c(C4),300), step(E4,c(E4),300), step(A4,c(A4),300), step(B4,c(B4),600),
+          step(E4,c(E4),300), step(C5,c(C5),300), step(B4,c(B4),300), step(A4,c(A4),900)
+        ]}, uploadLines: []
       },
       {
-        id: '11',
-        name: 'Octave_Jump',
-        description: 'Alternating notes between octave 1 and octave 2.',
-        data: {
-          steps: [
-            step(0, colorFor12KeyIndex(0), 400),
-            step(12, colorFor12KeyIndex(0), 400),
-            step(2, colorFor12KeyIndex(2), 400),
-            step(14, colorFor12KeyIndex(2), 400),
-            step(4, colorFor12KeyIndex(4), 400),
-            step(16, colorFor12KeyIndex(4), 400),
-            step(5, colorFor12KeyIndex(5), 400),
-            step(17, colorFor12KeyIndex(5), 400),
-            step(7, colorFor12KeyIndex(7), 400),
-            step(19, colorFor12KeyIndex(7), 400),
-            step(9, colorFor12KeyIndex(9), 400),
-            step(21, colorFor12KeyIndex(9), 400),
-            step(11, colorFor12KeyIndex(11), 400),
-            step(23, colorFor12KeyIndex(11), 600),
-            step(23, colorFor12KeyIndex(11), 400),
-            step(11, colorFor12KeyIndex(11), 400),
-            step(21, colorFor12KeyIndex(9), 400),
-            step(9, colorFor12KeyIndex(9), 400),
-            step(19, colorFor12KeyIndex(7), 400),
-            step(7, colorFor12KeyIndex(7), 400),
-            step(17, colorFor12KeyIndex(5), 400),
-            step(5, colorFor12KeyIndex(5), 400),
-            step(16, colorFor12KeyIndex(4), 400),
-            step(4, colorFor12KeyIndex(4), 400),
-            step(14, colorFor12KeyIndex(2), 400),
-            step(2, colorFor12KeyIndex(2), 400),
-            step(12, colorFor12KeyIndex(0), 400),
-            step(0, colorFor12KeyIndex(0), 600)
-          ]
-        },
-        uploadLines: []
+        id: '10', name: 'Canon in D',
+        description: 'Pachelbel - Canon in D simplified melody across two octaves.',
+        data: { steps: [
+          step(Fs5,c(Fs5),500), step(E5,c(E5),500), step(D5,c(D5),500), step(Cs5,c(Cs5),500),
+          step(B4,c(B4),500), step(A4,c(A4),500), step(B4,c(B4),500), step(Cs5,c(Cs5),500),
+          step(D5,c(D5),500), step(Cs5,c(Cs5),500), step(B4,c(B4),500), step(A4,c(A4),500),
+          step(G4,c(G4),500), step(Fs4,c(Fs4),500), step(G4,c(G4),500), step(A4,c(A4),500),
+          step(D4,c(D4),500), step(Fs4,c(Fs4),500), step(A4,c(A4),500), step(G4,c(G4),500),
+          step(Fs4,c(Fs4),500), step(D4,c(D4),500), step(Fs4,c(Fs4),500), step(E4,c(E4),500),
+          step(D4,c(D4),500), step(B4,c(B4),500), step(A4,c(A4),500), step(G4,c(G4),500),
+          step(A4,c(A4),500), step(Fs4,c(Fs4),500), step(D4,c(D4),500), step(D5,c(D5),1000)
+        ]}, uploadLines: []
+      },
+      {
+        id: '11', name: 'Greensleeves',
+        description: 'Traditional English melody (What Child Is This). Two octaves.',
+        data: { steps: [
+          step(A4,c(A4),600),
+          step(C5,c(C5),900), step(D5,c(D5),300), step(E5,c(E5),600),
+          step(F5,c(F5),300), step(E5,c(E5),600), step(D5,c(D5),900),
+          step(B4,c(B4),600), step(G4,c(G4),300), step(B4,c(B4),600),
+          step(C5,c(C5),900), step(A4,c(A4),600),
+          step(A4,c(A4),300), step(Gs4,c(Gs4),600), step(A4,c(A4),900),
+          step(B4,c(B4),600), step(Gs4,c(Gs4),300), step(E4,c(E4),900),
+          step(A4,c(A4),600),
+          step(C5,c(C5),900), step(D5,c(D5),300), step(E5,c(E5),600),
+          step(F5,c(F5),300), step(E5,c(E5),600), step(D5,c(D5),900),
+          step(B4,c(B4),600), step(G4,c(G4),300), step(B4,c(B4),600),
+          step(C5,c(C5),300), step(B4,c(B4),600),
+          step(A4,c(A4),300), step(Gs4,c(Gs4),600), step(A4,c(A4),1200)
+        ]}, uploadLines: []
+      },
+      {
+        id: '12', name: 'Amazing Grace',
+        description: 'Traditional hymn arranged across two octaves.',
+        data: { steps: [
+          step(G4,c(G4),600),
+          step(C5,c(C5),900), step(E5,c(E5),300), step(C5,c(C5),600),
+          step(E5,c(E5),900), step(D5,c(D5),600),
+          step(C5,c(C5),900), step(A4,c(A4),600),
+          step(G4,c(G4),1200), step(G4,c(G4),600),
+          step(C5,c(C5),900), step(E5,c(E5),300), step(C5,c(C5),600),
+          step(E5,c(E5),900), step(D5,c(D5),600),
+          step(G5,c(G5),1800),
+          step(E5,c(E5),600),
+          step(G5,c(G5),300), step(E5,c(E5),600), step(G5,c(G5),300), step(E5,c(E5),600),
+          step(C5,c(C5),900), step(A4,c(A4),600),
+          step(G4,c(G4),1200), step(G4,c(G4),600),
+          step(C5,c(C5),900), step(E5,c(E5),300), step(C5,c(C5),600),
+          step(E5,c(E5),900), step(D5,c(D5),600),
+          step(C5,c(C5),1800)
+        ]}, uploadLines: []
+      },
+      {
+        id: '13', name: 'Twinkle Twinkle (2 Oct)',
+        description: 'Twinkle Twinkle Little Star arranged across two octaves with harmony.',
+        data: { steps: [
+          step(C4,c(C4),500), step(C4,c(C4),500), step(G4,c(G4),500), step(G4,c(G4),500),
+          step(A4,c(A4),500), step(A4,c(A4),500), step(G4,c(G4),1000),
+          step(F4,c(F4),500), step(F4,c(F4),500), step(E4,c(E4),500), step(E4,c(E4),500),
+          step(D4,c(D4),500), step(D4,c(D4),500), step(C4,c(C4),1000),
+          // Second verse up an octave
+          step(C5,c(C5),500), step(C5,c(C5),500), step(G5,c(G5),500), step(G5,c(G5),500),
+          step(A5,c(A5),500), step(A5,c(A5),500), step(G5,c(G5),1000),
+          step(F5,c(F5),500), step(F5,c(F5),500), step(E5,c(E5),500), step(E5,c(E5),500),
+          step(D5,c(D5),500), step(D5,c(D5),500), step(C5,c(C5),1000),
+          // Back down to octave 1 for ending
+          step(C4,c(C4),500), step(C4,c(C4),500), step(G4,c(G4),500), step(G4,c(G4),500),
+          step(A4,c(A4),500), step(A4,c(A4),500), step(G4,c(G4),1000),
+          step(F4,c(F4),500), step(F4,c(F4),500), step(E4,c(E4),500), step(E4,c(E4),500),
+          step(D4,c(D4),500), step(D4,c(D4),500), step(C4,c(C4),1200)
+        ]}, uploadLines: []
+      },
+      {
+        id: '14', name: 'Ode to Joy (2 Oct)',
+        description: 'Beethoven - Ode to Joy with two-octave run. Keys span C4-G5.',
+        data: { steps: [
+          step(E4,c(E4),500), step(E4,c(E4),500), step(F4,c(F4),500), step(G4,c(G4),500),
+          step(G4,c(G4),500), step(F4,c(F4),500), step(E4,c(E4),500), step(D4,c(D4),500),
+          step(C4,c(C4),500), step(C4,c(C4),500), step(D4,c(D4),500), step(E4,c(E4),500),
+          step(E4,c(E4),700), step(D4,c(D4),300), step(D4,c(D4),1000),
+          // Repeat up an octave
+          step(E5,c(E5),500), step(E5,c(E5),500), step(F5,c(F5),500), step(G5,c(G5),500),
+          step(G5,c(G5),500), step(F5,c(F5),500), step(E5,c(E5),500), step(D5,c(D5),500),
+          step(C5,c(C5),500), step(C5,c(C5),500), step(D5,c(D5),500), step(E5,c(E5),500),
+          step(D5,c(D5),700), step(C5,c(C5),300), step(C5,c(C5),1200)
+        ]}, uploadLines: []
+      },
+      {
+        id: '15', name: 'Octave Jump Drill',
+        description: 'Alternating notes between octave 1 and octave 2 for practice.',
+        data: { steps: [
+          step(C4,c(C4),400), step(C5,c(C5),400), step(D4,c(D4),400), step(D5,c(D5),400),
+          step(E4,c(E4),400), step(E5,c(E5),400), step(F4,c(F4),400), step(F5,c(F5),400),
+          step(G4,c(G4),400), step(G5,c(G5),400), step(A4,c(A4),400), step(A5,c(A5),400),
+          step(B4,c(B4),400), step(B5,c(B5),600),
+          step(B5,c(B5),400), step(B4,c(B4),400), step(A5,c(A5),400), step(A4,c(A4),400),
+          step(G5,c(G5),400), step(G4,c(G4),400), step(F5,c(F5),400), step(F4,c(F4),400),
+          step(E5,c(E5),400), step(E4,c(E4),400), step(D5,c(D5),400), step(D4,c(D4),400),
+          step(C5,c(C5),400), step(C4,c(C4),600)
+        ]}, uploadLines: []
+      },
+      {
+        id: '16', name: 'Cross Octave Chords',
+        description: 'Chords spanning both octaves for multi-module practice.',
+        data: { steps: [
+          chord([C4,C5], [c(C4),c(C5)], 800),
+          chord([E4,E5], [c(E4),c(E5)], 800),
+          chord([G4,G5], [c(G4),c(G5)], 800),
+          chord([C4,E4,G4],[c(C4),c(E4),c(G4)], 1000),
+          chord([C5,E5,G5],[c(C5),c(E5),c(G5)], 1000),
+          chord([C4,G4,C5,G5],[c(C4),c(G4),c(C5),c(G5)], 1200),
+          chord([F4,A4], [c(F4),c(A4)], 800),
+          chord([F5,A5], [c(F5),c(A5)], 800),
+          chord([F4,A4,C5],[c(F4),c(A4),c(C5)], 1000),
+          chord([C4,C5], [c(C4),c(C5)], 1200)
+        ]}, uploadLines: []
       }
     ];
 
@@ -1432,7 +1550,7 @@ app.post('/api/db/sequences/:id/upload', async (req, res) => {
       return;
     }
 
-    // Default: try connected modules first, then serial fallback
+    // Default: broadcast to all connected modules (serial modules are now in the Map too)
     const connectedModules = [...modules.values()].filter(e => e.connected && e.ws);
     if (connectedModules.length > 0) {
       const moduleResults = uploadLinesToAllModules(lines);
@@ -1441,40 +1559,28 @@ app.post('/api/db/sequences/:id/upload', async (req, res) => {
       return;
     }
 
-    // Serial fallback
-    if (port && port.isOpen) {
-      const result = uploadLinesToSerial(lines);
-      if (!result.ok) {
-        res.status(500).json({ ok: false, error: result.error, sent: result.sent });
-        return;
-      }
-      res.json({ ok: true, uploaded: id, sentCount: result.sentCount, sent: result.sent });
-      return;
-    }
-
-    res.status(400).json({ ok: false, error: 'No module connected and no serial port open' });
+    res.status(400).json({ ok: false, error: 'No module connected' });
   } catch (e) {
     res.status(500).json({ ok: false, error: e.message });
   }
 });
 
-// ============ WEBSOCKET SERVER / STARTUP ============
-
 let httpServer = null;
 let wss = null;
 let staleCleanupTimer = null;
 
-function startServers() {
-    // avoid duplicate listeners in tests or repeated imports
-    if (httpServer && wss) {
-        return { httpServer, wss, staleCleanupTimer };
-    }
+async function startServers() {
+    if (httpServer && wss) return;
 
-    httpServer = app.listen(PORT, '0.0.0.0', () => {
+    httpServer = app.listen(PORT, '0.0.0.0', async () => {
         console.log(`\nOPEN OCTAVE CONTROLLER`);
         console.log(`HTTP server running at: http://localhost:${PORT}`);
         console.log(`WebSocket server listening on port ${WS_PORT}`);
-        console.log(`Modules connect automatically via WebSocket\n`);
+
+        // Start auto-discovery for USB serial modules
+        console.log(`[SERIAL] Starting USB serial auto-discovery...`);
+        startSerialAutoDiscovery();
+        console.log();
     });
 
     wss = new WebSocket.Server({ host: '0.0.0.0', port: WS_PORT }, () => {
@@ -1518,7 +1624,8 @@ function startServers() {
         cleanupStaleModules();
 
         for (const entry of modules.values()) {
-            if (!entry.connected || !entry.ws || entry.ws.readyState !== WebSocket.OPEN) continue;
+            if (!entry.connected || !entry.ws || entry.transport === 'serial') continue;
+            if (entry.ws.readyState !== WebSocket.OPEN) continue;
             try {
                 entry.ws.ping();
             } catch (_) {}
@@ -1526,13 +1633,12 @@ function startServers() {
     }, MODULE_CLEANUP_INTERVAL_MS);
 
     wss.on('close', () => {
-        if (staleCleanupTimer) {
-            clearInterval(staleCleanupTimer);
-            staleCleanupTimer = null;
+        if (staleCleanupTimer) clearInterval(staleCleanupTimer);
+        if (serialDiscoveryTimer) {
+            clearInterval(serialDiscoveryTimer);
+            serialDiscoveryTimer = null;
         }
     });
-
-    return { httpServer, wss, staleCleanupTimer };
 }
 
 function stopServers() {
@@ -1540,11 +1646,15 @@ function stopServers() {
         clearInterval(staleCleanupTimer);
         staleCleanupTimer = null;
     }
+    if (serialDiscoveryTimer) {
+        clearInterval(serialDiscoveryTimer);
+        serialDiscoveryTimer = null;
+    }
 
     for (const entry of modules.values()) {
         if (entry.ws) {
             try {
-                entry.ws.terminate();
+                if (entry.transport !== 'serial') entry.ws.terminate();
             } catch (_) {}
         }
         entry.ws = null;
@@ -1552,16 +1662,12 @@ function stopServers() {
     }
 
     if (wss) {
-        try {
-            wss.close();
-        } catch (_) {}
+        try { wss.close(); } catch (_) {}
         wss = null;
     }
 
     if (httpServer) {
-        try {
-            httpServer.close();
-        } catch (_) {}
+        try { httpServer.close(); } catch (_) {}
         httpServer = null;
     }
 }

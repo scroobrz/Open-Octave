@@ -174,6 +174,12 @@ void handleCommandsFromUpstream(){
 }
 
 void handleHeartbeatFromUpstream(uint8_t num){
+  // Reject implausible chain indices — likely UART noise during cable insertion
+  if (num >= MAX_MODULES) {
+    LOGF("[CHAIN] Ignoring bogus upstream heartbeat: index=%d (max=%d)\n", num, MAX_MODULES - 1);
+    return;
+  }
+
   timeLastHeartbeatReceived = millis();
 
   numModulesInChain = num + 1;
@@ -289,6 +295,12 @@ void handleCommandsFromDownstream(){
 }
 
 void handleHeartbeatFromDownstream(uint8_t num){
+  // Reject implausible chain indices — likely UART noise during cable insertion
+  if (num >= MAX_MODULES) {
+    LOGF("[CHAIN] Ignoring bogus downstream heartbeat reply: index=%d (max=%d)\n", num, MAX_MODULES - 1);
+    return;
+  }
+
   timeLastHeartbeatReplyReceived = millis();
 
   // Only accept if this represents a higher count than we currently know.
@@ -749,7 +761,7 @@ bool processSequenceStepCommand(uint8_t stepIndex, char *cmd){
             break;
           }
 
-          // LED Colors — supports dot-separated multi-color format: c=00B4D8.FFD700.E8368F
+          // LED Colors — supports dot-separated multi-color format: c=0000FF.FFFF00.FF00FF
           case 'c': {
             char *ptr = &cmd[i+2];
             char *endPtr;
@@ -826,7 +838,7 @@ bool processSequenceStepCommand(uint8_t stepIndex, char *cmd){
   }
   keyStr[pos] = '\0';
 
-  char colorStr[56];  // e.g. "00B4D8.FFD700.E8368F"
+  char colorStr[56];  // e.g. "0000FF.FFFF00.FF00FF"
   pos = 0;
   for (uint8_t k = 0; k < numColors && pos < sizeof(colorStr) - 8; k++) {
     if (k > 0) colorStr[pos++] = '.';
@@ -887,13 +899,25 @@ bool processSequenceEndCommand(char *cmd){
 
 // Sends the HELLO registration message to the controller.
 // Called on initial WS connect and whenever the chain length changes.
+// Sends over WebSocket if available, otherwise over USB Serial.
 void sendHelloToController() {
-  if (!wsReady) return;
-
   char buf[24];
   snprintf(buf, sizeof(buf), "HELLO modules=%d", numModulesInChain);
-  webSocket.sendTXT(buf);
-  LOGF("[WS] Sent: %s\n", buf);
+
+  if (wsReady) {
+    webSocket.sendTXT(buf);
+  } else if (isMaster) {
+    Serial.println(buf);
+  }
+
+  LOGF("[CTRL] Sent: %s\n", buf);
+}
+
+// Sends BYE over USB Serial to tell the controller this module is now a slave.
+// The controller should stop sending commands to this port until a new HELLO arrives.
+void sendByeToController() {
+  Serial.println(F("BYE"));
+  LOGLN("[CTRL] Sent: BYE (demoted to slave)");
 }
 
 void chainSendKeyCmd(HardwareSerial &serialPort, char cmd, int key) {

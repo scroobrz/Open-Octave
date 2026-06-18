@@ -102,7 +102,25 @@
   padding-left: 11px;
 }
 
-.sidebar-footer { margin-top: auto; }
+.sidebar-footer { margin-top: auto; position: relative; }
+
+.dev-toggle-btn {
+  position: absolute;
+  bottom: 10px;
+  right: 10px;
+  background: none;
+  border: none;
+  cursor: pointer;
+  font-size: 16px;
+  opacity: 0.3;
+  transition: opacity 0.2s;
+  padding: 4px;
+  line-height: 1;
+}
+
+.dev-toggle-btn:hover {
+  opacity: 1;
+}
 
 /* ===== BADGE ===== */
 .badge {
@@ -390,6 +408,16 @@ h2 {
 }
 
 .btn-coral:hover {
+  filter: brightness(0.9);
+}
+
+.btn-red {
+  background: #d32f2f;
+  border-color: #d32f2f;
+  color: #fff;
+}
+
+.btn-red:hover {
   filter: brightness(0.9);
 }
 

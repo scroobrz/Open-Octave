@@ -98,16 +98,16 @@ void resetKey(int keyIndex) {
 
 // ============ STARTUP / SHUTDOWN ANIMATION ============
 
-// Compute a smoothly interpolated brand-gradient color for a given key position.
-// Blends across five stops: CYAN → GREEN → GOLD → CORAL → MAGENTA.
+// Compute a smoothly interpolated gradient color for a given key position.
+// Blends across five finger-colour stops: BLUE → GREEN → YELLOW → ORANGE → MAGENTA.
 // Uses integer-only math (no floats) to keep it efficient on ESP32.
 static uint32_t getBrandGradientColor(uint8_t keyIndex) {
   static const uint32_t stops[] = {
-    COLOR_CYAN,     // 0x00B4D8
+    COLOR_BLUE,     // 0x0000FF
     COLOR_GREEN,    // 0x00FF00
-    COLOR_GOLD,     // 0xFFD700
-    COLOR_CORAL,    // 0xFF6B35
-    COLOR_MAGENTA   // 0xE8368F
+    COLOR_YELLOW,   // 0xFFFF00
+    COLOR_ORANGE,   // 0xFF8000
+    COLOR_MAGENTA   // 0xFF00FF
   };
   static const uint8_t NUM_STOPS = 5;
   static const uint8_t NUM_SEGMENTS = NUM_STOPS - 1;  // 4

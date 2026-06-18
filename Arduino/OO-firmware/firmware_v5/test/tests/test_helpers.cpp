@@ -54,9 +54,8 @@ TEST_F(HelpersTest, GetColorString_ReturnsCorrectNames) {
     ASSERT_STREQ(getColorString(COLOR_RED), "RED");
     ASSERT_STREQ(getColorString(COLOR_GREEN), "GREEN");
     ASSERT_STREQ(getColorString(COLOR_BLUE), "BLUE");
-    ASSERT_STREQ(getColorString(COLOR_CYAN), "CYAN");
-    ASSERT_STREQ(getColorString(COLOR_GOLD), "GOLD");
-    ASSERT_STREQ(getColorString(COLOR_CORAL), "CORAL");
+    ASSERT_STREQ(getColorString(COLOR_ORANGE), "ORANGE");
+    ASSERT_STREQ(getColorString(COLOR_YELLOW), "YELLOW");
     ASSERT_STREQ(getColorString(COLOR_MAGENTA), "MAGENTA");
     ASSERT_STREQ(getColorString(COLOR_WHITE), "WHITE");
 }

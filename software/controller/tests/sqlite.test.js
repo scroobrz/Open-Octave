@@ -42,9 +42,9 @@ describe('computeMaxKey', () => {
   it('returns max key from new format steps', () => {
     const data = {
       steps: [
-        { keys: [0], colors: ['00B4D8'], duration: 400 },
-        { keys: [3, 7], colors: ['4ECB71', 'FFD700'], duration: 500 },
-        { keys: [2], colors: ['FF6B35'], duration: 300 }
+        { keys: [0], colors: ['0000FF'], duration: 400 },
+        { keys: [3, 7], colors: ['00FF00', 'FFFF00'], duration: 500 },
+        { keys: [2], colors: ['FF8000'], duration: 300 }
       ]
     };
 
@@ -56,7 +56,7 @@ describe('computeMaxKey', () => {
       steps: [
         { k: 1, c: '#00FFFF', d: 300 },
         { k: 5, c: '#00FF00', d: 300 },
-        { k: 2, c: '#FFD700', d: 300 }
+        { k: 2, c: '#FFFF00', d: 300 }
       ]
     };
 
@@ -66,8 +66,8 @@ describe('computeMaxKey', () => {
   it('ignores non-number keys', () => {
     const data = {
       steps: [
-        { keys: ['x', 4], colors: ['00B4D8', '4ECB71'], duration: 300 },
-        { keys: [2], colors: ['FFD700'], duration: 300 }
+        { keys: ['x', 4], colors: ['0000FF', '00FF00'], duration: 300 },
+        { keys: [2], colors: ['FFFF00'], duration: 300 }
       ]
     };
 
@@ -82,8 +82,8 @@ describe('generateUploadLinesFromData', () => {
       'Ode To Joy',
       {
         steps: [
-          { keys: [0], colors: ['00B4D8'], duration: 400 },
-          { keys: [1], colors: ['4ECB71'], duration: 500 }
+          { keys: [0], colors: ['0000FF'], duration: 400 },
+          { keys: [1], colors: ['00FF00'], duration: 500 }
         ]
       }
     );
@@ -91,8 +91,8 @@ describe('generateUploadLinesFromData', () => {
     expect(result.ok).toBe(true);
     expect(result.lines).toEqual([
       'U i=12 n=Ode-To-Joy s=2',
-      'S k=0 c=00B4D8 d=400',
-      'S k=1 c=4ECB71 d=500',
+      'S k=0 c=0000FF d=400',
+      'S k=1 c=00FF00 d=500',
       'E i=12'
     ]);
   });
@@ -105,7 +105,7 @@ describe('generateUploadLinesFromData', () => {
         steps: [
           {
             keys: [0, 4, 7],
-            colors: ['00B4D8', '4ECB71', 'FFD700'],
+            colors: ['0000FF', '00FF00', 'FFFF00'],
             duration: 600
           }
         ]
@@ -115,7 +115,7 @@ describe('generateUploadLinesFromData', () => {
     expect(result.ok).toBe(true);
     expect(result.lines).toEqual([
       'U i=7 n=Chord-Test s=1',
-      'S k=0.4.7 c=00B4D8.4ECB71.FFD700 d=600',
+      'S k=0.4.7 c=0000FF.00FF00.FFFF00 d=600',
       'E i=7'
     ]);
   });
@@ -126,7 +126,7 @@ describe('generateUploadLinesFromData', () => {
       'Legacy Song',
       {
         steps: [
-          { k: 2, c: '00B4D8', d: 250 }
+          { k: 2, c: '0000FF', d: 250 }
         ]
       }
     );
@@ -134,7 +134,7 @@ describe('generateUploadLinesFromData', () => {
     expect(result.ok).toBe(true);
     expect(result.lines).toEqual([
       'U i=3 n=Legacy-Song s=1',
-      'S k=2 c=00B4D8 d=250',
+      'S k=2 c=0000FF d=250',
       'E i=3'
     ]);
   });
@@ -145,7 +145,7 @@ describe('generateUploadLinesFromData', () => {
       '  My Very !!! Strange___Sequence Name That Is Definitely Too Long  ',
       {
         steps: [
-          { keys: [1], colors: ['00B4D8'], duration: 300 }
+          { keys: [1], colors: ['0000FF'], duration: 300 }
         ]
       }
     );
@@ -160,7 +160,7 @@ describe('generateUploadLinesFromData', () => {
       '!!!',
       {
         steps: [
-          { keys: [1], colors: ['00B4D8'], duration: 300 }
+          { keys: [1], colors: ['0000FF'], duration: 300 }
         ]
       }
     );
@@ -175,7 +175,7 @@ describe('generateUploadLinesFromData', () => {
       'Bad Id',
       {
         steps: [
-          { keys: [0], colors: ['00B4D8'], duration: 300 }
+          { keys: [0], colors: ['0000FF'], duration: 300 }
         ]
       }
     );
@@ -197,7 +197,7 @@ describe('generateUploadLinesFromData', () => {
       'Bad Step',
       {
         steps: [
-          { colors: ['00B4D8'], duration: 300 }
+          { colors: ['0000FF'], duration: 300 }
         ]
       }
     );
@@ -225,7 +225,7 @@ describe('generateUploadLinesFromData', () => {
       'Bad Step',
       {
         steps: [
-          { keys: [0], colors: ['00B4D8'] }
+          { keys: [0], colors: ['0000FF'] }
         ]
       }
     );
@@ -241,7 +241,7 @@ describe('generateUploadLinesFromData', () => {
         steps: [
           {
             keys: [0, 1],
-            colors: ['00B4D8'],
+            colors: ['0000FF'],
             duration: 300
           }
         ]
@@ -278,7 +278,7 @@ describe('generateUploadLinesFromData', () => {
         steps: [
           {
             keys: [0, 1],
-            colors: ['00B4D8', '4ECB71'],
+            colors: ['0000FF', '00FF00'],
             duration: 450
           }
         ]
@@ -287,14 +287,14 @@ describe('generateUploadLinesFromData', () => {
     );
 
     expect(result.ok).toBe(true);
-    expect(result.lines[1]).not.toContain('00B4D8.4ECB71');
+    expect(result.lines[1]).not.toContain('0000FF.00FF00');
     expect(result.lines[1]).toMatch(/^S k=0\.1 c=/);
   });
 
   it('rejects sequences longer than firmware max', () => {
     const steps = Array.from({ length: 129 }, () => ({
       keys: [0],
-      colors: ['00B4D8'],
+      colors: ['0000FF'],
       duration: 100
     }));
 
@@ -309,8 +309,8 @@ describe('sequence CRUD', () => {
   it('inserts and fetches a sequence', () => {
     const data = {
       steps: [
-        { keys: [0], colors: ['00B4D8'], duration: 300 },
-        { keys: [2], colors: ['4ECB71'], duration: 400 }
+        { keys: [0], colors: ['0000FF'], duration: 300 },
+        { keys: [2], colors: ['00FF00'], duration: 400 }
       ]
     };
 
@@ -339,7 +339,7 @@ describe('sequence CRUD', () => {
   it('updates an existing sequence when numeric id exists', () => {
     const firstData = {
       steps: [
-        { keys: [0], colors: ['00B4D8'], duration: 300 }
+        { keys: [0], colors: ['0000FF'], duration: 300 }
       ]
     };
 
@@ -354,7 +354,7 @@ describe('sequence CRUD', () => {
 
     const updatedData = {
       steps: [
-        { keys: [5], colors: ['FFD700'], duration: 800 }
+        { keys: [5], colors: ['FFFF00'], duration: 800 }
       ]
     };
 
@@ -400,10 +400,10 @@ describe('sequence CRUD', () => {
       description: 'one',
       data: {
         steps: [
-          { keys: [1], colors: ['00B4D8'], duration: 200 }
+          { keys: [1], colors: ['0000FF'], duration: 200 }
         ]
       },
-      uploadLines: ['U i=1 n=First s=1', 'S k=1 c=00B4D8 d=200', 'E i=1']
+      uploadLines: ['U i=1 n=First s=1', 'S k=1 c=0000FF d=200', 'E i=1']
     });
 
     const id2 = sqlite.upsertSequence({
@@ -411,10 +411,10 @@ describe('sequence CRUD', () => {
       description: 'two',
       data: {
         steps: [
-          { keys: [4, 6], colors: ['4ECB71', 'FFD700'], duration: 500 }
+          { keys: [4, 6], colors: ['00FF00', 'FFFF00'], duration: 500 }
         ]
       },
-      uploadLines: ['U i=2 n=Second s=1', 'S k=4.6 c=4ECB71.FFD700 d=500', 'E i=2']
+      uploadLines: ['U i=2 n=Second s=1', 'S k=4.6 c=00FF00.FFFF00 d=500', 'E i=2']
     });
 
     const list = sqlite.listSequences();
@@ -442,10 +442,10 @@ describe('sequence CRUD', () => {
       description: '',
       data: {
         steps: [
-          { keys: [2], colors: ['00B4D8'], duration: 200 }
+          { keys: [2], colors: ['0000FF'], duration: 200 }
         ]
       },
-      uploadLines: ['U i=1 n=Delete-Me s=1', 'S k=2 c=00B4D8 d=200', 'E i=1']
+      uploadLines: ['U i=1 n=Delete-Me s=1', 'S k=2 c=0000FF d=200', 'E i=1']
     });
 
     const deleted = sqlite.deleteSequence(id);

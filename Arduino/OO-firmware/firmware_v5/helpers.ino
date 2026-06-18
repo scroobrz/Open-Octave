@@ -90,12 +90,6 @@ const char *getColorString(uint32_t color) {
     return "VIOLET";
   case COLOR_WHITE:
     return "WHITE";
-  case COLOR_CYAN:
-    return "CYAN";
-  case COLOR_GOLD:
-    return "GOLD";
-  case COLOR_CORAL:
-    return "CORAL";
   case COLOR_MAGENTA:
     return "MAGENTA";
   default:

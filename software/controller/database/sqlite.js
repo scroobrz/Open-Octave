@@ -14,13 +14,35 @@ const Database = require('better-sqlite3');
 // Shared colour definitions (single source of truth for controller + frontend)
 const COLORS = require('../../shared/colors.json');
 
+// Legacy branded hex values (before the solid-colour palette update).
+// Sequences saved with these colours are still valid and get normalised
+// to the current defaults at upload time.
+const LEGACY_FINGER_COLORS = {
+  thumb: '00B4D8', index: '4ECB71', middle: 'FFD700', ring: 'FF6B35', pinky: 'E8368F'
+};
+const LEGACY_CB_COLORS = {
+  thumb: '0072B2', index: '009E73', middle: 'F0E442', ring: 'D55E00', pinky: 'CC79A7'
+};
+
+// Map legacy hex → current default hex.
+const LEGACY_COLOR_REMAP = {};
+for (const finger of COLORS.fingerOrder) {
+  const def = COLORS.fingerColors[finger].toUpperCase();
+  const legacy = LEGACY_FINGER_COLORS[finger]?.toUpperCase();
+  const legacyCb = LEGACY_CB_COLORS[finger]?.toUpperCase();
+  if (legacy && legacy !== def) LEGACY_COLOR_REMAP[legacy] = def;
+  if (legacyCb && legacyCb !== def) LEGACY_COLOR_REMAP[legacyCb] = def;
+}
+
 // Build the set of allowed hex colours (uppercase) from the shared definitions.
-// Include both default and colourblind palette colours.
+// Include current palettes and legacy colours.
 const ALLOWED_COLORS = new Set([
   ...Object.values(COLORS.fingerColors).map(c => c.toUpperCase()),
   ...(COLORS.alternativePalettes?.colorblind
     ? Object.values(COLORS.alternativePalettes.colorblind.fingerColors).map(c => c.toUpperCase())
-    : [])
+    : []),
+  ...Object.values(LEGACY_FINGER_COLORS).map(c => c.toUpperCase()),
+  ...Object.values(LEGACY_CB_COLORS).map(c => c.toUpperCase())
 ]);
 
 // Build a remap table: default hex → CB hex (for colourblind upload mode).
@@ -313,9 +335,11 @@ function generateUploadLinesFromData(id, name, data, colorMode = 'default') {
         };
       }
 
-      const finalColor = (colorMode === 'colorblind' && CB_COLOR_REMAP[colorHex])
-        ? CB_COLOR_REMAP[colorHex]
-        : colorHex;
+      // Normalise legacy branded hex → current solid defaults first
+      const normColor = LEGACY_COLOR_REMAP[colorHex] || colorHex;
+      const finalColor = (colorMode === 'colorblind' && CB_COLOR_REMAP[normColor])
+        ? CB_COLOR_REMAP[normColor]
+        : normColor;
       finalColors.push(finalColor);
     }
 

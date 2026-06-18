@@ -15,7 +15,7 @@ const MAX_RAW_MIDI_SPAN_SEMITONES = 48; // midi import: reject very wide/full-ar
 const MAX_IMPORTABLE_NOTE_COUNT = 2000;
 const MAX_SEQUENCE_LENGTH = 128; // midi import: allow longer beginner songs while staying within current firmware limits
 const MAX_KEYS_PER_STEP = 4;
-const MIN_NOTE_DURATION_MS = 100;
+const MIN_NOTE_DURATION_MS = 300; // must match firmware MIN_STEP_DURATION
 const MAX_NOTE_DURATION_MS = 10000;
 
 function sanitizeSequenceName(name) {

@@ -9,19 +9,16 @@
 class Adafruit_NeoPixel;
 class HardwareSerial;
 
-// Color constants (32-bit RGB values)
+// Color constants (32-bit RGB values) — must match firmware_V5_config.h
 #define COLOR_RED       0xFF0000
-#define COLOR_ORANGE    0xFF8C00
+#define COLOR_ORANGE    0xFF8000
 #define COLOR_YELLOW    0xFFFF00
 #define COLOR_GREEN     0x00FF00
 #define COLOR_BLUE      0x0000FF
 #define COLOR_INDIGO    0x4B0082
-#define COLOR_VIOLET    0x8A2BE2
+#define COLOR_VIOLET    0x8000FF
 #define COLOR_WHITE     0xFFFFFF
-#define COLOR_CYAN      0x00B4D8
-#define COLOR_GOLD      0xFFD700
-#define COLOR_CORAL     0xFF6B35
-#define COLOR_MAGENTA   0xE8368F
+#define COLOR_MAGENTA   0xFF00FF
 #define COLOR_PINK      0xFF69B4
 
 // Sequence modes

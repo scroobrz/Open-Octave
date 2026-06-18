@@ -91,7 +91,7 @@ function Badge({ connected }) {
 
 
 export default function App() {
-  const [tab, setTab] = useState('connect');
+  const [tab, setTab] = useState('modules');
   const [uiMode, setUiMode] = useState(() => localStorage.getItem('oo-ui-mode') || 'user');
   const [colorMode, setColorMode] = useState(() => localStorage.getItem('oo-color-mode') || 'default');
   // Persist developer mode toggle across page reloads.
@@ -123,15 +123,50 @@ export default function App() {
     return map;
   }, [activeFingerColors]);
 
+  // Reverse map: any alternative-palette or legacy hex → current default hex.
+  // Used to normalise colorblind / old branded hex values back to canonical defaults.
+  const canonicalColorMap = useMemo(() => {
+    const map = {};
+    // Map colorblind palette hex → default
+    if (COLORS.alternativePalettes) {
+      for (const palette of Object.values(COLORS.alternativePalettes)) {
+        for (const finger of COLORS.fingerOrder) {
+          const alt = palette.fingerColors[finger]?.toUpperCase();
+          const def = COLORS.fingerColors[finger].toUpperCase();
+          if (alt && alt !== def) map[alt] = def;
+        }
+      }
+    }
+    // Map legacy branded hex → current defaults (for sequences saved before the palette update)
+    const LEGACY_FINGER_COLORS = { thumb: '00B4D8', index: '4ECB71', middle: 'FFD700', ring: 'FF6B35', pinky: 'E8368F' };
+    const LEGACY_CB_COLORS = { thumb: '0072B2', index: '009E73', middle: 'F0E442', ring: 'D55E00', pinky: 'CC79A7' };
+    for (const finger of COLORS.fingerOrder) {
+      const def = COLORS.fingerColors[finger].toUpperCase();
+      const legacy = LEGACY_FINGER_COLORS[finger]?.toUpperCase();
+      const legacyCb = LEGACY_CB_COLORS[finger]?.toUpperCase();
+      if (legacy && legacy !== def) map[legacy] = def;
+      if (legacyCb && legacyCb !== def) map[legacyCb] = def;
+    }
+    return map;
+  }, []);
+
   function displayColor(hex) {
     const clean = String(hex || '').trim().toUpperCase().replace('#', '');
-    return colorDisplayMap[clean] || clean;
+    // Normalise legacy/alternative hex to current default, then map to display palette
+    const canonical = canonicalColorMap[clean] || clean;
+    return colorDisplayMap[canonical] || canonical;
+  }
+
+  // Normalise a hex color to the default palette (undo colorblind mapping).
+  function canonicalColor(hex) {
+    const clean = String(hex || '').trim().toUpperCase().replace('#', '');
+    return canonicalColorMap[clean] || clean;
   }
 
   // Force safe tabs when switching UI modes
   useEffect(() => {
-    if (uiMode === 'user' && tab === 'logs') {
-      setTab('connect');
+    if (uiMode === 'user' && (tab === 'logs' || tab === 'connect')) {
+      setTab('modules');
     }
   }, [uiMode, tab]);
 
@@ -607,6 +642,45 @@ export default function App() {
       }
 
       setMidiImportResult(data);
+    } catch (e) {
+      setMidiImportError(e.message);
+    } finally {
+      setMidiImportBusy(false);
+    }
+  }
+
+  async function acceptMidiImport() {
+    if (!midiImportResult?.sequence) {
+      console.error('acceptMidiImport: no sequence data in import result', midiImportResult);
+      setMidiImportError('No sequence data available. Please re-import the MIDI file.');
+      return;
+    }
+
+    try {
+      setMidiImportBusy(true);
+      setMidiImportError('');
+
+      const res = await fetch('/api/db/sequences', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          name: midiImportResult.sequence.name,
+          description: midiImportResult.sequence.description || '',
+          steps: midiImportResult.sequence.data?.steps || []
+        })
+      });
+
+      const data = await res.json();
+
+      if (!res.ok || !data?.ok) {
+        throw new Error(data?.error || `Failed to save: ${res.status}`);
+      }
+
+      setMidiImportResult({
+        ...midiImportResult,
+        saved: true,
+        item: data.item
+      });
       setMidiFile(null);
       await refreshDbSequences();
     } catch (e) {
@@ -614,6 +688,32 @@ export default function App() {
     } finally {
       setMidiImportBusy(false);
     }
+  }
+
+  function discardMidiImport() {
+    setMidiImportResult(null);
+    setMidiImportError('');
+    setMidiFile(null);
+  }
+
+  function openEditorWithImport() {
+    const seq = midiImportResult?.sequence;
+    if (!seq) return;
+    const steps = seq.data?.steps || [];
+    setEditorSeqId(null); // null ID = new sequence (will create on save)
+    setEditorName(seq.name || '');
+    setEditorDesc(seq.description || '');
+    setEditorSteps(steps.map(s => ({
+      keys: Array.isArray(s.keys) ? [...s.keys] : [s.k ?? 0],
+      colors: (Array.isArray(s.colors) ? [...s.colors] : [s.c ?? COLORS.fingerColors.thumb]).map(c => canonicalColor(c)),
+      duration: s.duration ?? s.d ?? 300
+    })));
+    setEditorErrors({});
+    setEditorEditingStep(null);
+    setEditorOpen(true);
+    // Keep import result so we can show the saved state after editor save
+    setMidiImportResult({ ...midiImportResult, editing: true });
+    setMidiFile(null);
   }
 
   // ============ SEQUENCE EDITOR ============
@@ -633,7 +733,7 @@ export default function App() {
         const steps = item.data?.steps || [];
         setEditorSteps(steps.map(s => ({
           keys: Array.isArray(s.keys) ? [...s.keys] : [s.k ?? 0],
-          colors: Array.isArray(s.colors) ? [...s.colors] : [s.c ?? COLORS.fingerColors.thumb],
+          colors: (Array.isArray(s.colors) ? [...s.colors] : [s.c ?? COLORS.fingerColors.thumb]).map(c => canonicalColor(c)),
           duration: s.duration ?? s.d ?? 300
         })));
         setEditorErrors({});
@@ -655,6 +755,10 @@ export default function App() {
   function closeEditor() {
     setEditorOpen(false);
     setEditorEditingStep(null);
+    // If editing a MIDI import, restore the preview so Accept/Discard reappears
+    if (midiImportResult?.editing) {
+      setMidiImportResult({ ...midiImportResult, editing: false });
+    }
   }
 
   function startEditStep(idx) {
@@ -662,7 +766,7 @@ export default function App() {
     if (!step) return;
     setEditorEditingStep(idx);
     setEditStepKeys([...step.keys]);
-    setEditStepColors([...step.colors]);
+    setEditStepColors(step.colors.map(c => canonicalColor(c)));
     setEditStepDuration(step.duration);
   }
 
@@ -713,7 +817,7 @@ export default function App() {
       if (s.keys.some(k => k < 0 || k > 47)) { errors[`step_${i}`] = 'Key index must be 0-47'; continue; }
       if (new Set(s.keys).size !== s.keys.length) { errors[`step_${i}`] = 'Duplicate keys'; continue; }
       if (s.keys.length !== s.colors.length) { errors[`step_${i}`] = 'Keys and colors must match'; continue; }
-      if (s.duration < 100 || s.duration > 10000) { errors[`step_${i}`] = 'Duration must be 100-10000ms'; continue; }
+      if (s.duration < 300 || s.duration > 10000) { errors[`step_${i}`] = 'Duration must be 300-10000ms'; continue; }
     }
 
     if (Object.keys(errors).length > 0) {
@@ -738,6 +842,15 @@ export default function App() {
         return;
       }
       await refreshDbSequences();
+      // If we were editing a MIDI import, transition to saved state
+      if (midiImportResult?.editing) {
+        setMidiImportResult({
+          ...midiImportResult,
+          editing: false,
+          saved: true,
+          item: data.item
+        });
+      }
       closeEditor();
     } catch (e) {
       setEditorErrors({ save: e.message });
@@ -817,7 +930,7 @@ export default function App() {
   }
   function startAutoModules() {
     if (modulesTimerRef.current) clearInterval(modulesTimerRef.current);
-    modulesTimerRef.current = setInterval(refreshModules, 5000);
+    modulesTimerRef.current = setInterval(refreshModules, 2000);
   }
   function stopAutoModules() {
     if (modulesTimerRef.current) { clearInterval(modulesTimerRef.current); modulesTimerRef.current = null; }
@@ -872,6 +985,67 @@ export default function App() {
 
   // ============ RENDER HELPERS ============
 
+  // Two-module demo: detect chained vs independent state
+  const demoChainState = useMemo(() => {
+    const allMods = modulesList; // includes disconnected (BYE'd) modules
+    const connected = allMods.filter(m => m.connected);
+    const disconnected = allMods.filter(m => !m.connected);
+
+    // Check if any connected module has chainLength >= 2 (it's the master of a chain)
+    const chainedMaster = connected.find(m => m.chainLength >= 2);
+    if (chainedMaster) {
+      return { mode: 'chained', master: chainedMaster, slave: disconnected[0] || null };
+    }
+
+    // Multiple independent modules
+    if (connected.length >= 2) {
+      return { mode: 'independent', modules: connected };
+    }
+
+    // Single module or none
+    return { mode: connected.length === 1 ? 'single' : 'none', modules: connected };
+  }, [modulesList]);
+
+  // Render the two-module demo status banner
+  function renderDemoChainStatus() {
+    const { mode, master, slave } = demoChainState;
+
+    if (mode === 'chained') {
+      return (
+        <div className="card card-accent-teal" style={{ textAlign: 'center', padding: '12px 16px' }}>
+          <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'center', gap: 12, flexWrap: 'wrap' }}>
+            <span className="pill pill-green">Chained</span>
+            <span>
+              <strong>{master.label}</strong> (master) controls{' '}
+              <strong>{master.chainLength}</strong> module{master.chainLength !== 1 ? 's' : ''} /{' '}
+              <strong>{master.totalKeys}</strong> keys
+            </span>
+            {slave && (
+              <span style={{ opacity: 0.6 }}>
+                {slave.label} linked as slave
+              </span>
+            )}
+          </div>
+        </div>
+      );
+    }
+
+    if (mode === 'independent') {
+      return (
+        <div className="card" style={{ textAlign: 'center', padding: '12px 16px' }}>
+          <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'center', gap: 12, flexWrap: 'wrap' }}>
+            <span className="pill pill-muted">Independent</span>
+            <span>
+              <strong>{demoChainState.modules.length}</strong> modules connected independently (not chained)
+            </span>
+          </div>
+        </div>
+      );
+    }
+
+    return null;
+  }
+
   // Render a chain of piano keys for module visualization
   function renderChainKeyboard(mod) {
     const totalKeys = mod.totalKeys || 12;
@@ -914,13 +1088,14 @@ export default function App() {
     }
 
     return (
-      <div className="chain-card card" key={mod.ip}>
+      <div className="chain-card card card-accent-gold" key={mod.ip}>
         <div className="chain-header">
           <div className="chain-header-left">
             <span className={`badge-dot ${mod.connected ? 'dot-green' : 'dot-red'}`} />
             <strong>{mod.label}</strong>
             <span className="chain-info">
               ({mod.chainLength} module{mod.chainLength !== 1 ? 's' : ''}, {totalKeys} keys)
+              {mod.transport === 'serial' && <span className="pill pill-muted" style={{ marginLeft: 6, fontSize: '0.7em' }}>USB</span>}
             </span>
           </div>
           <div className="chain-header-right">
@@ -1016,10 +1191,10 @@ export default function App() {
           </div>
           <div className="chain-controls-right">
             <button className="btn btn-sm btn-green" disabled={!mod.connected} onClick={() => sendModuleControl(mod.ip, 'start', 'guided')}>
-              Practice
+              Guided
             </button>
             <button className="btn btn-sm" disabled={!mod.connected} onClick={() => sendModuleControl(mod.ip, 'start', 'teaching')}>
-              Watch & Learn
+              Teaching
             </button>
             <button className="btn btn-sm btn-coral" disabled={!mod.connected} onClick={() => sendModuleControl(mod.ip, 'stop')}>
               Stop
@@ -1037,22 +1212,22 @@ export default function App() {
         <td colSpan={6}>
           <div className="step-edit-form">
             <div className="step-edit-keys">
-              <label className="label">Keys:</label>
+              <label className="label">Key:</label>
               {editStepKeys.map((k, ki) => (
                 <div key={ki} className="step-key-input-group">
-                  <input
-                    type="number"
-                    className="input input-small"
-                    min={0}
-                    max={47}
+                  <select
+                    className="input"
                     value={k}
                     onChange={(e) => {
                       const newKeys = [...editStepKeys];
                       newKeys[ki] = Number(e.target.value);
                       setEditStepKeys(newKeys);
                     }}
-                  />
-                  <span className="step-key-note">{keyToNote(k)}</span>
+                  >
+                    {Array.from({ length: 48 }, (_, i) => (
+                      <option key={i} value={i}>{keyToNote(i)}</option>
+                    ))}
+                  </select>
                   <select
                     className="input step-color-select"
                     value={editStepColors[ki] || COLORS.fingerColors.thumb}
@@ -1063,7 +1238,7 @@ export default function App() {
                     }}
                   >
                     {FINGER_OPTIONS.map(f => (
-                      <option key={f.finger} value={activeFingerColors[f.finger]}>
+                      <option key={f.finger} value={COLORS.fingerColors[f.finger]}>
                         {f.label}
                       </option>
                     ))}
@@ -1101,7 +1276,7 @@ export default function App() {
               <input
                 type="number"
                 className="input input-small"
-                min={100}
+                min={300}
                 max={10000}
                 value={editStepDuration}
                 onChange={(e) => setEditStepDuration(Number(e.target.value))}
@@ -1121,15 +1296,14 @@ export default function App() {
 
   // Determine tabs based on UI mode
   const userTabs = [
-    { id: 'connect', label: 'Connect' },
-    { id: 'modules', label: 'Modules' },
-    { id: 'sequences', label: 'Sequences' }
+    { id: 'modules', label: 'Keyboard Control' },
+    { id: 'sequences', label: 'Sequence Library' }
   ];
 
   const devTabs = [
     { id: 'connect', label: 'Connect' },
-    { id: 'modules', label: 'Modules' },
-    { id: 'sequences', label: 'Sequences' },
+    { id: 'modules', label: 'Keyboard Control' },
+    { id: 'sequences', label: 'Sequence Library' },
     { id: 'logs', label: 'Logs' }
   ];
 
@@ -1142,15 +1316,12 @@ export default function App() {
           <img src="/open-octave-logo.png" alt="Open Octave" className="brand-logo" />
           <div className="brand-text">
             <div className="brand-title">Open Octave</div>
-            <div className="brand-subtitle">
-              {uiMode === 'user' ? 'User Interface' : 'Developer Interface'}
-            </div>
+            {uiMode === 'developer' && (
+              <div className="brand-subtitle">Developer Interface</div>
+            )}
           </div>
 
-          <div className="btn-row" style={{ justifyContent: 'center', marginTop: 10 }}>
-            <button className={uiMode === 'user' ? 'btn' : 'btn btn-secondary'} type="button" onClick={() => setUiMode('user')}>User</button>
-            <button className={uiMode === 'developer' ? 'btn' : 'btn btn-secondary'} type="button" onClick={() => setUiMode('developer')}>Developer</button>
-          </div>
+          {/* Developer toggle hidden for demo — re-enable when needed */}
         </div>
 
         <nav className="nav">
@@ -1174,6 +1345,14 @@ export default function App() {
               {connectedPhysicalModuleCount} physical module{connectedPhysicalModuleCount !== 1 ? 's' : ''}
             </div>
           )}
+          <button
+            className="dev-toggle-btn"
+            type="button"
+            title={uiMode === 'developer' ? 'Switch to User mode' : 'Switch to Developer mode'}
+            onClick={() => setUiMode(uiMode === 'developer' ? 'user' : 'developer')}
+          >
+            🔨
+          </button>
         </div>
       </aside>
 
@@ -1222,7 +1401,10 @@ export default function App() {
                           <td>{m.label}</td>
                           {uiMode === 'developer' && <td><code>{m.ip}</code></td>}
                           <td>{m.chainLength} module{m.chainLength !== 1 ? 's' : ''} ({m.totalKeys} keys)</td>
-                          <td><span className="pill pill-green">Connected</span></td>
+                          <td>
+                            <span className="pill pill-green">Connected</span>
+                            {m.transport === 'serial' && <span className="pill pill-muted" style={{ marginLeft: 4 }}>USB</span>}
+                          </td>
                         </tr>
                       ))}
                     </tbody>
@@ -1231,7 +1413,7 @@ export default function App() {
               )}
 
               <div className="hint">
-                Controllers connect to the server automatically via WiFi. A chained pair should appear as 1 controller with 2 physical modules.
+                Modules connect automatically via USB serial. When two modules are daisy-chained, one becomes the master (with 2 physical modules) and the other goes silent.
               </div>
             </div>
 
@@ -1328,7 +1510,7 @@ export default function App() {
               </div>
 
               {isConnected && dbSeqItems.length > 0 && (
-                <div className="row mt">
+                <div className="row mt" style={{ justifyContent: 'flex-start', gap: 10 }}>
                   <div className="label">Upload to All:</div>
                   <select
                     className="input chain-seq-select"
@@ -1353,10 +1535,36 @@ export default function App() {
 
             {dbSeqError && <pre className="pre">{dbSeqError}</pre>}
 
+            {/* Finger colour reference */}
+            <div className="card card-accent-green">
+              <div className="row" style={{ marginBottom: 12 }}>
+                <h2 style={{ margin: 0 }}>Finger Colours</h2>
+                <label className="cb-toggle">
+                  <span className="cb-toggle-label">Colourblind</span>
+                  <input
+                    type="checkbox"
+                    checked={colorMode === 'colorblind'}
+                    onChange={(e) => setColorMode(e.target.checked ? 'colorblind' : 'default')}
+                  />
+                  <span className="cb-toggle-track">
+                    <span className="cb-toggle-knob" />
+                  </span>
+                </label>
+              </div>
+              <div className="btn-row" style={{ gap: 12 }}>
+                {FINGER_OPTIONS.map(f => (
+                  <div key={f.finger} className="step-color" style={{ gap: 6 }}>
+                    {renderColorSwatch(activeFingerColors[f.finger])}
+                    <span>{f.label}</span>
+                  </div>
+                ))}
+              </div>
+            </div>
+
             {/* Module visualization */}
             {modulesList.filter(m => m.connected).length === 0 ? (
-              <div className="card">
-                <div className="hint">No modules connected. Modules connect automatically via WiFi.</div>
+              <div className="card card-accent-gold">
+                <div className="hint">No modules connected. Waiting for USB serial connections...</div>
               </div>
             ) : (
               modulesList.filter(m => m.connected).map(mod => renderChainKeyboard(mod))
@@ -1388,9 +1596,6 @@ export default function App() {
             <div className="panel-top-row">
               <h1>Sequences</h1>
               <div className="btn-row">
-                <button className="btn btn-green" onClick={() => openEditor(null)} type="button">
-                  New Sequence
-                </button>
                 {uiMode === 'developer' && (
                   <>
                     <button className="btn btn-secondary" onClick={refreshDbSequences} type="button" disabled={dbActionBusy}>
@@ -1446,19 +1651,24 @@ export default function App() {
 
               {midiImportError && <pre className="pre">{midiImportError}</pre>}
 
-              {midiImportResult?.ok && (
+              {midiImportResult?.ok && !midiImportResult.editing && (
                 <div className="card" style={{ marginTop: 12, marginBottom: 0 }}>
-                  <h2>Import Result</h2>
+                  <h2>{midiImportResult.saved ? 'Import Result' : 'Import Preview'}</h2>
                   <div className="hint" style={{ marginTop: 0 }}>
-                    <b>{midiImportResult.item?.name}</b> imported successfully.
+                    {midiImportResult.saved
+                      ? <><b>{midiImportResult.item?.name}</b> saved successfully.</>
+                      : <><b>{midiImportResult.sequence?.name}</b> — review the details below.</>
+                    }
                   </div>
 
                   <table className="seq-table" style={{ marginTop: 10 }}>
                     <tbody>
-                      <tr>
-                        <td><b>Sequence ID</b></td>
-                        <td>{midiImportResult.item?.id ?? '--'}</td>
-                      </tr>
+                      {midiImportResult.saved && (
+                        <tr>
+                          <td><b>Sequence ID</b></td>
+                          <td>{midiImportResult.item?.id ?? '--'}</td>
+                        </tr>
+                      )}
                       <tr>
                         <td><b>Required modules</b></td>
                         <td>{midiImportResult.meta?.requiredModules ?? '--'}</td>
@@ -1503,13 +1713,51 @@ export default function App() {
                   )}
 
                   <div className="btn-row" style={{ marginTop: 12 }}>
-                    <button
-                      className="btn btn-secondary"
-                      type="button"
-                      onClick={() => openEditor(midiImportResult.item?.id)}
-                    >
-                      Open in Editor
-                    </button>
+                    {midiImportResult.saved ? (
+                      <>
+                        <button
+                          className="btn btn-secondary"
+                          type="button"
+                          onClick={() => openEditor(midiImportResult.item?.id)}
+                        >
+                          Open in Editor
+                        </button>
+                        <button
+                          className="btn btn-secondary"
+                          type="button"
+                          onClick={discardMidiImport}
+                        >
+                          Dismiss
+                        </button>
+                      </>
+                    ) : (
+                      <>
+                        <button
+                          className="btn btn-green"
+                          type="button"
+                          onClick={acceptMidiImport}
+                          disabled={midiImportBusy}
+                        >
+                          {midiImportBusy ? 'Saving...' : 'Accept'}
+                        </button>
+                        <button
+                          className="btn btn-secondary"
+                          type="button"
+                          onClick={openEditorWithImport}
+                          disabled={midiImportBusy}
+                        >
+                          Edit Before Saving
+                        </button>
+                        <button
+                          className="btn btn-red"
+                          type="button"
+                          onClick={discardMidiImport}
+                          disabled={midiImportBusy}
+                        >
+                          Discard
+                        </button>
+                      </>
+                    )}
                   </div>
                 </div>
               )}
@@ -1517,9 +1765,14 @@ export default function App() {
 
             {dbSeqError && <pre className="pre">{dbSeqError}</pre>}
 
-            {/* Sequence Library Table */}
+            {/* Saved Sequences Table */}
             <div className="card card-accent-gold">
-              <h2>Sequence Library</h2>
+              <div className="row" style={{ marginBottom: 12 }}>
+                <h2 style={{ margin: 0 }}>Saved Sequences</h2>
+                <button className="btn btn-green" onClick={() => openEditor(null)} type="button">
+                  New Sequence
+                </button>
+              </div>
 
               {dbSeqItems.length > 0 ? (
                 <table className="seq-table">
@@ -1553,7 +1806,7 @@ export default function App() {
                           <td onClick={(e) => e.stopPropagation()}>
                             <div className="btn-row">
                               <button className="btn btn-sm btn-secondary" onClick={() => openEditor(it.id)}>Edit</button>
-                              <button className="btn btn-sm btn-coral" onClick={() => deleteSequence(it.id)}>Delete</button>
+                              <button className="btn btn-sm btn-red" onClick={() => deleteSequence(it.id)}>Delete</button>
                             </div>
                           </td>
                         </tr>
@@ -1592,36 +1845,11 @@ export default function App() {
                   onChange={(e) => setDbCreateJson(e.target.value)}
                 />
                 <div className="hint">
-                  Format: <code>{`{ name, description, steps: [{ keys: [0], colors: ["00B4D8"], duration: 300 }] }`}</code>
+                  Format: <code>{`{ name, description, steps: [{ keys: [0], colors: ["0000FF"], duration: 300 }] }`}</code>
                 </div>
               </div>
             )}
 
-            {/* Finger colour reference */}
-            <div className="card">
-              <div className="row" style={{ marginBottom: 12 }}>
-                <h2 style={{ margin: 0 }}>Finger Colours</h2>
-                <label className="cb-toggle">
-                  <span className="cb-toggle-label">Colourblind</span>
-                  <input
-                    type="checkbox"
-                    checked={colorMode === 'colorblind'}
-                    onChange={(e) => setColorMode(e.target.checked ? 'colorblind' : 'default')}
-                  />
-                  <span className="cb-toggle-track">
-                    <span className="cb-toggle-knob" />
-                  </span>
-                </label>
-              </div>
-              <div className="btn-row" style={{ gap: 12 }}>
-                {FINGER_OPTIONS.map(f => (
-                  <div key={f.finger} className="step-color" style={{ gap: 6 }}>
-                    {renderColorSwatch(activeFingerColors[f.finger])}
-                    <span>{f.label}</span>
-                  </div>
-                ))}
-              </div>
-            </div>
           </section>
         )}
 
@@ -1794,7 +2022,7 @@ export default function App() {
                             {step.colors.map((c, ci) => (
                               <span key={ci} className="step-color" style={{ gap: 4 }}>
                                 {renderColorSwatch(c)}
-                                <span>{HEX_TO_FINGER[String(c).toUpperCase()] || hexColorName(c)}</span>
+                                <span>{HEX_TO_FINGER[canonicalColor(c).toUpperCase()] || hexColorName(c)}</span>
                               </span>
                             ))}
                           </div>
@@ -1803,7 +2031,7 @@ export default function App() {
                         <td>
                           <div className="btn-row">
                             <button className="btn btn-sm btn-secondary" onClick={() => startEditStep(idx)} disabled={editorEditingStep !== null}>Edit</button>
-                            <button className="btn btn-sm btn-coral" onClick={() => deleteEditorStep(idx)} disabled={editorEditingStep !== null}>Delete</button>
+                            <button className="btn btn-sm btn-red" onClick={() => deleteEditorStep(idx)} disabled={editorEditingStep !== null}>Delete</button>
                           </div>
                           {editorErrors[`step_${idx}`] && <div className="error-text">{editorErrors[`step_${idx}`]}</div>}
                         </td>
@@ -1872,7 +2100,7 @@ export default function App() {
                                 {colors.map((c, ci) => (
                                   <span key={ci} className="step-color" style={{ gap: 4 }}>
                                     {renderColorSwatch(c)}
-                                    <span>{HEX_TO_FINGER[String(c).toUpperCase()] || hexColorName(c)}</span>
+                                    <span>{HEX_TO_FINGER[canonicalColor(c).toUpperCase()] || hexColorName(c)}</span>
                                   </span>
                                 ))}
                               </div>

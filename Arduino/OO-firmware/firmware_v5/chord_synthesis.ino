@@ -107,20 +107,12 @@ void playPressedKeys() {
     pressedSnapshot[i] = keys[i].isPressed && freqSnapshot[i] > 0;
   }
 
-  // --- 1. Update envelopes from snapshot ---
+  // --- 1. Detect fresh keypresses ---
   for (int i = 0; i < NUM_KEYS; i++) {
     // Detect fresh keypress from snapshot — reset envelope
     if (pressedSnapshot[i] && !envelopes[i].wasPressed) {
       envelopes[i].value = 0.0f;
     }
-
-    // Advance envelope once per buffer
-    if (pressedSnapshot[i]) {
-      envelopes[i].value = min(1.0f, envelopes[i].value + 0.05f);
-    } else {
-      envelopes[i].value = max(0.0f, envelopes[i].value - 0.02f);
-    }
-
     // Update wasPressed from snapshot — consistent with what we just used
     envelopes[i].wasPressed = pressedSnapshot[i];
   }
@@ -130,7 +122,8 @@ void playPressedKeys() {
   int activeCount = 0;
 
   for (int i = 0; i < NUM_KEYS; i++) {
-    if (envelopes[i].value > 0.0f) {
+    // Include keys that are currently pressed or have a decaying envelope
+    if (pressedSnapshot[i] || envelopes[i].value > 0.001f) {
       activeIndices[activeCount++] = i;
     }
   }
@@ -145,9 +138,24 @@ void playPressedKeys() {
   // --- 3. Generate one buffer of mixed audio ---
   float totalHarmonicWeight = 0.0f;
   for (int h = 0; h < NUM_HARMONICS; h++) totalHarmonicWeight += HARMONICS[h][1];
-  float voiceVolume = VOLUME / (activeCount * totalHarmonicWeight);
+  
+  // Use a fixed maximum polyphony instead of instantaneous activeCount
+  // to avoid sudden volume jumps when notes are added or removed.
+  float maxPolyphony = 4.0f; // Typical max simultaneous keys per step
+  float voiceVolume = VOLUME / (maxPolyphony * totalHarmonicWeight);
 
   for (int s = 0; s < DMA_BUF_LEN; s++) {
+    // --- Advance envelopes per-sample ---
+    for (int i = 0; i < activeCount; i++) {
+      int keyIdx = activeIndices[i];
+      if (pressedSnapshot[keyIdx]) {
+        envelopes[keyIdx].value = min(1.0f, envelopes[keyIdx].value + ATTACK_PER_SAMPLE);
+      } else if (envelopes[keyIdx].value > 0.0f) {
+        envelopes[keyIdx].value *= DECAY_PER_SAMPLE;
+        if (envelopes[keyIdx].value < 0.001f) envelopes[keyIdx].value = 0.0f;
+      }
+    }
+
     float mixedSample = 0.0f;
 
     for (int v = 0; v < activeCount; v++) {
