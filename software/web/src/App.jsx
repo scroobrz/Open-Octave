@@ -1103,7 +1103,7 @@ export default function App() {
               <span className="pill pill-teal">{mod.currentSequenceName}</span>
             )}
             {mod.lastStatus?.running && (
-              <span className="pill pill-green">{mod.lastStatus.mode}</span>
+              <span className="pill pill-green">Playing sequence in {mod.lastStatus.mode.charAt(0).toUpperCase() + mod.lastStatus.mode.slice(1).toLowerCase()} mode</span>
             )}
           </div>
         </div>

@@ -197,7 +197,6 @@ void stopSequence() {
   LOGLN("\n[SEQ] ======== STOPPING SEQUENCE ========");
   LOGF("[SEQ] Total steps completed: %d/%d\n", currentSequenceStepIndex, currentSequence.length);
   LOGLN("EVT sequence_complete");
-  emitStatus();
 
   for (int i = 0; i < NUM_KEYS; i++) {
     resetKey(i);
@@ -213,6 +212,8 @@ void stopSequence() {
 
   sequenceRunning = false;
   waitingForServoRelease = false;
+  
+  emitStatus();
 }
 
 // plays a single step of a sequence
