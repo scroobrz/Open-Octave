@@ -1538,6 +1538,20 @@ app.post('/api/db/sequences/seed', (req, res) => {
           chord([F4,A4,C5],[c(F4),c(A4),c(C5)], 1000),
           chord([C4,C5], [c(C4),c(C5)], 1200)
         ]}, uploadLines: []
+      },
+      {
+        id: '17', name: 'Flower of Scotland',
+        description: 'The national anthem of Scotland.',
+        data: { steps: [
+          step(A4,c(A4),400), step(A4,c(A4),400), step(G4,c(G4),400), step(F4,c(F4),800), step(C4,c(C4),800), step(C4,c(C4),400),
+          step(F4,c(F4),600), step(A4,c(A4),400), step(G4,c(G4),1200), step(G4,c(G4),400), step(F4,c(F4),400), step(G4,c(G4),400),
+          step(A4,c(A4),1600), step(A4,c(A4),400), step(Bb4,c(Bb4),600), step(A4,c(A4),400), step(Bb4,c(Bb4),400),
+          step(C5,c(C5),800), step(F4,c(F4),1200), step(F4,c(F4),400), step(G4,c(G4),600), step(G4,c(G4),400), step(G4,c(G4),400), step(F4,c(F4),400), step(G4,c(G4),400),
+          step(A4,c(A4),400), step(Bb4,c(Bb4),400), step(A4,c(A4),400), step(G4,c(G4),400), step(F4,c(F4),800), step(C4,c(C4),1200), step(A4,c(A4),400),
+          step(Bb4,c(Bb4),600), step(A4,c(A4),400), step(Bb4,c(Bb4),400), step(C5,c(C5),800), step(F4,c(F4),1600), step(A4,c(A4),400),
+          step(Bb4,c(Bb4),600), step(A4,c(A4),400), step(G4,c(G4),400), step(A4,c(A4),600), step(G4,c(G4),400), step(F4,c(F4),400), step(F4,c(F4),1200), step(F4,c(F4),400),
+          step(Eb4,c(Eb4),400), step(G4,c(G4),400), step(F4,c(F4),1600)
+        ]}, uploadLines: []
       }
     ];
 
