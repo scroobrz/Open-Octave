@@ -27,6 +27,9 @@ void demoteToSlave(){
     disconnectWebsocket();
     disconnectWifi();
     LOGLN("[SETUP] WiFi & WebSocket disconnected");
+
+    // Reset heartbeat timer to avoid immediate timeout due to disconnectWifi blocking
+    timeLastHeartbeatReceived = millis();
 }
 
 const int baseNoteFreqs[NUM_KEYS] = {
