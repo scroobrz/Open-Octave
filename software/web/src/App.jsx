@@ -1539,9 +1539,6 @@ export default function App() {
                   <button className="btn" disabled={!isConnected} onClick={() => sendAllControl('start', 'teaching')}>
                     Start All -- Teaching
                   </button>
-                  <button className="btn btn-secondary" disabled={!isConnected || modulesList.filter(m => m.connected && m.chainLength > 1).length === 0} onClick={() => sendAllControl('start', 'broadcast')}>
-                    Start All -- Broadcast
-                  </button>
                   <button className="btn btn-coral" disabled={!isConnected} onClick={() => sendAllControl('stop')}>
                     Stop All
                   </button>
