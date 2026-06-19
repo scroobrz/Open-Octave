@@ -650,6 +650,7 @@ function translateToSerialCmd(endpoint, query) {
         if (query.cmd === 'start') {
             if (query.mode === 'guided')  return 'g';
             if (query.mode === 'teaching') return 't';
+            if (query.mode === 'broadcast') return 'b';
             return 'g';
         }
         if (query.cmd === 'stop')  return 'x';

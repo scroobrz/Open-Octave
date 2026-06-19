@@ -34,7 +34,7 @@ void handleSequenceButtons() {
 
 // handles automatic sequence playback
 void handleSequencePlayback() {
-  if (!sequenceRunning)
+  if (!sequenceRunning || currentSequenceMode == BROADCAST)
     return;
 
   // Defensive check: ensure currentSequenceStep is valid
@@ -164,7 +164,7 @@ void startSequence(SequenceMode mode) {
     return;
   }
 
-  if (currentSequence.length <= 0) {
+  if (mode != BROADCAST && currentSequence.length <= 0) {
     LOGF("[ERROR] Invalid sequence length: %d encountered while starting sequence\n", currentSequence.length);
     return;
   }
@@ -186,8 +186,10 @@ void startSequence(SequenceMode mode) {
     testLogAutoRepeatStreak = 0;
   }
 
-  // immediately play the first step
-  executeCurrentSequenceStep();
+  // immediately play the first step (if not in broadcast mode)
+  if (currentSequenceMode != BROADCAST) {
+    executeCurrentSequenceStep();
+  }
 }
 
 // stops the sequence and turns off all keys

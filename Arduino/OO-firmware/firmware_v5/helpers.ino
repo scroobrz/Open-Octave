@@ -67,6 +67,8 @@ const char *getCurrentSequenceModeString() {
     return "GUIDED";
   case TEACHING:
     return "TEACHING";
+  case BROADCAST:
+    return "BROADCAST";
   default:
     return "UNKNOWN";
   }

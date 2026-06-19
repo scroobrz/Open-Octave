@@ -1229,6 +1229,9 @@ export default function App() {
             <button className="btn btn-sm" disabled={!mod.connected} onClick={() => sendModuleControl(mod.ip, 'start', 'teaching')}>
               Teaching
             </button>
+            <button className="btn btn-sm btn-secondary" disabled={!mod.connected || mod.chainLength <= 1} onClick={() => sendModuleControl(mod.ip, 'start', 'broadcast')} title={mod.chainLength <= 1 ? "Broadcast requires a downstream chain" : "Broadcast local playing downstream"}>
+              Broadcast
+            </button>
             <button className="btn btn-sm btn-coral" disabled={!mod.connected} onClick={() => sendModuleControl(mod.ip, 'stop')}>
               Stop
             </button>
@@ -1535,6 +1538,9 @@ export default function App() {
                   </button>
                   <button className="btn" disabled={!isConnected} onClick={() => sendAllControl('start', 'teaching')}>
                     Start All -- Teaching
+                  </button>
+                  <button className="btn btn-secondary" disabled={!isConnected || modulesList.filter(m => m.connected && m.chainLength > 1).length === 0} onClick={() => sendAllControl('start', 'broadcast')}>
+                    Start All -- Broadcast
                   </button>
                   <button className="btn btn-coral" disabled={!isConnected} onClick={() => sendAllControl('stop')}>
                     Stop All

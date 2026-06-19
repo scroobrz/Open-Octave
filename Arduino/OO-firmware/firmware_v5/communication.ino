@@ -462,6 +462,20 @@ void processSingleCharCommand(char cmd) {
       emitStatus();
       break;
 
+    case 'b': // Start sequence in broadcast mode
+      LOGLN("\n[CMD] Received: Start BROADCAST mode");
+
+      if (sequenceRunning) {
+        LOGLN("\n[CMD] Sequence already running, ignoring start request");
+        LOGLN("ERR cmd=b reason=already_running");
+      } else {
+        startSequence(BROADCAST);
+        LOGLN("ACK cmd=b ok=1");
+      }
+
+      emitStatus();
+      break;
+
     case 'x': // Stop sequence
       LOGLN("\n[CMD] Received: Stop sequence");
 
