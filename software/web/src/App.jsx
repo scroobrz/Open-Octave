@@ -527,6 +527,39 @@ export default function App() {
     }
   }
 
+  async function handleColorModeToggle(checked) {
+    const newMode = checked ? 'colorblind' : 'default';
+    setColorMode(newMode);
+    
+    // Re-upload current sequences to all connected modules
+    const uploadPromises = [];
+    for (const module of modulesList) {
+      if (module.connected) {
+        const sequenceId = chainSequences[module.ip];
+        if (sequenceId) {
+          uploadPromises.push(
+            apiPost(`/api/modules/${encodeURIComponent(module.ip)}/upload`, {
+              sequenceId,
+              colorMode: newMode
+            })
+          );
+        }
+      }
+    }
+
+    if (uploadPromises.length > 0) {
+      setDbActionBusy(true);
+      try {
+        await Promise.all(uploadPromises);
+        await refreshModules();
+      } catch (e) {
+        setDbSeqError(`Re-upload for colourblind mode failed: ${e.message}`);
+      } finally {
+        setDbActionBusy(false);
+      }
+    }
+  }
+
   // ============ CONNECT TAB ACTIONS ============
 
   async function connectSerial() {
@@ -1544,7 +1577,7 @@ export default function App() {
                   <input
                     type="checkbox"
                     checked={colorMode === 'colorblind'}
-                    onChange={(e) => setColorMode(e.target.checked ? 'colorblind' : 'default')}
+                    onChange={(e) => handleColorModeToggle(e.target.checked)}
                   />
                   <span className="cb-toggle-track">
                     <span className="cb-toggle-knob" />
