@@ -115,8 +115,18 @@ void handleCommandsFromUpstream(){
           for (int i = 0; i < NUM_KEYS; i++) {
             resetKey(i);
           }
+          
+          if (sequenceRunning && currentSequenceMode == BROADCAST) {
+            sequenceRunning = false;
+            configureNotes();
+          }
 
           DownstreamSerial.write("x\n", 2);
+        } else if (upstreamSerialBuf[0] == 'b') {
+          currentSequenceMode = BROADCAST;
+          sequenceRunning = true;
+          configureNotes();
+          DownstreamSerial.write("b\n", 2);
         }
       } else {
         upstreamSerialBuf[upstreamSerialBufPos] = '\0';

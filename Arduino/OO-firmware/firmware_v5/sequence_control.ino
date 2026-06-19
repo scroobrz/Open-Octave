@@ -189,6 +189,8 @@ void startSequence(SequenceMode mode) {
   // immediately play the first step (if not in broadcast mode)
   if (currentSequenceMode != BROADCAST) {
     executeCurrentSequenceStep();
+  } else {
+    DownstreamSerial.write("b\n", 2);
   }
 }
 
@@ -214,6 +216,10 @@ void stopSequence() {
 
   sequenceRunning = false;
   waitingForServoRelease = false;
+  
+  if (currentSequenceMode == BROADCAST) {
+    configureNotes();
+  }
   
   emitStatus();
 }
