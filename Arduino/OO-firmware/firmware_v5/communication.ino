@@ -575,6 +575,18 @@ void processSingleCharCommand(char cmd) {
       break;
 
 
+    // ---- INFO ----
+
+    case 'i': // Request info / connection state
+      LOGLN("\n[CMD] Received: Request info / connection state");
+      if (isMaster) {
+        sendHelloToController();
+      } else {
+        LOGLN("BYE");
+      }
+      emitStatus();
+      break;
+
     // ---- HELP ----
 
     case 'h': // Help
@@ -593,6 +605,8 @@ void processSingleCharCommand(char cmd) {
       LOGLN("    q - Enter/Exit test log mode");
       LOGLN("  POWER:");
       LOGLN("    o - Toggle module on/off");
+      LOGLN("  INFO:");
+      LOGLN("    i - Request connection state & info");
       LOGLN("  HELP:");
       LOGLN("    h/? - Show this help");
       LOGLN("========================================\n");
