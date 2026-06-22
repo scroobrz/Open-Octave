@@ -164,7 +164,8 @@
 
 enum SequenceMode {
   GUIDED,         // LEDs light up in sequence, user must press key to advance
-  TEACHING        // LEDs + servos play automatically
+  TEACHING,       // LEDs + servos play automatically
+  BROADCAST       // Master module broadcasts local key presses downstream
 };
 
 struct Key {

@@ -32,6 +32,11 @@ void handleKeyPresses() {
 
         if (isMaster && recording) {
           recordKeyPress(globalKey);
+        } else if (isMaster && sequenceRunning && currentSequenceMode == BROADCAST) {
+          for (int m = 1; m < numModulesInChain; m++) {
+            int slaveGlobalKey = (m * NUM_KEYS) + i;
+            chainSendKeyCmdWithColor(DownstreamSerial, 't', slaveGlobalKey, getBrandGradientColor(i));
+          }
         } else if (isMaster) {
           evaluateWrongKeyFeedback(globalKey, true);
         }
@@ -52,6 +57,11 @@ void handleKeyPresses() {
 
       if (isMaster && recording) {
         recordKeyRelease(globalKey);
+      } else if (isMaster && sequenceRunning && currentSequenceMode == BROADCAST) {
+        for (int m = 1; m < numModulesInChain; m++) {
+          int slaveGlobalKey = (m * NUM_KEYS) + i;
+          chainSendKeyCmd(DownstreamSerial, 'r', slaveGlobalKey);
+        }
       } else if (isMaster) {
         evaluateWrongKeyFeedback(globalKey, false);
       }

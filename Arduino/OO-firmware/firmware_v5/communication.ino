@@ -68,6 +68,10 @@ void checkHeartbeatReply() {
     numModulesInChain = moduleChainIndex + 1;  // Only count up to self
     LOGF("[CHAIN] Downstream lost — chain count reset to %d\n", numModulesInChain);
     if (isMaster) {
+      if (sequenceRunning && currentSequenceMode == BROADCAST && numModulesInChain <= 1) {
+        LOGLN("[CHAIN] Broadcast mode aborted due to lost downstream chain");
+        stopSequence();
+      }
       sendHelloToController();
       updateDefaultSequenceForChainSize();
     }
@@ -98,6 +102,13 @@ void handleCommandsFromUpstream(){
     if (UpstreamSerial.peek() == CHAIN_HEARTBEAT_BYTE) return;
     char c = (char)UpstreamSerial.read();
 
+    // If buffer is empty, drop non-printable ASCII characters to prevent garbage desync from connection noise
+    if (upstreamSerialBufPos == 0) {
+      if (c < 33 || c > 126) {
+        continue;
+      }
+    }
+
     // Process accumulated characters when we reach a new line
     if (c == '\n' || c == '\r') {
       // If this line overflowed, just clear the flag and move on
@@ -110,20 +121,33 @@ void handleCommandsFromUpstream(){
       if (upstreamSerialBufPos == 0) {
         // ignore empty lines / trailing CR
         continue;
-      } else if (upstreamSerialBufPos == 1) {
-        if (upstreamSerialBuf[0] == 'x'){
-          for (int i = 0; i < NUM_KEYS; i++) {
-            resetKey(i);
-          }
-
-          DownstreamSerial.write("x\n", 2);
-        }
       } else {
         upstreamSerialBuf[upstreamSerialBufPos] = '\0';
         char cmdType = upstreamSerialBuf[0];
 
+        // Is it a single-char slave command (x, b)?
+        // We ensure there are no extra parameters by checking if the next character is the null terminator or a trailing carriage return.
+        if ((upstreamSerialBuf[1] == '\0' || upstreamSerialBuf[1] == '\r') && (cmdType == 'x' || cmdType == 'b')) {
+          if (cmdType == 'x') {
+            for (int i = 0; i < NUM_KEYS; i++) {
+              resetKey(i);
+            }
+            
+            if (sequenceRunning && currentSequenceMode == BROADCAST) {
+              sequenceRunning = false;
+              configureNotes();
+            }
+
+            DownstreamSerial.write("x\n", 2);
+          } else if (cmdType == 'b') {
+            currentSequenceMode = BROADCAST;
+            sequenceRunning = true;
+            configureNotes();
+            DownstreamSerial.write("b\n", 2);
+          }
+        }
         // Is it a slave hardware-override command (t, g, r)?
-        if (cmdType == 't' || cmdType == 'g' || cmdType == 'r') {
+        else if (cmdType == 't' || cmdType == 'g' || cmdType == 'r') {
           int targetModule, targetKey;
           char *endPtr;
 
@@ -225,6 +249,13 @@ void handleCommandsFromDownstream(){
   while (DownstreamSerial.available()) {
     if (DownstreamSerial.peek() == CHAIN_HEARTBEAT_BYTE) return;
     char c = (char)DownstreamSerial.read();
+
+    // If buffer is empty, drop non-printable ASCII characters to prevent garbage desync from connection noise
+    if (downstreamSerialBufPos == 0) {
+      if (c < 33 || c > 126) {
+        continue;
+      }
+    }
 
     // Process accumulated characters when we reach a new line
     if (c == '\n' || c == '\r') {
@@ -457,6 +488,20 @@ void processSingleCharCommand(char cmd) {
       } else {
         startSequence(TEACHING);
         LOGLN("ACK cmd=t ok=1");
+      }
+
+      emitStatus();
+      break;
+
+    case 'b': // Start sequence in broadcast mode
+      LOGLN("\n[CMD] Received: Start BROADCAST mode");
+
+      if (sequenceRunning) {
+        LOGLN("\n[CMD] Sequence already running, ignoring start request");
+        LOGLN("ERR cmd=b reason=already_running");
+      } else {
+        startSequence(BROADCAST);
+        LOGLN("ACK cmd=b ok=1");
       }
 
       emitStatus();

@@ -650,6 +650,7 @@ function translateToSerialCmd(endpoint, query) {
         if (query.cmd === 'start') {
             if (query.mode === 'guided')  return 'g';
             if (query.mode === 'teaching') return 't';
+            if (query.mode === 'broadcast') return 'b';
             return 'g';
         }
         if (query.cmd === 'stop')  return 'x';
@@ -1023,7 +1024,9 @@ app.post('/api/modules/:ip/control', (req, res) => {
 
         let serialCmd;
         if (cmd === 'start') {
-            serialCmd = mode === 'teaching' ? 't' : 'g';
+            if (mode === 'teaching') serialCmd = 't';
+            else if (mode === 'broadcast') serialCmd = 'b';
+            else serialCmd = 'g';
         } else if (cmd === 'stop') {
             serialCmd = 'x';
         } else if (cmd === 'led_test') {

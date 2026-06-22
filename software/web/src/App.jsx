@@ -1136,7 +1136,11 @@ export default function App() {
               <span className="pill pill-teal">{mod.currentSequenceName}</span>
             )}
             {mod.lastStatus?.running && (
-              <span className="pill pill-green">Playing sequence in {mod.lastStatus.mode.charAt(0).toUpperCase() + mod.lastStatus.mode.slice(1).toLowerCase()} mode</span>
+              mod.lastStatus.mode.toLowerCase() === 'broadcast' ? (
+                <span className="pill pill-accent">Broadcasting live playing</span>
+              ) : (
+                <span className="pill pill-green">Playing sequence in {mod.lastStatus.mode.charAt(0).toUpperCase() + mod.lastStatus.mode.slice(1).toLowerCase()} mode</span>
+              )
             )}
           </div>
         </div>
@@ -1229,6 +1233,11 @@ export default function App() {
             <button className="btn btn-sm" disabled={!mod.connected} onClick={() => sendModuleControl(mod.ip, 'start', 'teaching')}>
               Teaching
             </button>
+            {mod.chainLength > 1 && (
+              <button className="btn btn-sm btn-accent" disabled={!mod.connected} onClick={() => sendModuleControl(mod.ip, 'start', 'broadcast')} title="Broadcast local playing downstream">
+                Broadcast
+              </button>
+            )}
             <button className="btn btn-sm btn-coral" disabled={!mod.connected} onClick={() => sendModuleControl(mod.ip, 'stop')}>
               Stop
             </button>

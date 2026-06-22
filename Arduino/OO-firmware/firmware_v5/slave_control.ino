@@ -27,6 +27,9 @@ void demoteToSlave(){
     disconnectWebsocket();
     disconnectWifi();
     LOGLN("[SETUP] WiFi & WebSocket disconnected");
+
+    // Reset heartbeat timer to avoid immediate timeout due to disconnectWifi blocking
+    timeLastHeartbeatReceived = millis();
 }
 
 const int baseNoteFreqs[NUM_KEYS] = {
@@ -35,8 +38,9 @@ const int baseNoteFreqs[NUM_KEYS] = {
 };
 
 void configureNotes(){
-    LOGF("[SETUP] Configuring notes for module index %d (octave shift: %d)\n", moduleChainIndex, moduleChainIndex);
+    uint8_t indexToUse = (sequenceRunning && currentSequenceMode == BROADCAST) ? 0 : moduleChainIndex;
+    LOGF("[SETUP] Configuring notes for module index %d (octave shift: %d)\n", moduleChainIndex, indexToUse);
     for (int i = 0; i < NUM_KEYS; i++) {
-        keys[i].noteFreq = baseNoteFreqs[i] << moduleChainIndex;
+        keys[i].noteFreq = baseNoteFreqs[i] << indexToUse;
     }
 }
