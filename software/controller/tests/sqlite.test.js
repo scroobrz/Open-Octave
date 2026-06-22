@@ -134,7 +134,7 @@ describe('generateUploadLinesFromData', () => {
     expect(result.ok).toBe(true);
     expect(result.lines).toEqual([
       'U i=3 n=Legacy-Song s=1',
-      'S k=2 c=0000FF d=250',
+      'S k=2 c=0000FF d=300',
       'E i=3'
     ]);
   });
