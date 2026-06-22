@@ -122,8 +122,16 @@ void playPressedKeys() {
         int delayLen = (int)(SAMPLE_RATE / (float)freqSnapshot[i]);
         if (delayLen > KS_MAX_DELAY) delayLen = KS_MAX_DELAY;
         if (delayLen < 1) delayLen = 1;
+        
+        float prevNoise = 0.0f;
         for(int j = 0; j < delayLen; j++) {
-           ksDelayLines[i][j] = ((float)random(20000) / 10000.0f) - 1.0f; // Random between -1.0 and 1.0
+           float noise = ((float)random(20000) / 10000.0f) - 1.0f; // Random between -1.0 and 1.0
+           
+           // Low-pass filter the initial noise to simulate a soft felt piano hammer 
+           // rather than a hard guitar plectrum pluck.
+           float hammerNoise = 0.3f * noise + 0.7f * prevNoise;
+           ksDelayLines[i][j] = hammerNoise;
+           prevNoise = hammerNoise;
         }
         ksDelayPointers[i] = 0;
       }
@@ -159,7 +167,9 @@ void playPressedKeys() {
     for (int h = 0; h < NUM_HARMONICS; h++) totalHarmonicWeight += HARMONICS[h][1];
     voiceVolume = VOLUME / (maxPolyphony * totalHarmonicWeight);
   } else {
-    voiceVolume = VOLUME / maxPolyphony;
+    // The soft hammer filter lowers the overall energy of the KS string, 
+    // so we can safely boost the output volume.
+    voiceVolume = (VOLUME * 2.5f) / maxPolyphony;
   }
 
   for (int s = 0; s < DMA_BUF_LEN; s++) {
@@ -207,8 +217,8 @@ void playPressedKeys() {
         if (prevP < 0) prevP = delayLen - 1;
         float prevVal = ksDelayLines[keyIdx][prevP];
         
-        // Low pass filter + slight decay (99.5% retention)
-        float newVal = 0.995f * 0.5f * (currentVal + prevVal);
+        // Low pass filter + longer sustain for piano strings (99.8% retention instead of 99.5%)
+        float newVal = 0.998f * 0.5f * (currentVal + prevVal);
         
         ksDelayLines[keyIdx][p] = newVal;
         ksDelayPointers[keyIdx] = (p + 1) % delayLen;
@@ -220,7 +230,12 @@ void playPressedKeys() {
       mixedSample += noteSample;
     }
 
-    int16_t pcmSample = (int16_t)(mixedSample * voiceVolume * 32767.0f);
+    // Calculate final PCM value and hard-clip to prevent integer overflow wrapping
+    float pcmFloat = mixedSample * voiceVolume * 32767.0f;
+    if (pcmFloat > 32767.0f) pcmFloat = 32767.0f;
+    if (pcmFloat < -32768.0f) pcmFloat = -32768.0f;
+    
+    int16_t pcmSample = (int16_t)pcmFloat;
     sampleBuf[s * 2]     = pcmSample;
     sampleBuf[s * 2 + 1] = pcmSample;
   }
