@@ -149,3 +149,41 @@ void playShutdownAnimation() {
 
   LOGLN("[ANIM] Shutdown animation complete");
 }
+
+// Plays a double-flash rainbow animation across all keys on all connected modules
+void playSuccessAnimation() {
+  LOGLN("[ANIM] Playing success animation");
+  
+  for (int flash = 0; flash < 2; flash++) {
+    // Turn all LEDs ON with brand colors
+    for (int i = 0; i < NUM_KEYS; i++) {
+      uint32_t color = getBrandGradientColor(i);
+      leds.setPixelColor(keys[i].ledIndex, color);
+      
+      if (isMaster) {
+        for (int m = 1; m < numModulesInChain; m++) {
+          int slaveGlobalKey = (m * NUM_KEYS) + i;
+          chainSendKeyCmdWithColor(DownstreamSerial, 'g', slaveGlobalKey, color);
+        }
+      }
+    }
+    leds.show();
+    delay(150);
+
+    // Turn all LEDs OFF
+    for (int i = 0; i < NUM_KEYS; i++) {
+      leds.setPixelColor(keys[i].ledIndex, 0);
+      
+      if (isMaster) {
+        for (int m = 1; m < numModulesInChain; m++) {
+          int slaveGlobalKey = (m * NUM_KEYS) + i;
+          chainSendKeyCmd(DownstreamSerial, 'r', slaveGlobalKey);
+        }
+      }
+    }
+    leds.show();
+    delay(150);
+  }
+
+  LOGLN("[ANIM] Success animation complete");
+}

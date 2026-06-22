@@ -149,6 +149,7 @@ void handleGuidedModePlayback() {
     if (currentSequenceStepIndex >= currentSequence.length) {
       LOGLN("[SEQ] Sequence complete");
       stopSequence();
+      playSuccessAnimation();
       return;
     }
 
