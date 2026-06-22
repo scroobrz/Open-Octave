@@ -10,12 +10,15 @@
 #define WIFI_SSID "Open Octave"
 #define WIFI_PASSWORD "oop321321"
 
-#define ESP32_IP      IPAddress(192, 168, 4, 100)
-#define ESP32_GATEWAY IPAddress(192, 168, 4, 1)
-#define ESP32_SUBNET  IPAddress(255, 255, 255, 0)
+// #define ESP32_IP      IPAddress(192, 168, 4, 100)
+// #define ESP32_GATEWAY IPAddress(192, 168, 4, 1)
+// #define ESP32_SUBNET  IPAddress(255, 255, 255, 0)
 
-#define CONTROLLER_IP "192.168.4.2" // replace with real IP
-#define CONTROLLER_PORT 81
+// #define CONTROLLER_IP "192.168.4.2" // replace with real IP
+// #define CONTROLLER_PORT 81
+
+// laptop hosting
+#define CONTROLLER_PORT 8081
 
 #define WIFI_CHECK_INTERVAL 20000
 
@@ -23,11 +26,10 @@
 #define HEARTBEAT_TIMEOUT 2000
 #define CHAIN_HEARTBEAT_BYTE 0xFE
 
-#define MAX_SEQUENCE_LENGTH 64
+#define MAX_SEQUENCE_LENGTH 128
 #define MAX_KEYS_PER_STEP 4
 
-#define MIN_TONE_DURATION 100    // minimum speaker tone time (non-blocking, audibility only)
-#define MIN_STEP_DURATION 500    // minimum recorded sequence step duration (ms)
+#define MIN_STEP_DURATION 300    // minimum recorded sequence step duration (ms)
 #define MAX_STEP_DURATION 10000  // maximum recorded sequence step duration (ms)
 
 // ============ HARDWARE CONFIG ============
@@ -49,6 +51,11 @@
 #define LED_STRIP_PIN 19
 #define LED_BRIGHTNESS 50
 
+#define SAMPLE_RATE 44100
+#define I2S_NUM I2S_NUM_0
+#define VOLUME 0.8  
+#define DMA_BUF_LEN 256
+
 // ============ PIN ASSIGNMENTS ============
 // Button pins are on the IO expansion board
 // Servo channels are on the servo driver board
@@ -60,7 +67,9 @@
 #define RX2 4
 #define TX2 15
 
-#define SPEAKER_PIN 25          // D2 (IO25) — DAC-capable, good for audio
+#define I2S_BCK 26
+#define I2S_LRC 25
+#define I2S_DOUT 27
 
 #define KEY0_BUTTON_PIN 0
 #define KEY0_LED_INDEX 0
@@ -136,7 +145,7 @@
 
 // ============ COLOR DEFINITIONS ============
 
-// ROYGBIV colour palette
+// Standard colour palette
 #define COLOR_RED     0xFF0000
 #define COLOR_ORANGE  0xFF8000
 #define COLOR_YELLOW  0xFFFF00
@@ -145,20 +154,18 @@
 #define COLOR_INDIGO  0x4B0082
 #define COLOR_VIOLET  0x8000FF
 #define COLOR_WHITE   0xFFFFFF
-
-// Open Octave brand gradient (finger-to-colour mapping)
-#define COLOR_CYAN    0x00B4D8
-// Green defined above in ROYGBIV palette
-#define COLOR_GOLD    0xFFD700
-#define COLOR_CORAL   0xFF6B35
-#define COLOR_MAGENTA 0xE8368F
+#define COLOR_MAGENTA 0xFF00FF
 #define COLOR_PINK    0xFF69B4
+
+// Finger-to-colour mapping (matches software/shared/colors.json):
+//   Thumb=BLUE  Index=GREEN  Middle=YELLOW  Ring=ORANGE  Pinky=MAGENTA
 
 // ============ TYPE DEFINITIONS ============
 
 enum SequenceMode {
   GUIDED,         // LEDs light up in sequence, user must press key to advance
-  TEACHING        // LEDs + servos play automatically
+  TEACHING,       // LEDs + servos play automatically
+  BROADCAST       // Master module broadcasts local key presses downstream
 };
 
 struct Key {

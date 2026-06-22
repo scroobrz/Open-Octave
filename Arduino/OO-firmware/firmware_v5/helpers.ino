@@ -4,6 +4,22 @@
 ===============================
 */
 
+void powerOn(){
+  if (on) return;
+  playStartupAnimation();
+  on = true;
+  emitStatus();
+}
+
+void powerOff(){
+  if (!on) return;
+  if (recording) stopRecording();
+  stopSequence();
+  playShutdownAnimation();
+  on = false;
+  emitStatus();
+}
+
 bool checkUpstream(){
   pinMode(RX1, INPUT_PULLDOWN);
   delay(10);
@@ -51,6 +67,8 @@ const char *getCurrentSequenceModeString() {
     return "GUIDED";
   case TEACHING:
     return "TEACHING";
+  case BROADCAST:
+    return "BROADCAST";
   default:
     return "UNKNOWN";
   }
@@ -74,17 +92,49 @@ const char *getColorString(uint32_t color) {
     return "VIOLET";
   case COLOR_WHITE:
     return "WHITE";
-  case COLOR_CYAN:
-    return "CYAN";
-  case COLOR_GOLD:
-    return "GOLD";
-  case COLOR_CORAL:
-    return "CORAL";
   case COLOR_MAGENTA:
     return "MAGENTA";
   default:
     return "CUSTOM";
   }
+}
+
+// Compute a smoothly interpolated gradient color for a given key position.
+// Blends across five finger-colour stops: BLUE → GREEN → YELLOW → ORANGE → MAGENTA.
+// Uses integer-only math (no floats) to keep it efficient on ESP32.
+static uint32_t getBrandGradientColor(uint8_t keyIndex) {
+  static const uint32_t stops[] = {
+    COLOR_BLUE,     // 0x0000FF
+    COLOR_GREEN,    // 0x00FF00
+    COLOR_YELLOW,   // 0xFFFF00
+    COLOR_ORANGE,   // 0xFF8000
+    COLOR_MAGENTA   // 0xFF00FF
+  };
+  static const uint8_t NUM_STOPS = 5;
+  static const uint8_t NUM_SEGMENTS = NUM_STOPS - 1;  // 4
+
+  // Map keyIndex (0 to NUM_KEYS-1) into a fixed-point position across segments.
+  // pos ranges from 0 to (NUM_SEGMENTS * 255).
+  uint16_t pos = (uint16_t)keyIndex * NUM_SEGMENTS * 255 / (NUM_KEYS - 1);
+  uint8_t segment = pos / 255;
+  uint8_t blend = pos % 255;  // 0-254 blend factor within segment
+
+  if (segment >= NUM_SEGMENTS) {
+    segment = NUM_SEGMENTS - 1;
+    blend = 255;
+  }
+
+  uint32_t c1 = stops[segment];
+  uint32_t c2 = stops[segment + 1];
+
+  uint8_t r1 = (c1 >> 16) & 0xFF, g1 = (c1 >> 8) & 0xFF, b1 = c1 & 0xFF;
+  uint8_t r2 = (c2 >> 16) & 0xFF, g2 = (c2 >> 8) & 0xFF, b2 = c2 & 0xFF;
+
+  uint8_t r = ((uint32_t)r1 * (255 - blend) + (uint32_t)r2 * blend) / 255;
+  uint8_t g = ((uint32_t)g1 * (255 - blend) + (uint32_t)g2 * blend) / 255;
+  uint8_t b = ((uint32_t)b1 * (255 - blend) + (uint32_t)b2 * blend) / 255;
+
+  return ((uint32_t)r << 16) | ((uint32_t)g << 8) | b;
 }
 
 void toLowercase(char &c) {
@@ -94,8 +144,8 @@ void toLowercase(char &c) {
 }
 
 void emitStatus() {
-  LOGF("STATUS running=%d seq=%d step=%d mode=%s\n",
-       sequenceRunning, currentSequence.id, 
+  LOGF("STATUS power=%d running=%d seq=%d step=%d mode=%s\n",
+       on, sequenceRunning, currentSequence.id, 
        (sequenceRunning ? currentSequenceStepIndex : -1), 
        (sequenceRunning ? getCurrentSequenceModeString() : "N/A"));
 }

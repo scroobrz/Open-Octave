@@ -55,6 +55,8 @@ void sendHeartbeat() {
 // Slaves check for upstream heartbeats and promote themselves if lost
 void checkHeartbeat() {
   if (!isMaster && millis() - timeLastHeartbeatReceived >= HEARTBEAT_TIMEOUT){
+    LOGF("[DEBUG] Heartbeat timeout — last received %lums ago, upstream bytes available: %d\n",
+         millis() - timeLastHeartbeatReceived, UpstreamSerial.available());
     promoteToMaster();
   }
 }
@@ -65,6 +67,14 @@ void checkHeartbeatReply() {
       millis() - timeLastHeartbeatReplyReceived >= HEARTBEAT_TIMEOUT) {
     numModulesInChain = moduleChainIndex + 1;  // Only count up to self
     LOGF("[CHAIN] Downstream lost — chain count reset to %d\n", numModulesInChain);
+    if (isMaster) {
+      if (sequenceRunning && currentSequenceMode == BROADCAST && numModulesInChain <= 1) {
+        LOGLN("[CHAIN] Broadcast mode aborted due to lost downstream chain");
+        stopSequence();
+      }
+      sendHelloToController();
+      updateDefaultSequenceForChainSize();
+    }
   }
 }
 
@@ -92,6 +102,13 @@ void handleCommandsFromUpstream(){
     if (UpstreamSerial.peek() == CHAIN_HEARTBEAT_BYTE) return;
     char c = (char)UpstreamSerial.read();
 
+    // If buffer is empty, drop non-printable ASCII characters to prevent garbage desync from connection noise
+    if (upstreamSerialBufPos == 0) {
+      if (c < 33 || c > 126) {
+        continue;
+      }
+    }
+
     // Process accumulated characters when we reach a new line
     if (c == '\n' || c == '\r') {
       // If this line overflowed, just clear the flag and move on
@@ -104,20 +121,33 @@ void handleCommandsFromUpstream(){
       if (upstreamSerialBufPos == 0) {
         // ignore empty lines / trailing CR
         continue;
-      } else if (upstreamSerialBufPos == 1) {
-        if (upstreamSerialBuf[0] == 'x'){
-          for (int i = 0; i < NUM_KEYS; i++) {
-            resetKey(i);
-          }
-
-          DownstreamSerial.write("x\n", 2);
-        }
       } else {
         upstreamSerialBuf[upstreamSerialBufPos] = '\0';
         char cmdType = upstreamSerialBuf[0];
 
+        // Is it a single-char slave command (x, b)?
+        // We ensure there are no extra parameters by checking if the next character is the null terminator or a trailing carriage return.
+        if ((upstreamSerialBuf[1] == '\0' || upstreamSerialBuf[1] == '\r') && (cmdType == 'x' || cmdType == 'b')) {
+          if (cmdType == 'x') {
+            for (int i = 0; i < NUM_KEYS; i++) {
+              resetKey(i);
+            }
+            
+            if (sequenceRunning && currentSequenceMode == BROADCAST) {
+              sequenceRunning = false;
+              configureNotes();
+            }
+
+            DownstreamSerial.write("x\n", 2);
+          } else if (cmdType == 'b') {
+            currentSequenceMode = BROADCAST;
+            sequenceRunning = true;
+            configureNotes();
+            DownstreamSerial.write("b\n", 2);
+          }
+        }
         // Is it a slave hardware-override command (t, g, r)?
-        if (cmdType == 't' || cmdType == 'g' || cmdType == 'r') {
+        else if (cmdType == 't' || cmdType == 'g' || cmdType == 'r') {
           int targetModule, targetKey;
           char *endPtr;
 
@@ -168,17 +198,23 @@ void handleCommandsFromUpstream(){
 }
 
 void handleHeartbeatFromUpstream(uint8_t num){
-  timeLastHeartbeatReceived = millis();
-  
-  if (moduleChainIndex != num) {
-    moduleChainIndex = num;
-    configureNotes();
+  // Reject implausible chain indices — likely UART noise during cable insertion
+  if (num >= MAX_MODULES) {
+    LOGF("[CHAIN] Ignoring bogus upstream heartbeat: index=%d (max=%d)\n", num, MAX_MODULES - 1);
+    return;
   }
-  
+
+  timeLastHeartbeatReceived = millis();
+
   numModulesInChain = num + 1;
 
   if (isMaster){
     demoteToSlave();
+  }
+
+  if (moduleChainIndex != num) {
+    moduleChainIndex = num;
+    configureNotes();
   }
 
   // Forward heartbeat downstream
@@ -213,6 +249,13 @@ void handleCommandsFromDownstream(){
   while (DownstreamSerial.available()) {
     if (DownstreamSerial.peek() == CHAIN_HEARTBEAT_BYTE) return;
     char c = (char)DownstreamSerial.read();
+
+    // If buffer is empty, drop non-printable ASCII characters to prevent garbage desync from connection noise
+    if (downstreamSerialBufPos == 0) {
+      if (c < 33 || c > 126) {
+        continue;
+      }
+    }
 
     // Process accumulated characters when we reach a new line
     if (c == '\n' || c == '\r') {
@@ -283,6 +326,12 @@ void handleCommandsFromDownstream(){
 }
 
 void handleHeartbeatFromDownstream(uint8_t num){
+  // Reject implausible chain indices — likely UART noise during cable insertion
+  if (num >= MAX_MODULES) {
+    LOGF("[CHAIN] Ignoring bogus downstream heartbeat reply: index=%d (max=%d)\n", num, MAX_MODULES - 1);
+    return;
+  }
+
   timeLastHeartbeatReplyReceived = millis();
 
   // Only accept if this represents a higher count than we currently know.
@@ -292,6 +341,10 @@ void handleHeartbeatFromDownstream(uint8_t num){
   uint8_t reportedCount = num + 1;
   if (reportedCount > numModulesInChain) {
     numModulesInChain = reportedCount;
+    if (isMaster) {
+      sendHelloToController();
+      updateDefaultSequenceForChainSize();
+    }
   }
 
   // slaves forward replies upstream
@@ -305,6 +358,18 @@ void handleHeartbeatFromDownstream(uint8_t num){
 void handleUsbSerialCommands() {
   // NOTE: Serial monitor must be set to "Newline" or "Both NL and CR" for
   // commands to be properly processed by this function
+
+  if(Serial.available() && Serial.peek() == 'o'){
+    Serial.read(); // consume
+    if (on){
+      powerOff();
+    } else {
+      powerOn();
+    }
+    return;
+  }
+
+  if (!on) return;
 
   while (Serial.available()) {
     char c = (char)Serial.read();
@@ -350,11 +415,45 @@ void handleUsbSerialCommands() {
   }
 }
 
+// Called by the WebSocketsClient library whenever a WebSocket event occurs.
+// WStype_t tells us what kind of event it is (connect, disconnect, message, etc).
+// Notice that 'num' (client ID) is not present because we are the client.
+void webSocketEvent(WStype_t type, uint8_t * payload, size_t length) {
+  switch (type) {
+
+    case WStype_DISCONNECTED:
+      wsReady = false;
+      LOGLN("[WS] Disconnected from server");
+      break;
+
+    case WStype_CONNECTED:
+      wsReady = true;
+      LOGLN("[WS] Connected to server");
+      sendHelloToController();
+      break;
+
+    case WStype_TEXT:
+      if (length > 0) {
+        LOGF("[WS] Received payload from server (%d bytes)\n", (int)length);
+        handleWebSocketCommand((char*)payload, length);
+      }
+      break;
+
+    default:
+      break;
+  }
+}
+
 void handleWebSocketCommand(char *cmd, size_t length){
+  if (!on){
+    // not listening to software while off
+    return;
+  }
+
   if (length == 1){
     // regular single-character command
     processSingleCharCommand(cmd[0]);
-  } else {
+  } else if (length > 1){
     // sequence command; string of characters
     handleSequenceCommand(cmd);
   }
@@ -389,6 +488,20 @@ void processSingleCharCommand(char cmd) {
       } else {
         startSequence(TEACHING);
         LOGLN("ACK cmd=t ok=1");
+      }
+
+      emitStatus();
+      break;
+
+    case 'b': // Start sequence in broadcast mode
+      LOGLN("\n[CMD] Received: Start BROADCAST mode");
+
+      if (sequenceRunning) {
+        LOGLN("\n[CMD] Sequence already running, ignoring start request");
+        LOGLN("ERR cmd=b reason=already_running");
+      } else {
+        startSequence(BROADCAST);
+        LOGLN("ACK cmd=b ok=1");
       }
 
       emitStatus();
@@ -478,6 +591,8 @@ void processSingleCharCommand(char cmd) {
       LOGLN("    l - Test LEDs");
       LOGLN("    s - Test servos");
       LOGLN("    q - Enter/Exit test log mode");
+      LOGLN("  POWER:");
+      LOGLN("    o - Toggle module on/off");
       LOGLN("  HELP:");
       LOGLN("    h/? - Show this help");
       LOGLN("========================================\n");
@@ -691,7 +806,7 @@ bool processSequenceStepCommand(uint8_t stepIndex, char *cmd){
             break;
           }
 
-          // LED Colors — supports dot-separated multi-color format: c=00B4D8.FFD700.E8368F
+          // LED Colors — supports dot-separated multi-color format: c=0000FF.FFFF00.FF00FF
           case 'c': {
             char *ptr = &cmd[i+2];
             char *endPtr;
@@ -768,7 +883,7 @@ bool processSequenceStepCommand(uint8_t stepIndex, char *cmd){
   }
   keyStr[pos] = '\0';
 
-  char colorStr[56];  // e.g. "00B4D8.FFD700.E8368F"
+  char colorStr[56];  // e.g. "0000FF.FFFF00.FF00FF"
   pos = 0;
   for (uint8_t k = 0; k < numColors && pos < sizeof(colorStr) - 8; k++) {
     if (k > 0) colorStr[pos++] = '.';
@@ -825,6 +940,29 @@ bool processSequenceEndCommand(char *cmd){
   currentSequence = uploadSequenceBuffer;
   uploadStepCount = 0;
   return true;
+}
+
+// Sends the HELLO registration message to the controller.
+// Called on initial WS connect and whenever the chain length changes.
+// Sends over WebSocket if available, otherwise over USB Serial.
+void sendHelloToController() {
+  char buf[24];
+  snprintf(buf, sizeof(buf), "HELLO modules=%d", numModulesInChain);
+
+  if (wsReady) {
+    webSocket.sendTXT(buf);
+  } else if (isMaster) {
+    Serial.println(buf);
+  }
+
+  LOGF("[CTRL] Sent: %s\n", buf);
+}
+
+// Sends BYE over USB Serial to tell the controller this module is now a slave.
+// The controller should stop sending commands to this port until a new HELLO arrives.
+void sendByeToController() {
+  Serial.println(F("BYE"));
+  LOGLN("[CTRL] Sent: BYE (demoted to slave)");
 }
 
 void chainSendKeyCmd(HardwareSerial &serialPort, char cmd, int key) {

@@ -1,20 +1,20 @@
 {
   "fingerColors": {
-    "thumb":  "00B4D8",
-    "index":  "4ECB71",
-    "middle": "FFD700",
-    "ring":   "FF6B35",
-    "pinky":  "E8368F"
+    "thumb":  "0000FF",
+    "index":  "00FF00",
+    "middle": "FFFF00",
+    "ring":   "FF8000",
+    "pinky":  "FF00FF"
   },
   "alternativePalettes": {
     "colorblind": {
       "label": "Colourblind-friendly",
       "fingerColors": {
-        "thumb":  "0072B2",
-        "index":  "009E73",
-        "middle": "F0E442",
-        "ring":   "D55E00",
-        "pinky":  "CC79A7"
+        "thumb":  "0066FF",
+        "index":  "00FF80",
+        "middle": "FFFF00",
+        "ring":   "FF2200",
+        "pinky":  "AA00FF"
       }
     }
   },

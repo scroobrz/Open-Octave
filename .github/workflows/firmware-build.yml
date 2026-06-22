@@ -1,0 +1,33 @@
+name: Firmware Build
+
+on:
+  workflow_dispatch:
+  push:
+    paths:
+      - 'Arduino/**'
+  pull_request:
+    paths:
+      - 'Arduino/**'
+
+jobs:
+  build:
+    runs-on: ubuntu-latest
+
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v4
+
+      - name: Install Arduino CLI
+        uses: arduino/setup-arduino-cli@v2
+
+      - name: Install ESP32 board core
+        run: |
+          arduino-cli core update-index --additional-urls https://espressif.github.io/arduino-esp32/package_esp32_index.json
+          arduino-cli core install esp32:esp32@3.3.7 --additional-urls https://espressif.github.io/arduino-esp32/package_esp32_index.json
+
+      - name: Compile firmware
+        run: |
+          arduino-cli compile \
+            -b esp32:esp32:firebeetle32 \
+            --libraries Arduino/libraries \
+            Arduino/OO-firmware/firmware_v5

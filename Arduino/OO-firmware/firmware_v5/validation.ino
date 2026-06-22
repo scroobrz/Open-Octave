@@ -25,11 +25,6 @@ bool validateHardwareInit() {
     return false;
   }
 
-  if (SPEAKER_PIN < 0 || SPEAKER_PIN > 33) {
-    LOGF("[ERROR] Invalid SPEAKER_PIN: %d", SPEAKER_PIN);
-    return false;
-  }
-
   for (int i = 0; i < NUM_KEYS; i++) {
     if (keys[i].buttonPin < 0 || keys[i].buttonPin > 15) {
       LOGF("[ERROR] Invalid buttonPin: %d for key %d", keys[i].buttonPin, i);

@@ -31,6 +31,8 @@
 #include <WiFi.h>
 #include <WebSocketsClient.h>
 #include <cstdint>
+#include <driver/i2s.h>
+#include <math.h>
 
 // ============ HARDWARE DEFINITIONS ============
 
@@ -82,6 +84,7 @@ bool sequenceRunning = false;
 int currentSequenceStepIndex = 0;
 unsigned long currentStepStartTime = 0;
 unsigned long lastSequenceButtonPressTime = 0;
+unsigned long promotionSuppressionTime = 0;  // suppress buttons briefly after promotion
 #define CURRENT_STEP currentSequence.steps[currentSequenceStepIndex]
 #define PREVIOUS_STEP currentSequence.steps[currentSequenceStepIndex - 1]
 
@@ -90,8 +93,6 @@ unsigned long lastSequenceButtonPressTime = 0;
 bool globalKeyIsPressed[MAX_TOTAL_KEYS] = {false};
 unsigned long globalKeyPressTime[MAX_TOTAL_KEYS] = {0};
 unsigned long toneStartTime[MAX_TOTAL_KEYS] = {0};
-int toneSustainKey = -1;              // key index whose tone is being held past release (-1 = none)
-unsigned long toneSustainUntil = 0;   // millis() time at which the sustained tone should stop
 
 bool waitingForServoRelease = false;
 unsigned long servoReleaseStartTime = 0;
@@ -114,6 +115,7 @@ uint8_t testLogAutoRepeatStreak = 0;
 
 unsigned long lastWifiCheckTime = 0;
 bool isWifiConnected = false;
+bool isConnectingWifi = false;
 bool wsReady = false;  // Prevents wsSendLog() from running before webSocket.begin()
 
 char serialBuf[SERIAL_BUF_SIZE];
@@ -165,9 +167,8 @@ void setup() {
 
   // ===== INITIALIZATION =====
   LOG("[SETUP] Configuring speaker... ");
-  pinMode(SPEAKER_PIN, OUTPUT);
-  noTone(SPEAKER_PIN);
-  LOGF("OK (speaker_pin: %d)\n", SPEAKER_PIN);
+  noteSetup();
+  LOGF("OK\n");
 
   LOG("[SETUP] Initializing I2C... ");
   Wire.begin(21, 22);
@@ -177,9 +178,9 @@ void setup() {
   if (!ioport.begin()) {
     LOGLN("[ERROR] PCA9555 I/O expander not responding at address 0x20!");
     LOGLN("Check I2C wiring (SDA=21, SCL=22) and verify the chip is powered.");
-    while (true) { delay(1000); }  // Halt - buttons won't work without it
+  } else {
+    LOGLN("OK");
   }
-  LOGLN("OK");
 
   LOG("[SETUP] Initializing servo driver... ");
   servoDriver.init();
@@ -214,50 +215,58 @@ void setup() {
 
   if (!hasUpstream){
     LOGLN("[SETUP] Connecting to WiFi...");
-    connectToWifi();
-    connectToWebsocket();
+    connectToControllerBlocking();
     LOGLN("[SETUP] WiFi & WebSocket Active!");
   }
 
   LOGLN("========================================");
   LOGLN("[SETUP] Complete!");
   LOGLN("========================================\n");
+
   playStartupAnimation();
+
+  if (isMaster) {
+    sendHelloToController();
+  }
 }
 
 // runs repeatedly forever
 void loop() {
   ioport.pinStates();
-  checkOnOff();
+  checkOnOffButton();
+
+  if (isMaster){
+    handleControllerConnection();
+    handleControllerCommunication();
+    checkWifiStatus();
+  }
 
   if (on){
     handleChainCommunication();
 
     if (isMaster){
-      handleControllerCommunication();
-      checkWifiStatus();
       handleSequencePlayback();
       handleSequenceButtons();
       handleRecordButton();
     }
 
     handleKeyPresses();
-    handleToneSustain();
   }
+
+  // Audio now runs on its own FreeRTOS task, so the loop is no longer
+  // throttled by i2s_write(). Yield for 1ms to avoid hammering the I2C
+  // bus with thousands of ioport.pinStates() reads per second.
+  vTaskDelay(1);
 }
 
-void checkOnOff(){
+void checkOnOffButton(){
   if (millis() - lastOnOffSwitchTime >= BUTTON_DEBOUNCE_DELAY){
     // if on/off button pressed
     if (ioport.stateOfPin(ON_OFF_PIN) == HIGH){
       if (on) {
-        on = false;
-        if (recording) stopRecording();
-        stopSequence();
-        playShutdownAnimation();
+        powerOff();
       } else {
-        playStartupAnimation();
-        on = true;
+        powerOn();
       }
       lastOnOffSwitchTime = millis();
     }

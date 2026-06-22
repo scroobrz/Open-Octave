@@ -14,13 +14,35 @@ const Database = require('better-sqlite3');
 // Shared colour definitions (single source of truth for controller + frontend)
 const COLORS = require('../../shared/colors.json');
 
+// Legacy branded hex values (before the solid-colour palette update).
+// Sequences saved with these colours are still valid and get normalised
+// to the current defaults at upload time.
+const LEGACY_FINGER_COLORS = {
+  thumb: '00B4D8', index: '4ECB71', middle: 'FFD700', ring: 'FF6B35', pinky: 'E8368F'
+};
+const LEGACY_CB_COLORS = {
+  thumb: '0072B2', index: '009E73', middle: 'F0E442', ring: 'D55E00', pinky: 'CC79A7'
+};
+
+// Map legacy hex → current default hex.
+const LEGACY_COLOR_REMAP = {};
+for (const finger of COLORS.fingerOrder) {
+  const def = COLORS.fingerColors[finger].toUpperCase();
+  const legacy = LEGACY_FINGER_COLORS[finger]?.toUpperCase();
+  const legacyCb = LEGACY_CB_COLORS[finger]?.toUpperCase();
+  if (legacy && legacy !== def) LEGACY_COLOR_REMAP[legacy] = def;
+  if (legacyCb && legacyCb !== def) LEGACY_COLOR_REMAP[legacyCb] = def;
+}
+
 // Build the set of allowed hex colours (uppercase) from the shared definitions.
-// Include both default and colourblind palette colours.
+// Include current palettes and legacy colours.
 const ALLOWED_COLORS = new Set([
   ...Object.values(COLORS.fingerColors).map(c => c.toUpperCase()),
   ...(COLORS.alternativePalettes?.colorblind
     ? Object.values(COLORS.alternativePalettes.colorblind.fingerColors).map(c => c.toUpperCase())
-    : [])
+    : []),
+  ...Object.values(LEGACY_FINGER_COLORS).map(c => c.toUpperCase()),
+  ...Object.values(LEGACY_CB_COLORS).map(c => c.toUpperCase())
 ]);
 
 // Build a remap table: default hex → CB hex (for colourblind upload mode).
@@ -34,8 +56,7 @@ if (COLORS.alternativePalettes?.colorblind) {
 }
 
 // Firmware v5 hard-limits uploads to MAX_SEQUENCE_LENGTH (see firmware_V5_config.h).
-// Keep this mirrored here so we fail fast before sending an upload that firmware will reject.
-const FIRMWARE_MAX_SEQUENCE_LENGTH = 64;
+const FIRMWARE_MAX_SEQUENCE_LENGTH = 128;
 
 // Firmware v5 parses `i=` (sequence id) using atoi(), so it must be numeric.
 const FIRMWARE_SEQUENCE_ID_REGEX = /^\d+$/;
@@ -51,7 +72,6 @@ db.pragma('journal_mode = WAL'); // use write-ahead logging mode
 // ------------------------------
 // Schema
 // ------------------------------
-// create single table called sequences
 db.exec(`
   CREATE TABLE IF NOT EXISTS sequences (
     id INTEGER PRIMARY KEY AUTOINCREMENT,
@@ -77,9 +97,65 @@ function safeJsonParse(s, fallback) {
 }
 
 // ------------------------------
+// Data Format Migration
+// ------------------------------
+// Converts old format { k, c, d } steps to new format { keys: [], colors: [], duration }.
+// Runs once on startup.
+function migrateOldFormatSteps() {
+  const rows = db.prepare('SELECT id, data_json FROM sequences').all();
+  let migrated = 0;
+
+  for (const row of rows) {
+    const data = safeJsonParse(row.data_json, null);
+    if (!data || !Array.isArray(data.steps) || data.steps.length === 0) continue;
+
+    // Check if already in new format (first step has 'keys' array)
+    const firstStep = data.steps[0];
+    if (Array.isArray(firstStep.keys)) continue; // Already migrated
+
+    // Check if it's old format (has 'k' property)
+    if (firstStep.k === undefined && firstStep.keys === undefined) continue;
+
+    // Migrate
+    const newSteps = data.steps.map(s => ({
+      keys: [s.k],
+      colors: [s.c],
+      duration: s.d
+    }));
+
+    const newData = { steps: newSteps };
+    db.prepare('UPDATE sequences SET data_json = ?, updated_at = ? WHERE id = ?')
+      .run(JSON.stringify(newData), nowIso(), row.id);
+    migrated++;
+  }
+
+  if (migrated > 0) {
+    console.log(`[DB] Migrated ${migrated} sequence(s) from old format to new format`);
+  }
+}
+
+// Run migration on module load
+migrateOldFormatSteps();
+
+// ------------------------------
+// Helpers
+// ------------------------------
+// Compute maxKey: highest key index used in any step of a sequence.
+function computeMaxKey(data) {
+  if (!data || !Array.isArray(data.steps)) return -1;
+  let max = -1;
+  for (const step of data.steps) {
+    const keys = Array.isArray(step.keys) ? step.keys : (step.k !== undefined ? [step.k] : []);
+    for (const k of keys) {
+      if (typeof k === 'number' && k > max) max = k;
+    }
+  }
+  return max;
+}
+
+// ------------------------------
 // CRUD
 // ------------------------------
-// queries all sequences ordered by most recently updated
 function listSequences() {
   const rows = db
     .prepare(`
@@ -89,19 +165,17 @@ function listSequences() {
     `)
     .all();
 
-  // parses data_json
   return rows.map((r) => {
     const data = safeJsonParse(r.data_json, null);
-    const stepCount = Array.isArray(data?.steps)
-      ? data.steps.length
-      : null;
+    const stepCount = Array.isArray(data?.steps) ? data.steps.length : null;
+    const maxKey = computeMaxKey(data);
 
-      // computes stepCount from data.steps.length if possible
     return {
       id: Number(r.id),
       name: r.name,
       description: r.description || '',
       stepCount,
+      maxKey,
       updatedAt: r.updated_at
     };
   });
@@ -118,11 +192,14 @@ function getSequence(id) {
 
   if (!row) return null;
 
+  const data = safeJsonParse(row.data_json, {});
+
   return {
     id: Number(row.id),
     name: row.name,
     description: row.description || '',
-    data: safeJsonParse(row.data_json, {}),
+    data,
+    maxKey: computeMaxKey(data),
     uploadLines: safeJsonParse(row.upload_lines_json, []),
     createdAt: row.created_at,
     updatedAt: row.updated_at
@@ -132,8 +209,6 @@ function getSequence(id) {
 function upsertSequence(seq) {
   const ts = nowIso();
 
-  // If seq.id is provided and numeric, attempt update.
-  // Otherwise insert new row and let AUTOINCREMENT assign id.
   const hasNumericId =
     seq.id !== undefined &&
     seq.id !== null &&
@@ -168,6 +243,23 @@ function upsertSequence(seq) {
   }
 
   // Insert new
+  if (hasNumericId) {
+    db.prepare(`
+      INSERT INTO sequences
+      (id, name, description, data_json, upload_lines_json, created_at, updated_at)
+      VALUES (@id, @name, @description, @data_json, @upload_lines_json, @created_at, @updated_at)
+    `).run({
+      id: Number(seq.id),
+      name: seq.name,
+      description: seq.description || '',
+      data_json: JSON.stringify(seq.data || {}),
+      upload_lines_json: JSON.stringify(seq.uploadLines || []),
+      created_at: ts,
+      updated_at: ts
+    });
+    return Number(seq.id);
+  }
+
   const result = db.prepare(`
     INSERT INTO sequences
     (name, description, data_json, upload_lines_json, created_at, updated_at)
@@ -184,16 +276,17 @@ function upsertSequence(seq) {
   return result.lastInsertRowid;
 }
 
+function deleteSequence(id) {
+  const result = db.prepare('DELETE FROM sequences WHERE id = ?').run(Number(id));
+  return result.changes > 0;
+}
+
 // ------------------------------
 // Upload Line Generator
 // ------------------------------
-// Firmware parses name by reading until the next space, so the name must not contain spaces.
-// We also keep the charset conservative to avoid surprises on the ESP32.
-// Policy: spaces -> '-', collapse repeats, trim, and clamp length.
 function sanitizeNameForFirmware(name) {
   const raw = String(name || '').trim();
 
-  // Replace whitespace with '-', then replace any other unsafe chars with '-'.
   let s = raw
     .replace(/\s+/g, '-')
     .replace(/[^A-Za-z0-9_-]/g, '-')
@@ -201,24 +294,22 @@ function sanitizeNameForFirmware(name) {
     .replace(/_+/g, '_')
     .replace(/^[-_]+|[-_]+$/g, '');
 
-  // Keep short to avoid overflowing firmware-side buffers (firmware-side name buffer is fixed-size).
-  // If firmware later publishes the exact max length, we can set this precisely.
-  const MAX_NAME_LEN = 24;
+  const MAX_NAME_LEN = 31;
   if (s.length > MAX_NAME_LEN) s = s.slice(0, MAX_NAME_LEN);
 
   return s || 'seq';
 }
 
+// Updated for firmware v5 protocol: supports multi-key steps with dot-separated values.
 function generateUploadLinesFromData(id, name, data, colorMode = 'default') {
-  const cleanId = String(id || '').trim();
+  const cleanId = String(id !== undefined && id !== null ? id : '').trim();
   const cleanName = sanitizeNameForFirmware(name);
 
-  // Firmware v5 expects a numeric sequence id for `U i=` and `E i=`.
   if (!FIRMWARE_SEQUENCE_ID_REGEX.test(cleanId)) {
     return {
       error:
         'Firmware v5 requires numeric sequence ids for uploads (U/E i=...). ' +
-        `Got id="${cleanId}". Use a numeric id (e.g., autoincrement) or add a separate firmwareUploadId field.`
+        `Got id="${cleanId}". Use a numeric id.`
     };
   }
 
@@ -234,35 +325,50 @@ function generateUploadLinesFromData(id, name, data, colorMode = 'default') {
     };
   }
 
-  // builds line "U i={id} n={name} s={stepCount}" followed by lines for each step and ending with "E i={id}"
   const lines = [];
   lines.push(`U i=${cleanId} n=${cleanName} s=${steps.length}`);
 
-  // Firmware v5 step format: S k=<keyIndex> c=<color> d=<duration>
-  // (v4 included an `i=<stepIndex>` param which was removed in v5 — firmware tracks step index internally)
   for (let stepIndex = 0; stepIndex < steps.length; stepIndex++) {
     const step = steps[stepIndex];
-    const { k, c, d } = step || {};
 
-    if (k === undefined) return { error: 'Missing step.k' };
-    if (!c) return { error: 'Missing step.c' };
-    if (d === undefined) return { error: 'Missing step.d' };
+    // Support both new format (keys/colors/duration) and legacy (k/c/d)
+    const keys = Array.isArray(step.keys) ? step.keys : (step.k !== undefined ? [step.k] : undefined);
+    const colors = Array.isArray(step.colors) ? step.colors : (step.c !== undefined ? [step.c] : undefined);
+    let duration = step.duration !== undefined ? step.duration : step.d;
 
-    const colorHex = String(c).trim().toUpperCase();
-    if (!ALLOWED_COLORS.has(colorHex)) {
-      const allowed = [...ALLOWED_COLORS].join(', ');
-      return {
-        error: `Step ${stepIndex}: colour "${c}" is not allowed. ` +
-               `Allowed colours (brand palette): ${allowed}`
-      };
+    if (!keys || keys.length === 0) return { error: `Step ${stepIndex}: missing keys` };
+    if (!colors || colors.length === 0) return { error: `Step ${stepIndex}: missing colors` };
+    if (duration === undefined) return { error: `Step ${stepIndex}: missing duration` };
+    if (keys.length !== colors.length) return { error: `Step ${stepIndex}: keys and colors arrays must have same length` };
+
+    // Clamp duration to firmware bounds to prevent "invalid duration" rejections
+    if (duration < 300) duration = 300;
+    if (duration > 10000) duration = 10000;
+
+    // Validate and remap colors
+    const finalColors = [];
+    for (let ci = 0; ci < colors.length; ci++) {
+      const colorHex = String(colors[ci]).trim().toUpperCase();
+      if (!ALLOWED_COLORS.has(colorHex)) {
+        const allowed = [...ALLOWED_COLORS].join(', ');
+        return {
+          error: `Step ${stepIndex}: colour "${colors[ci]}" is not allowed. Allowed: ${allowed}`
+        };
+      }
+
+      // Normalise legacy branded hex → current solid defaults first
+      const normColor = LEGACY_COLOR_REMAP[colorHex] || colorHex;
+      const finalColor = (colorMode === 'colorblind' && CB_COLOR_REMAP[normColor])
+        ? CB_COLOR_REMAP[normColor]
+        : normColor;
+      finalColors.push(finalColor);
     }
 
-    // Remap to CB palette if colourblind mode is active.
-    const finalColor = (colorMode === 'colorblind' && CB_COLOR_REMAP[colorHex])
-      ? CB_COLOR_REMAP[colorHex]
-      : colorHex;
+    // Dot-separated keys and colors for multi-key steps
+    const keysStr = keys.join('.');
+    const colorsStr = finalColors.join('.');
 
-    lines.push(`S k=${k} c=${finalColor} d=${d}`);
+    lines.push(`S k=${keysStr} c=${colorsStr} d=${duration}`);
   }
 
   lines.push(`E i=${cleanId}`);
@@ -274,5 +380,7 @@ module.exports = {
   listSequences,
   getSequence,
   upsertSequence,
-  generateUploadLinesFromData
+  deleteSequence,
+  generateUploadLinesFromData,
+  computeMaxKey
 };
