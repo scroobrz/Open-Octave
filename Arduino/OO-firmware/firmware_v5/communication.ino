@@ -581,6 +581,8 @@ void processSingleCharCommand(char cmd) {
       LOGLN("\n[CMD] Received: Request info / connection state");
       if (isMaster) {
         sendHelloToController();
+      } else {
+        LOGLN("BYE");
       }
       emitStatus();
       break;

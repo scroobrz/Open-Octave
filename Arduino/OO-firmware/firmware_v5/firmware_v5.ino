@@ -239,6 +239,16 @@ void loop() {
     handleControllerConnection();
     handleControllerCommunication();
     checkWifiStatus();
+  } else {
+    // Slaves must drain the USB serial buffer to prevent overflow,
+    // and must respond to the 'i' command with 'BYE' so the Node.js
+    // controller knows to hide this serial port from the UI.
+    while (Serial.available()) {
+      char c = Serial.read();
+      if (c == 'i') {
+        LOGLN("BYE");
+      }
+    }
   }
 
   if (on){
