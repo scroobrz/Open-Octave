@@ -175,9 +175,10 @@ void playPressedKeys() {
     for (int h = 0; h < NUM_HARMONICS; h++) totalHarmonicWeight += HARMONICS[h][1];
     voiceVolume = VOLUME / (maxPolyphony * totalHarmonicWeight);
   } else {
-    // We boost the volume significantly, but we will use a soft-clipping 
-    // saturation curve below to cleanly compress chords without hard distortion.
-    voiceVolume = (VOLUME * 3.0f) / maxPolyphony;
+    // We boost the volume to a middle ground (1.8x). 
+    // This provides a loud baseline while keeping the tanh() soft-clipping 
+    // in its gentle "transparent" range, avoiding overdrive distortion on chords.
+    voiceVolume = (VOLUME * 2.3f) / maxPolyphony;
   }
 
   for (int s = 0; s < DMA_BUF_LEN; s++) {
