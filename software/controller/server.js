@@ -482,6 +482,13 @@ async function connectSerial(portPath) {
         const wsShim = createSerialWsShim(serialPortObj, portPath);
         registerModule(moduleKey, wsShim, 'serial');
 
+        // Request initial state from the module (give it a moment to settle)
+        setTimeout(() => {
+            if (serialPortObj.isOpen) {
+                serialPortObj.write('i\n');
+            }
+        }, 1000);
+
         // Ingest data from this serial port using the module key
         parser.on('data', (data) => {
             const msg = data.toString().trim();
