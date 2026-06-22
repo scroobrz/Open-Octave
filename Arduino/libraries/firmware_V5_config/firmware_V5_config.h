@@ -168,6 +168,11 @@ enum SequenceMode {
   BROADCAST       // Master module broadcasts local key presses downstream
 };
 
+enum SynthMode {
+  SYNTH_ADDITIVE,
+  SYNTH_KARPLUS_STRONG
+};
+
 struct Key {
   int buttonPin;
   int ledIndex;

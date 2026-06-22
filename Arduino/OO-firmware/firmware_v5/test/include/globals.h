@@ -30,6 +30,8 @@ extern int currentSequenceStepIndex;
 extern unsigned long currentStepStartTime;
 extern unsigned long lastSequenceButtonPressTime;
 
+extern SynthMode currentSynthMode;
+
 extern bool globalKeyIsPressed[MAX_TOTAL_KEYS];
 extern unsigned long globalKeyPressTime[MAX_TOTAL_KEYS];
 extern unsigned long toneStartTime[MAX_TOTAL_KEYS];

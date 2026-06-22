@@ -27,6 +27,12 @@ enum SequenceMode {
     TEACHING = 1
 };
 
+// Audio synthesis modes
+enum SynthMode {
+    SYNTH_ADDITIVE = 0,
+    SYNTH_KARPLUS_STRONG = 1
+};
+
 // Key structure for one physical key
 struct Key {
     uint8_t buttonPin;    // PCA9555 pin for button
