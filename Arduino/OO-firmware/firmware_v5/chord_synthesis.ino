@@ -118,20 +118,28 @@ void playPressedKeys() {
       envelopes[i].value = 0.0f;
       
       if (currentSynthMode == SYNTH_KARPLUS_STRONG) {
-        // Initialize Karplus-Strong buffer with noise
+        // Initialize Karplus-Strong buffer with a shaped excitation
         int delayLen = (int)(SAMPLE_RATE / (float)freqSnapshot[i]);
         if (delayLen > KS_MAX_DELAY) delayLen = KS_MAX_DELAY;
         if (delayLen < 1) delayLen = 1;
         
         float prevNoise = 0.0f;
         for(int j = 0; j < delayLen; j++) {
-           float noise = ((float)random(20000) / 10000.0f) - 1.0f; // Random between -1.0 and 1.0
+           float phase = (float)j / (float)delayLen; // 0.0 to 1.0
            
-           // Low-pass filter the initial noise to simulate a soft felt piano hammer 
-           // rather than a hard guitar plectrum pluck.
+           // Generate a Triangle wave for acoustic warmth (fundamental body)
+           float tri = (phase < 0.5f) ? (4.0f * phase - 1.0f) : (3.0f - 4.0f * phase);
+           
+           // Generate a Sawtooth wave for the "clavinet buzz" overtones
+           float saw = 2.0f * phase - 1.0f;
+
+           // Generate soft filtered noise for the mechanical hammer strike
+           float noise = ((float)random(20000) / 10000.0f) - 1.0f;
            float hammerNoise = 0.3f * noise + 0.7f * prevNoise;
-           ksDelayLines[i][j] = hammerNoise;
            prevNoise = hammerNoise;
+           
+           // Mix them together: 50% Triangle, 30% Sawtooth, 20% Hammer Noise
+           ksDelayLines[i][j] = (tri * 0.5f) + (saw * 0.3f) + (hammerNoise * 0.2f);
         }
         ksDelayPointers[i] = 0;
       }
@@ -178,7 +186,9 @@ void playPressedKeys() {
       int keyIdx = activeIndices[i];
       if (pressedSnapshot[keyIdx]) {
         if (currentSynthMode == SYNTH_KARPLUS_STRONG) {
-          envelopes[keyIdx].value = 1.0f; // Instant attack for percussive strike
+          // Fast attack (takes ~200 samples / 5ms to reach 1.0) to remove the hard click 
+          // of an instant start, mimicking a felt hammer pushing the string.
+          envelopes[keyIdx].value = min(1.0f, envelopes[keyIdx].value + 0.005f);
         } else {
           envelopes[keyIdx].value = min(1.0f, envelopes[keyIdx].value + ATTACK_PER_SAMPLE);
         }
