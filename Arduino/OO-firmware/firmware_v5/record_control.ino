@@ -4,9 +4,10 @@
 ===============================
 Allows the user to record key presses into a sequence via a physical button
 (RECORD_BUTTON_PIN on the PCA9555 I/O expander). Pressing the button toggles
-recording on/off. While recording, key presses and their hold durations are
-captured as sequence steps. Keys pressed within CHORD_WINDOW_MS of each other
-are grouped into a single chord step (up to MAX_KEYS_PER_STEP keys).
+recording on/off. While recording, each key press is tracked independently:
+press time is captured on the down-stroke and a single-key SequenceStep is
+committed with the exact hold duration on the up-stroke. Keys still held when
+recording stops are also committed, using millis() as the implied release time.
 
 When recording stops, the captured steps replace currentSequence so the user
 can immediately play back what they recorded using the guided/teaching buttons.
@@ -33,15 +34,36 @@ void handleRecordButton() {
 void startRecording() {
   recording = true;
   recStepCount = 0;
-  recChordNumKeys = 0;
+
+  // Clear all per-key tracking slots
+  for (uint8_t i = 0; i < MAX_REC_ACTIVE_KEYS; i++) {
+    recActiveKeys[i].active = false;
+  }
+
   LOGLN("\n[REC] ======== RECORDING STARTED ========");
   flashWhiteAnimation();
 }
 
 void stopRecording() {
-  // Commit any in-progress chord before finalizing
-  if (recChordNumKeys > 0) {
-    commitRecordedStep();
+  // Flush any keys still physically held when the user stops recording.
+  // Each gets a step committed with millis() as the implied release time.
+  for (uint8_t i = 0; i < MAX_REC_ACTIVE_KEYS; i++) {
+    if (!recActiveKeys[i].active) continue;
+    if (recStepCount >= MAX_SEQUENCE_LENGTH) break;
+
+    unsigned long duration = millis() - recActiveKeys[i].pressTime;
+    if (duration < MIN_STEP_DURATION) duration = MIN_STEP_DURATION;
+    if (duration > MAX_STEP_DURATION) duration = MAX_STEP_DURATION;
+
+    SequenceStep* step = &currentSequence.steps[recStepCount];
+    step->numKeys   = 1;
+    step->keys[0]   = recActiveKeys[i].globalKey;
+    step->colors[0] = COLOR_PINK;
+    step->duration  = (uint16_t)duration;
+
+    LOGF("[REC] Step %d (flush): key=%d, %dms\n", recStepCount + 1, recActiveKeys[i].globalKey, (int)duration);
+    recStepCount++;
+    recActiveKeys[i].active = false;
   }
 
   recording = false;
@@ -62,7 +84,7 @@ void stopRecording() {
 }
 
 // Called when a key is pressed during recording.
-// Starts a new chord or adds to the current one if within the chord window.
+// Finds a free slot in recActiveKeys and stores the press timestamp.
 void recordKeyPress(int globalKey) {
   if (recStepCount >= MAX_SEQUENCE_LENGTH) {
     LOGLN("[REC] Max sequence length reached, stopping recording");
@@ -70,76 +92,62 @@ void recordKeyPress(int globalKey) {
     return;
   }
 
-  // No chord in progress — start a new one
-  if (recChordNumKeys == 0) {
-    recChordStartTime = millis();
-    recChordKeys[0] = globalKey;
-    recChordNumKeys = 1;
-    return;
-  }
-
-  // Within chord window and room for more keys — add to current chord
-  if (millis() - recChordStartTime < CHORD_WINDOW_MS && recChordNumKeys < MAX_KEYS_PER_STEP) {
-    recChordKeys[recChordNumKeys] = globalKey;
-    recChordNumKeys++;
-    return;
-  }
-
-  // Past chord window or max keys per step — commit current step, start new one
-  commitRecordedStep();
-
-  if (recStepCount >= MAX_SEQUENCE_LENGTH) {
-    LOGLN("[REC] Max sequence length reached, stopping recording");
-    stopRecording();
-    return;
-  }
-
-  recChordStartTime = millis();
-  recChordKeys[0] = globalKey;
-  recChordNumKeys = 1;
-}
-
-// Called when a key is released during recording.
-// The first release in a chord commits the step (duration = press-to-first-release).
-void recordKeyRelease(int globalKey) {
-  if (recChordNumKeys == 0) return;
-
-  // Check if this key is part of the current chord
-  bool isInChord = false;
-  for (uint8_t i = 0; i < recChordNumKeys; i++) {
-    if (recChordKeys[i] == globalKey) {
-      isInChord = true;
-      break;
+  // Guard against duplicate press events for the same key
+  for (uint8_t i = 0; i < MAX_REC_ACTIVE_KEYS; i++) {
+    if (recActiveKeys[i].active && recActiveKeys[i].globalKey == (uint8_t)globalKey) {
+      LOGF("[REC] Key %d already tracked, ignoring duplicate press\n", globalKey);
+      return;
     }
   }
 
-  if (!isInChord) return;
-
-  // First release in the chord commits the step
-  commitRecordedStep();
-}
-
-// Writes the current chord into currentSequence.steps and resets chord state.
-void commitRecordedStep() {
-  if (recChordNumKeys == 0 || recStepCount >= MAX_SEQUENCE_LENGTH) return;
-
-  unsigned long duration = millis() - recChordStartTime;
-  if (duration < MIN_STEP_DURATION) duration = MIN_STEP_DURATION;
-  if (duration > MAX_STEP_DURATION) duration = MAX_STEP_DURATION;
-
-  SequenceStep* step = &currentSequence.steps[recStepCount];
-  step->numKeys = recChordNumKeys;
-  step->duration = (uint16_t)duration;
-
-  for (uint8_t i = 0; i < recChordNumKeys; i++) {
-    step->keys[i] = recChordKeys[i];
-    step->colors[i] = COLOR_PINK;
+  // Allocate a free slot
+  for (uint8_t i = 0; i < MAX_REC_ACTIVE_KEYS; i++) {
+    if (!recActiveKeys[i].active) {
+      recActiveKeys[i].globalKey = (uint8_t)globalKey;
+      recActiveKeys[i].pressTime = millis();
+      recActiveKeys[i].active    = true;
+      LOGF("[REC] Key %d pressed, tracking in slot %d\n", globalKey, i);
+      return;
+    }
   }
 
-  LOGF("[REC] Step %d: %d key(s), %dms\n", recStepCount + 1, recChordNumKeys, (int)duration);
+  // All slots full — more than MAX_REC_ACTIVE_KEYS keys held simultaneously
+  LOGF("[REC] Tracking table full (%d slots), key %d ignored\n", MAX_REC_ACTIVE_KEYS, globalKey);
+}
 
-  recStepCount++;
-  recChordNumKeys = 0;
+// Called when a key is released during recording.
+// Finds the matching slot, commits a single-key SequenceStep with the hold
+// duration, and frees the slot.
+void recordKeyRelease(int globalKey) {
+  for (uint8_t i = 0; i < MAX_REC_ACTIVE_KEYS; i++) {
+    if (!recActiveKeys[i].active || recActiveKeys[i].globalKey != (uint8_t)globalKey) continue;
+
+    if (recStepCount >= MAX_SEQUENCE_LENGTH) {
+      LOGLN("[REC] Max sequence length reached, stopping recording");
+      recActiveKeys[i].active = false;
+      stopRecording();
+      return;
+    }
+
+    unsigned long duration = millis() - recActiveKeys[i].pressTime;
+    if (duration < MIN_STEP_DURATION) duration = MIN_STEP_DURATION;
+    if (duration > MAX_STEP_DURATION) duration = MAX_STEP_DURATION;
+
+    SequenceStep* step = &currentSequence.steps[recStepCount];
+    step->numKeys   = 1;
+    step->keys[0]   = (uint8_t)globalKey;
+    step->colors[0] = COLOR_PINK;
+    step->duration  = (uint16_t)duration;
+
+    LOGF("[REC] Step %d: key=%d, %dms\n", recStepCount + 1, globalKey, (int)duration);
+
+    recStepCount++;
+    recActiveKeys[i].active = false;
+    return;
+  }
+
+  // Key not found in tracking table — spurious release, safe to ignore
+  LOGF("[REC] Release for untracked key %d ignored\n", globalKey);
 }
 
 // Brief white flash across all LEDs across all modules to signal recording start/stop.
@@ -149,7 +157,7 @@ void flashWhiteAnimation() {
     leds.setPixelColor(keys[i].ledIndex, COLOR_WHITE);
   }
   leds.show();
-  
+
   // Flash downstream modules
   for (int m = 1; m < numModulesInChain; m++) {
     for (int i = 0; i < NUM_KEYS; i++) {
@@ -159,7 +167,7 @@ void flashWhiteAnimation() {
   }
 
   delay(RECORD_FLASH_HOLD);
-  
+
   // Turn off master module
   for (int i = 0; i < NUM_KEYS; i++) {
     leds.setPixelColor(keys[i].ledIndex, 0);
@@ -169,4 +177,3 @@ void flashWhiteAnimation() {
   // Turn off downstream modules
   DownstreamSerial.write("x\n", 2);
 }
-
