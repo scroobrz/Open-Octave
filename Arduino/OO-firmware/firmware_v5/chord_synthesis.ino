@@ -138,8 +138,8 @@ void playPressedKeys() {
            float hammerNoise = 0.3f * noise + 0.7f * prevNoise;
            prevNoise = hammerNoise;
            
-           // Mix them together: 50% Triangle, 30% Sawtooth, 20% Hammer Noise
-           ksDelayLines[i][j] = (tri * 0.5f) + (saw * 0.3f) + (hammerNoise * 0.2f);
+           // Mix them together: 60% Triangle, 20% Sawtooth, 20% Hammer Noise
+           ksDelayLines[i][j] = (tri * 0.6f) + (saw * 0.2f) + (hammerNoise * 0.2f);
         }
         ksDelayPointers[i] = 0;
       }
@@ -175,9 +175,10 @@ void playPressedKeys() {
     for (int h = 0; h < NUM_HARMONICS; h++) totalHarmonicWeight += HARMONICS[h][1];
     voiceVolume = VOLUME / (maxPolyphony * totalHarmonicWeight);
   } else {
-    // The soft hammer filter lowers the overall energy of the KS string, 
-    // so we can safely boost the output volume.
-    voiceVolume = (VOLUME * 2.5f) / maxPolyphony;
+    // We boost the volume slightly to compensate for the soft hammer, 
+    // but limit the multiplier to 1.25x to ensure that 4-note chords do not 
+    // exceed the maximum digital amplitude and cause hard-clipping distortion.
+    voiceVolume = (VOLUME * 1.25f) / maxPolyphony;
   }
 
   for (int s = 0; s < DMA_BUF_LEN; s++) {
