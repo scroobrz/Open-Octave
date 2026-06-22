@@ -175,10 +175,9 @@ void playPressedKeys() {
     for (int h = 0; h < NUM_HARMONICS; h++) totalHarmonicWeight += HARMONICS[h][1];
     voiceVolume = VOLUME / (maxPolyphony * totalHarmonicWeight);
   } else {
-    // We boost the volume slightly to compensate for the soft hammer, 
-    // but limit the multiplier to 1.25x to ensure that 4-note chords do not 
-    // exceed the maximum digital amplitude and cause hard-clipping distortion.
-    voiceVolume = (VOLUME * 1.25f) / maxPolyphony;
+    // We boost the volume significantly, but we will use a soft-clipping 
+    // saturation curve below to cleanly compress chords without hard distortion.
+    voiceVolume = (VOLUME * 3.0f) / maxPolyphony;
   }
 
   for (int s = 0; s < DMA_BUF_LEN; s++) {
@@ -241,12 +240,13 @@ void playPressedKeys() {
       mixedSample += noteSample;
     }
 
-    // Calculate final PCM value and hard-clip to prevent integer overflow wrapping
-    float pcmFloat = mixedSample * voiceVolume * 32767.0f;
-    if (pcmFloat > 32767.0f) pcmFloat = 32767.0f;
-    if (pcmFloat < -32768.0f) pcmFloat = -32768.0f;
+    // Calculate final PCM value using soft-clipping (analog tube saturation curve)
+    // tanhf() smoothly compresses peaks that exceed 1.0, making chords sound 
+    // loud and warm without the harsh digital hard-clipping buzz.
+    float x = mixedSample * voiceVolume;
+    float saturated = tanhf(x);
     
-    int16_t pcmSample = (int16_t)pcmFloat;
+    int16_t pcmSample = (int16_t)(saturated * 32767.0f);
     sampleBuf[s * 2]     = pcmSample;
     sampleBuf[s * 2 + 1] = pcmSample;
   }
