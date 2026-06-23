@@ -526,28 +526,12 @@ void processSingleCharCommand(char cmd) {
       LOGLN("         CURRENT SEQUENCE");
       LOGLN("========================================");
       LOGF("  Name: %s\n", currentSequence.name);
-      LOGF("  Length: %d steps\n", currentSequence.length);
-      for (int i = 0; i < currentSequence.length; i++) {
-        const SequenceStep &s = currentSequence.steps[i];
-        // Build dot-separated key and color list strings
-        char keyStr[24];
-        uint8_t pos = 0;
-        for (uint8_t k = 0; k < s.numKeys && pos < sizeof(keyStr) - 4; k++) {
-          if (k > 0) keyStr[pos++] = '.';
-          pos += snprintf(&keyStr[pos], sizeof(keyStr) - pos, "%d", s.keys[k]);
-        }
-        keyStr[pos] = '\0';
-
-        char colorStr[80];
-        pos = 0;
-        for (uint8_t k = 0; k < s.numKeys && pos < sizeof(colorStr) - 12; k++) {
-          if (k > 0) { colorStr[pos++] = ','; colorStr[pos++] = ' '; }
-          pos += snprintf(&colorStr[pos], sizeof(colorStr) - pos, "%s", getColorString(s.colors[k]));
-        }
-        colorStr[pos] = '\0';
-
-        LOGF("    Step %d: Keys %s, Colors [%s], Duration %dms\n",
-             i, keyStr, colorStr, s.duration);
+      LOGF("  Notes: %d\n", currentSequence.noteCount);
+      for (int i = 0; i < currentSequence.noteCount; i++) {
+        const SequenceNote &n = currentSequence.notes[i];
+        LOGF("    Note %d: key=%d, color=%s, t=%lums, dur=%dms\n",
+             i, n.globalKey, getColorString(n.color),
+             (unsigned long)n.startTime, n.duration);
       }
       LOGLN("========================================\n");
       break;
@@ -640,26 +624,26 @@ void handleSequenceCommand(char *cmd){
 
       // Reset old upload buffer
       uploadingSequence = true;
-      uploadStepCount = 0;
+      uploadNoteCount = 0;
       memset(&uploadSequenceBuffer, 0, sizeof(uploadSequenceBuffer));
       uploadSequenceBuffer.id = -1;
 
       cmd++;
       if (processSequenceUploadCommand(cmd)){
         LOGF("[SEQ] Starting sequence upload (id=%d)...\n", uploadSequenceBuffer.id);
-        LOGF("ACK upload=begin i=%d s=%d\n", uploadSequenceBuffer.id, uploadSequenceBuffer.length);
+        LOGF("ACK upload=begin i=%d s=%d\n", uploadSequenceBuffer.id, uploadSequenceBuffer.noteCount);
       }
       break;
 
     case 'S':
       if (!uploadingSequence){
-        LOGLN("[SEQ] Sequence step definition command rejected as no sequence is currently being uploaded");
-      } else if (uploadStepCount >= MAX_SEQUENCE_LENGTH) {
-        LOGF("[SEQ] Sequence step definition command rejected: sequence is full (max %d)\n", MAX_SEQUENCE_LENGTH);
+        LOGLN("[SEQ] Sequence note definition command rejected as no sequence is currently being uploaded");
+      } else if (uploadNoteCount >= MAX_SEQUENCE_NOTES) {
+        LOGF("[SEQ] Sequence note definition command rejected: sequence is full (max %d)\n", MAX_SEQUENCE_NOTES);
       } else {
         cmd++;
-        if (processSequenceStepCommand(uploadStepCount, cmd)) {
-          uploadStepCount++;
+        if (processSequenceNoteCommand(uploadNoteCount, cmd)) {
+          uploadNoteCount++;
         }
       }
       break;
@@ -671,7 +655,7 @@ void handleSequenceCommand(char *cmd){
       } else {
         cmd++;
         if (processSequenceEndCommand(cmd)){
-          LOGF("[SEQ] Sequence upload complete (id=%d): %s (%d steps)\n", currentSequence.id, currentSequence.name, currentSequence.length);
+          LOGF("[SEQ] Sequence upload complete (id=%d): %s (%d notes)\n", currentSequence.id, currentSequence.name, currentSequence.noteCount);
           LOGF("ACK upload=end i=%d ok=1\n", currentSequence.id);
           emitStatus();
         }
@@ -731,23 +715,18 @@ bool processSequenceUploadCommand(char *cmd){
             break;
           }
 
-          // Number of steps
           case 's': {
-            // use endPtr to track how many characters were parsed
             char *endPtr;
-            int parsedSteps = (int)strtol(&cmd[i+2], &endPtr, 10);
-
-            // if endPtr is not the same as the start pointer, then the value was parsed
-            if (endPtr != &cmd[i+2] && parsedSteps > 0 && parsedSteps <= MAX_SEQUENCE_LENGTH) {
-              uploadSequenceBuffer.length = parsedSteps;
+            int parsedNotes = (int)strtol(&cmd[i+2], &endPtr, 10);
+            if (endPtr != &cmd[i+2] && parsedNotes > 0 && parsedNotes <= MAX_SEQUENCE_NOTES) {
+              uploadSequenceBuffer.noteCount = parsedNotes;
             } else {
-              LOGF("[SEQ] Sequence upload failed: invalid step count (max %d)\n", MAX_SEQUENCE_LENGTH);
-              LOGLN("ERR upload=invalid_step_count");
+              LOGF("[SEQ] Sequence upload failed: invalid note count (max %d)\n", MAX_SEQUENCE_NOTES);
+              LOGLN("ERR upload=invalid_note_count");
               emitStatus();
               uploadingSequence = false;
               valid = false;
             }
-
             break;
           }
 
@@ -762,197 +741,130 @@ bool processSequenceUploadCommand(char *cmd){
   return valid;
 }
 
-bool processSequenceStepCommand(uint8_t stepIndex, char *cmd){
-  uint8_t numKeys = 0;
-  uint8_t stepKeys[MAX_KEYS_PER_STEP] = {0};
-  uint8_t numColors = 0;
-  uint32_t stepColors[MAX_KEYS_PER_STEP] = {0};
-  uint16_t duration = 0;
+bool processSequenceNoteCommand(uint16_t noteIndex, char *cmd) {
+  int key = -1;
+  uint32_t color = 0;     bool haveColor = false;
+  uint32_t startTime = 0;                          // defaults to 0 if t= omitted
+  uint16_t duration = 0;  bool haveDuration = false;
 
   bool valid = true;
   int i = 0;
   while (cmd[i] != '\n' && cmd[i] != '\0') {
-    // Make sure we have enough characters remaining to verify '=' and capture at least a 1-character value
     if (cmd[i+1] != '\0' && cmd[i+1] != '\n' &&
         cmd[i+2] != '\0' && cmd[i+2] != '\n') {
-
-      // Only read characters at the start of the string or succeeding a space
-      if ((i == 0 || cmd[i-1] == ' ') && cmd[i+1] == '=') {
-
+      if ((i == 0 || cmd[i-1] == ' ') && cmd[i+1] == ''='') {
         toLowercase(cmd[i]);
-        switch (cmd[i]){
-          // Key indices — supports dot-separated multi-key format: k=1.3.4
+        switch (cmd[i]) {
           case 'k': {
-            char *ptr = &cmd[i+2];
             char *endPtr;
-
-            while (numKeys < MAX_KEYS_PER_STEP) {
-              int parsedKey = (int)strtol(ptr, &endPtr, 10);
-
-              if (endPtr == ptr) {
-                // No number parsed at all
-                LOGF("[SEQ] Step %d: invalid key index\n", stepIndex);
-                valid = false;
-                break;
-              }
-
-              if (parsedKey < 0 || parsedKey >= MAX_TOTAL_KEYS) {
-                LOGF("[SEQ] Step %d: key index %d out of range\n", stepIndex, parsedKey);
-                valid = false;
-                break;
-              }
-
-              stepKeys[numKeys++] = (uint8_t)parsedKey;
-
-              // If next char is '.', skip it and parse the next key
-              if (*endPtr == '.') {
-                ptr = endPtr + 1;
-              } else {
-                break;  // End of key list (space, null, or newline)
-              }
-            }
-
-            if (numKeys == 0) {
-              LOGF("[SEQ] Step %d: no keys provided\n", stepIndex);
+            int parsed = (int)strtol(&cmd[i+2], &endPtr, 10);
+            if (endPtr == &cmd[i+2] || parsed < 0 || parsed >= MAX_TOTAL_KEYS) {
+              LOGF("[SEQ] Note %d: invalid key index\n", noteIndex);
               valid = false;
-            }
-
+            } else key = parsed;
             break;
           }
-
-          // LED Colors — supports dot-separated multi-color format: c=0000FF.FFFF00.FF00FF
           case 'c': {
-            char *ptr = &cmd[i+2];
             char *endPtr;
-
-            while (numColors < MAX_KEYS_PER_STEP) {
-              uint32_t parsedColor = strtoul(ptr, &endPtr, 16);
-
-              if (endPtr == ptr) {
-                LOGF("[SEQ] Step %d: invalid color value\n", stepIndex);
-                valid = false;
-                break;
-              }
-
-              stepColors[numColors++] = parsedColor;
-
-              // If next char is '.', skip it and parse the next color
-              if (*endPtr == '.') {
-                ptr = endPtr + 1;
-              } else {
-                break;  // End of color list (space, null, or newline)
-              }
-            }
-
-            if (numColors == 0 && valid) {
-              LOGF("[SEQ] Step %d: no colors provided\n", stepIndex);
+            uint32_t parsed = strtoul(&cmd[i+2], &endPtr, 16);
+            if (endPtr == &cmd[i+2]) {
+              LOGF("[SEQ] Note %d: invalid color\n", noteIndex);
               valid = false;
-            }
-
+            } else { color = parsed; haveColor = true; }
             break;
           }
-
-          // Note duration
+          case 't': {
+            char *endPtr;
+            unsigned long parsed = strtoul(&cmd[i+2], &endPtr, 10);
+            if (endPtr == &cmd[i+2]) {
+              LOGF("[SEQ] Note %d: invalid start time\n", noteIndex);
+              valid = false;
+            } else startTime = (uint32_t)parsed;
+            break;
+          }
           case 'd': {
-            int parsedDuration = atoi(&cmd[i+2]);
-
-            if (parsedDuration >= MIN_STEP_DURATION && parsedDuration <= MAX_STEP_DURATION) {
-              duration = parsedDuration;
+            int parsed = atoi(&cmd[i+2]);
+            if (parsed >= MIN_STEP_DURATION && parsed <= MAX_STEP_DURATION) {
+              duration = (uint16_t)parsed; haveDuration = true;
             } else {
-              LOGF("[SEQ] Step %d: invalid duration\n", stepIndex);
+              LOGF("[SEQ] Note %d: invalid duration\n", noteIndex);
               valid = false;
             }
-
             break;
           }
-
-          default:
-            break;
+          default: break;
         }
       }
     }
     i++;
   }
 
-  if (!valid) {
-    LOGF("[SEQ] Step %d REJECTED due to invalid fields\n", stepIndex);
-    return false;
-  }
+  if (key < 0)       { LOGF("[SEQ] Note %d: missing key\n", noteIndex);      valid = false; }
+  if (!haveColor)    { LOGF("[SEQ] Note %d: missing color\n", noteIndex);    valid = false; }
+  if (!haveDuration) { LOGF("[SEQ] Note %d: missing duration\n", noteIndex); valid = false; }
 
-  // Build the step — if fewer colors than keys, repeat the last color
-  SequenceStep step;
-  step.numKeys = numKeys;
-  step.duration = duration;
-  for (uint8_t k = 0; k < numKeys; k++) {
-    step.keys[k] = stepKeys[k];
-    step.colors[k] = (k < numColors) ? stepColors[k] : stepColors[numColors - 1];
-  }
+  if (!valid) { LOGF("[SEQ] Note %d REJECTED\n", noteIndex); return false; }
 
-  // Log with dot-separated key and color lists for readability
-  char keyStr[24];
-  uint8_t pos = 0;
-  for (uint8_t k = 0; k < numKeys && pos < sizeof(keyStr) - 4; k++) {
-    if (k > 0) keyStr[pos++] = '.';
-    pos += snprintf(&keyStr[pos], sizeof(keyStr) - pos, "%d", stepKeys[k]);
-  }
-  keyStr[pos] = '\0';
+  SequenceNote note;
+  note.startTime = startTime;
+  note.duration  = duration;
+  note.globalKey = (uint8_t)key;
+  note._pad      = 0;
+  note.color     = color;
+  uploadSequenceBuffer.notes[noteIndex] = note;
 
-  char colorStr[56];  // e.g. "0000FF.FFFF00.FF00FF"
-  pos = 0;
-  for (uint8_t k = 0; k < numColors && pos < sizeof(colorStr) - 8; k++) {
-    if (k > 0) colorStr[pos++] = '.';
-    pos += snprintf(&colorStr[pos], sizeof(colorStr) - pos, "%06X", stepColors[k]);
-  }
-  colorStr[pos] = '\0';
-
-  LOGF("[SEQ] Uploaded step %d: keys=%s, colors=%s, duration=%dms\n", stepIndex, keyStr, colorStr, duration);
-  uploadSequenceBuffer.steps[stepIndex] = step;
+  LOGF("[SEQ] Uploaded note %d: key=%d, color=%s, t=%lu, d=%dms\n",
+       noteIndex, key, getColorString(color), (unsigned long)startTime, duration);
   return true;
 }
 
-bool processSequenceEndCommand(char *cmd){
+bool processSequenceEndCommand(char *cmd) {
   int endSeqId = -1;
-
-  // Parse the i= (sequence ID) field if present
   int i = 0;
   while (cmd[i] != '\n' && cmd[i] != '\0') {
-    if ((i == 0 || cmd[i-1] == ' ') && cmd[i+1] == '=') {
+    if ((i == 0 || cmd[i-1] == ' ') && cmd[i+1] == ''='') {
       toLowercase(cmd[i]);
-      if (cmd[i] == 'i') {
-        endSeqId = atoi(&cmd[i+2]);
-      }
+      if (cmd[i] == 'i') endSeqId = atoi(&cmd[i+2]);
     }
     i++;
   }
 
   uploadingSequence = false;
 
-  if (endSeqId != uploadSequenceBuffer.id){
-    LOGF("[SEQ] Sequence upload failed: ID mismatch; expected %d, got %d\n", uploadSequenceBuffer.id, endSeqId);
+  if (endSeqId != uploadSequenceBuffer.id) {
+    LOGF("[SEQ] Upload failed: ID mismatch; expected %d, got %d\n", uploadSequenceBuffer.id, endSeqId);
     LOGLN("ERR upload=id_mismatch");
     emitStatus();
     return false;
   }
-
-  if (uploadStepCount == 0){
-    LOGF("[SEQ] Sequence upload failed: No steps provided\n");
-    LOGLN("ERR upload=no_steps");
+  if (uploadNoteCount == 0) {
+    LOGF("[SEQ] Upload failed: No notes provided\n");
+    LOGLN("ERR upload=no_notes");
     emitStatus();
     return false;
-  } else if (uploadStepCount != uploadSequenceBuffer.length) {
-    LOGF("[SEQ] Upload failed: expected %d steps, received %d\n", uploadSequenceBuffer.length, uploadStepCount);
-    LOGLN("ERR upload=step_count_mismatch");
+  }
+  if (uploadNoteCount != uploadSequenceBuffer.noteCount) {
+    LOGF("[SEQ] Upload failed: expected %d notes, received %d\n", uploadSequenceBuffer.noteCount, uploadNoteCount);
+    LOGLN("ERR upload=note_count_mismatch");
     emitStatus();
     return false;
   }
 
-  // If a name wasn't properly provided, set a default name
-  if (strlen(uploadSequenceBuffer.name) == 0) {
-    strcpy(uploadSequenceBuffer.name, "Unnamed");
+  if (strlen(uploadSequenceBuffer.name) == 0) strcpy(uploadSequenceBuffer.name, "Unnamed");
+
+  // Defensive: ensure notes are sorted by startTime (playback engine requires it).
+  for (uint16_t a = 1; a < uploadSequenceBuffer.noteCount; a++) {
+    SequenceNote key = uploadSequenceBuffer.notes[a];
+    int b = a - 1;
+    while (b >= 0 && uploadSequenceBuffer.notes[b].startTime > key.startTime) {
+      uploadSequenceBuffer.notes[b + 1] = uploadSequenceBuffer.notes[b];
+      b--;
+    }
+    uploadSequenceBuffer.notes[b + 1] = key;
   }
 
   currentSequence = uploadSequenceBuffer;
-  uploadStepCount = 0;
+  uploadNoteCount = 0;
   return true;
 }
 
