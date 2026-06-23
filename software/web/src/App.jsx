@@ -1255,6 +1255,7 @@ export default function App() {
                 <option value="ks-overdrive">Overdriven Lead</option>
                 <option value="ks-harpsichord">Harpsichord</option>
                 <option value="hammond-organ">Hammond Organ</option>
+                <option value="synth-brass">Synth Brass</option>
                 <option value="additive">Sine Wave Synth</option>
               </select>
             </div>

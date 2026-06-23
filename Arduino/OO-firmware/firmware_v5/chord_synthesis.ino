@@ -199,6 +199,9 @@ void playPressedKeys() {
     voiceVolume = (VOLUME * 1.2f) / maxPolyphony;
   } else if (currentSynthMode == SYNTH_KS_HARPSICHORD) {
     voiceVolume = (VOLUME * 2.0f) / maxPolyphony;
+  } else if (currentSynthMode == SYNTH_SYNTH_BRASS) {
+    // Sawtooth has lots of harmonic energy
+    voiceVolume = (VOLUME * 0.6f) / maxPolyphony;
   } else {
     // We boost the volume to a middle ground
     // This provides a loud baseline while keeping the tanh() soft-clipping 
@@ -215,6 +218,9 @@ void playPressedKeys() {
           // Fast attack (takes ~200 samples / 5ms to reach 1.0) to remove the hard click 
           // of an instant start, mimicking a felt hammer pushing the string.
           envelopes[keyIdx].value = min(1.0f, envelopes[keyIdx].value + 0.005f);
+        } else if (currentSynthMode == SYNTH_SYNTH_BRASS) {
+          // Slow attack (takes ~4000 samples / 90ms to reach 1.0) for a swelling brass/pad effect
+          envelopes[keyIdx].value = min(1.0f, envelopes[keyIdx].value + 0.00025f);
         } else {
           envelopes[keyIdx].value = min(1.0f, envelopes[keyIdx].value + ATTACK_PER_SAMPLE);
         }
@@ -251,6 +257,16 @@ void playPressedKeys() {
             phaseAccumulators[keyIdx][h] -= SINE_TABLE_SIZE;
 
           noteSample += sineTable[(int)phaseAccumulators[keyIdx][h]] * weight;
+        }
+      } else if (currentSynthMode == SYNTH_SYNTH_BRASS) {
+        float harmonicFreq = freq;
+        if (harmonicFreq < SAMPLE_RATE / 2) {
+          phaseAccumulators[keyIdx][0] += (float)SINE_TABLE_SIZE * harmonicFreq / SAMPLE_RATE;
+          if (phaseAccumulators[keyIdx][0] >= SINE_TABLE_SIZE)
+            phaseAccumulators[keyIdx][0] -= SINE_TABLE_SIZE;
+            
+          float phase = phaseAccumulators[keyIdx][0] / (float)SINE_TABLE_SIZE;
+          noteSample = 2.0f * phase - 1.0f; // Raw Sawtooth
         }
       } else if (currentSynthMode == SYNTH_KARPLUS_STRONG || currentSynthMode == SYNTH_KS_OVERDRIVE || currentSynthMode == SYNTH_KS_HARPSICHORD) {
         int delayLen = (int)(SAMPLE_RATE / freq);

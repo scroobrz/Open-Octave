@@ -1069,6 +1069,8 @@ app.post('/api/modules/:ip/synth-mode', (req, res) => {
             serialCmd = 'm3';
         } else if (mode === 'hammond-organ') {
             serialCmd = 'm4';
+        } else if (mode === 'synth-brass') {
+            serialCmd = 'm5';
         } else {
             res.status(400).json({ ok: false, error: 'invalid synth mode' });
             return;

@@ -186,6 +186,8 @@ void handleCommandsFromUpstream(){
             currentSynthMode = SYNTH_KS_HARPSICHORD;
           } else if (upstreamSerialBuf[1] == '4') {
             currentSynthMode = SYNTH_HAMMOND_ORGAN;
+          } else if (upstreamSerialBuf[1] == '5') {
+            currentSynthMode = SYNTH_SYNTH_BRASS;
           }
           // Pass the message further down the chain
           DownstreamSerial.write((uint8_t *)upstreamSerialBuf, upstreamSerialBufPos);
@@ -423,6 +425,9 @@ void handleUsbSerialCommands() {
         } else if (serialBuf[1] == '4') {
           currentSynthMode = SYNTH_HAMMOND_ORGAN;
           LOGLN("[CMD] Received: Set Synth Mode -> Hammond Organ");
+        } else if (serialBuf[1] == '5') {
+          currentSynthMode = SYNTH_SYNTH_BRASS;
+          LOGLN("[CMD] Received: Set Synth Mode -> Synth Brass");
         }
         // Broadcast down the chain
         DownstreamSerial.write((uint8_t*)serialBuf, serialBufPos);
@@ -508,6 +513,9 @@ void handleWebSocketCommand(char *cmd, size_t length){
     } else if (cmd[1] == '4') {
       currentSynthMode = SYNTH_HAMMOND_ORGAN;
       LOGLN("[CMD] Received: Set Synth Mode -> Hammond Organ");
+    } else if (cmd[1] == '5') {
+      currentSynthMode = SYNTH_SYNTH_BRASS;
+      LOGLN("[CMD] Received: Set Synth Mode -> Synth Brass");
     }
     // Broadcast to downstream modules
     DownstreamSerial.write((uint8_t*)cmd, length);
