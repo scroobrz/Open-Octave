@@ -48,6 +48,7 @@ void sendHeartbeat() {
   if (isMaster && millis() - timeLastHeartbeatSent >= HEARTBEAT_INTERVAL) {
     DownstreamSerial.write(CHAIN_HEARTBEAT_BYTE);
     DownstreamSerial.write(moduleChainIndex + 1);
+    DownstreamSerial.write(currentEffectiveOctave);
     timeLastHeartbeatSent = millis();
   }
 }
@@ -84,13 +85,13 @@ void handleSerialFromUpstream(){
     uint8_t byte = UpstreamSerial.peek();
 
     if (byte == CHAIN_HEARTBEAT_BYTE){
-      // wait for both bytes
-      if (UpstreamSerial.available() < 2) {
+      // wait for all 3 bytes
+      if (UpstreamSerial.available() < 3) {
         return;
       }
 
-      UpstreamSerial.read(); // conusme
-      handleHeartbeatFromUpstream(UpstreamSerial.read());
+      UpstreamSerial.read(); // consume
+      handleHeartbeatFromUpstream(UpstreamSerial.read(), UpstreamSerial.read());
     } else {
       handleCommandsFromUpstream();
     }
@@ -125,25 +126,43 @@ void handleCommandsFromUpstream(){
         upstreamSerialBuf[upstreamSerialBufPos] = '\0';
         char cmdType = upstreamSerialBuf[0];
 
-        // Is it a single-char slave command (x, b)?
-        // We ensure there are no extra parameters by checking if the next character is the null terminator or a trailing carriage return.
-        if ((upstreamSerialBuf[1] == '\0' || upstreamSerialBuf[1] == '\r') && (cmdType == 'x' || cmdType == 'b')) {
-          if (cmdType == 'x') {
-            for (int i = 0; i < NUM_KEYS; i++) {
-              resetKey(i);
-            }
-            
-            if (sequenceRunning && currentSequenceMode == BROADCAST) {
-              sequenceRunning = false;
-              configureNotes();
-            }
-
-            DownstreamSerial.write("x\n", 2);
-          } else if (cmdType == 'b') {
-            currentSequenceMode = BROADCAST;
-            sequenceRunning = true;
+        // Is it a single-char slave command (x)?
+        if ((upstreamSerialBuf[1] == '\0' || upstreamSerialBuf[1] == '\r') && cmdType == 'x') {
+          for (int i = 0; i < NUM_KEYS; i++) {
+            resetKey(i);
+          }
+          
+          if (sequenceRunning && currentSequenceMode == BROADCAST) {
+            sequenceRunning = false;
             configureNotes();
-            DownstreamSerial.write("b\n", 2);
+          }
+
+          DownstreamSerial.write("x\n", 2);
+        }
+        else if (cmdType == 'b') {
+          char *endPtr;
+          int parsedOctave = (int)strtol(&upstreamSerialBuf[1], &endPtr, 10);
+          if (endPtr != &upstreamSerialBuf[1]) {
+            broadcastMasterOctave = parsedOctave;
+          }
+          currentSequenceMode = BROADCAST;
+          sequenceRunning = true;
+          configureNotes();
+          DownstreamSerial.write((uint8_t *)upstreamSerialBuf, upstreamSerialBufPos);
+          DownstreamSerial.write('\n');
+        }
+        else if (cmdType == 'o') {
+          char *endPtr;
+          int targetModule = (int)strtol(&upstreamSerialBuf[1], &endPtr, 10);
+          if (*endPtr == '.') {
+            int targetOctave = (int)strtol(endPtr + 1, NULL, 10);
+            if (targetModule == moduleChainIndex) {
+              currentOctave = targetOctave;
+              configureNotes();
+            } else if (targetModule > moduleChainIndex) {
+              DownstreamSerial.write((uint8_t *)upstreamSerialBuf, upstreamSerialBufPos);
+              DownstreamSerial.write('\n');
+            }
           }
         }
         // Is it a slave hardware-override command (t, g, r)?
@@ -197,7 +216,7 @@ void handleCommandsFromUpstream(){
   }
 }
 
-void handleHeartbeatFromUpstream(uint8_t num){
+void handleHeartbeatFromUpstream(uint8_t num, uint8_t upstreamEffectiveOctave){
   // Reject implausible chain indices — likely UART noise during cable insertion
   if (num >= MAX_MODULES) {
     LOGF("[CHAIN] Ignoring bogus upstream heartbeat: index=%d (max=%d)\n", num, MAX_MODULES - 1);
@@ -212,7 +231,17 @@ void handleHeartbeatFromUpstream(uint8_t num){
     demoteToSlave();
   }
 
-  if (moduleChainIndex != num) {
+  bool octaveChanged = false;
+  if (currentOctave == 0 && upstreamEffectiveOctave != 0) {
+    uint8_t newOctave = upstreamEffectiveOctave + 1;
+    if (newOctave > 7) newOctave = 7;
+    if (currentEffectiveOctave != newOctave) {
+      currentOctave = newOctave;
+      octaveChanged = true;
+    }
+  }
+
+  if (moduleChainIndex != num || octaveChanged) {
     moduleChainIndex = num;
     configureNotes();
   }
@@ -220,6 +249,7 @@ void handleHeartbeatFromUpstream(uint8_t num){
   // Forward heartbeat downstream
   DownstreamSerial.write(CHAIN_HEARTBEAT_BYTE);
   DownstreamSerial.write(moduleChainIndex + 1);
+  DownstreamSerial.write(currentEffectiveOctave);
 
   // Reply upstream
   UpstreamSerial.write(CHAIN_HEARTBEAT_BYTE);
@@ -386,6 +416,9 @@ void handleUsbSerialCommands() {
       if (serialBufPos == 0) {
         // ignore empty lines / trailing CR
         continue;
+      } else if (serialBuf[0] == 'o' && serialBufPos > 2) {
+        serialBuf[serialBufPos] = '\0';
+        handleOctaveCommand(serialBuf);
       } else if (serialBufPos == 1) {
         // regular single-character command
         processSingleCharCommand(serialBuf[0]);
@@ -450,12 +483,33 @@ void handleWebSocketCommand(char *cmd, size_t length){
     return;
   }
 
-  if (length == 1){
+  if (length > 2 && cmd[0] == 'o') {
+    handleOctaveCommand(cmd);
+  } else if (length == 1){
     // regular single-character command
     processSingleCharCommand(cmd[0]);
   } else if (length > 1){
     // sequence command; string of characters
     handleSequenceCommand(cmd);
+  }
+}
+
+void handleOctaveCommand(char *cmd) {
+  char *endPtr;
+  int targetModule = (int)strtol(&cmd[1], &endPtr, 10);
+  if (*endPtr == '.') {
+    int targetOctave = (int)strtol(endPtr + 1, NULL, 10);
+    if (targetModule == moduleChainIndex) {
+      currentOctave = targetOctave;
+      configureNotes();
+      LOGF("ACK cmd=o ok=1 module=%d octave=%d\n", targetModule, targetOctave);
+    } else {
+      DownstreamSerial.write((uint8_t *)cmd, strlen(cmd));
+      DownstreamSerial.write('\n');
+      LOGF("ACK cmd=o ok=1 module=%d forwarded\n", targetModule);
+    }
+  } else {
+    LOGLN("ERR cmd=o reason=invalid_format");
   }
 }
 

@@ -13,6 +13,7 @@ void demoteToSlave(){
     sendByeToController();
 
     isMaster = false;
+    currentOctave = 0;
 
     // Flush serial buffers to discard any UART noise accumulated during
     // the physical cable insertion that triggered this role change.
@@ -38,9 +39,26 @@ const int baseNoteFreqs[NUM_KEYS] = {
 };
 
 void configureNotes(){
-    uint8_t indexToUse = (sequenceRunning && currentSequenceMode == BROADCAST) ? 0 : moduleChainIndex;
-    LOGF("[SETUP] Configuring notes for module index %d (octave shift: %d)\n", moduleChainIndex, indexToUse);
+    if (sequenceRunning && currentSequenceMode == BROADCAST) {
+        currentEffectiveOctave = broadcastMasterOctave;
+    } else if (currentOctave != 0) {
+        currentEffectiveOctave = currentOctave;
+    } else {
+        // Fallback: Default to Octave 4 + index
+        currentEffectiveOctave = 4 + moduleChainIndex;
+        // Cap at 7
+        if (currentEffectiveOctave > 7) currentEffectiveOctave = 7;
+    }
+
+    LOGF("[SETUP] Configuring notes for module index %d (effective octave: %d)\n", moduleChainIndex, currentEffectiveOctave);
+    
+    int8_t shift = (int8_t)currentEffectiveOctave - 4;
+
     for (int i = 0; i < NUM_KEYS; i++) {
-        keys[i].noteFreq = baseNoteFreqs[i] << indexToUse;
+        if (shift < 0) {
+            keys[i].noteFreq = baseNoteFreqs[i] >> (-shift);
+        } else {
+            keys[i].noteFreq = baseNoteFreqs[i] << shift;
+        }
     }
 }

@@ -101,6 +101,26 @@ TEST_F(SlaveControlTest, DemoteToSlave_ConfiguresStateCorrectly) {
     ASSERT_FALSE(isMaster);
     // moduleIndex should be preserved
     ASSERT_EQ(moduleChainIndex, 2);
+    // currentOctave should be reset
+    ASSERT_EQ(currentOctave, 0);
+}
+
+TEST_F(SlaveControlTest, ConfigureNotes_ManualOctaveAbsolute) {
+    moduleChainIndex = 0; // Default would be octave 4 (shift 0)
+    currentOctave = 5;    // Force octave 5 (shift +1)
+    
+    configureNotes();
+    
+    ASSERT_EQ(keys[0].noteFreq, 262 << 1);
+}
+
+TEST_F(SlaveControlTest, ConfigureNotes_ManualOctaveNegativeShift) {
+    moduleChainIndex = 1; // Default would be octave 5 (shift 1)
+    currentOctave = 3;    // Force octave 3 (shift -1)
+    
+    configureNotes();
+    
+    ASSERT_EQ(keys[0].noteFreq, 262 >> 1);
 }
 
 } // namespace

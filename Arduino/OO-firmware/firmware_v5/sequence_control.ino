@@ -191,7 +191,9 @@ void startSequence(SequenceMode mode) {
   if (currentSequenceMode != BROADCAST) {
     executeCurrentSequenceStep();
   } else {
-    DownstreamSerial.write("b\n", 2);
+    char bCmd[16];
+    snprintf(bCmd, sizeof(bCmd), "b%d\n", currentEffectiveOctave);
+    DownstreamSerial.write((uint8_t*)bCmd, strlen(bCmd));
   }
 }
 
