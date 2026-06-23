@@ -1052,6 +1052,29 @@ app.post('/api/modules/:ip/control', (req, res) => {
     }
 });
 
+// POST /api/modules/:ip/synth-mode — set synth mode on a specific module
+app.post('/api/modules/:ip/synth-mode', (req, res) => {
+    try {
+        const ip = req.params.ip;
+        const mode = req.body?.mode; // 'additive' | 'karplus-strong'
+
+        let serialCmd;
+        if (mode === 'additive') {
+            serialCmd = 'm0';
+        } else if (mode === 'karplus-strong') {
+            serialCmd = 'm1';
+        } else {
+            res.status(400).json({ ok: false, error: 'mode must be additive or karplus-strong' });
+            return;
+        }
+
+        const result = sendToModule(ip, serialCmd);
+        res.json({ ok: !result.error, ...result });
+    } catch (e) {
+        res.status(500).json({ ok: false, error: e.message });
+    }
+});
+
 // POST /api/modules/:ip/octave-offset — set chain octave offset on a specific module
 // app.post('/api/modules/:ip/octave-offset', (req, res) => {
 //     try {

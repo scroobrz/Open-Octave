@@ -175,6 +175,17 @@ void handleCommandsFromUpstream(){
             DownstreamSerial.write('\n');
           }
         }
+        // Is it a synth mode command (m0, m1)?
+        else if (cmdType == 'm' && upstreamSerialBuf[1] != '\0') {
+          if (upstreamSerialBuf[1] == '0') {
+            currentSynthMode = SYNTH_ADDITIVE;
+          } else if (upstreamSerialBuf[1] == '1') {
+            currentSynthMode = SYNTH_KARPLUS_STRONG;
+          }
+          // Pass the message further down the chain
+          DownstreamSerial.write((uint8_t *)upstreamSerialBuf, upstreamSerialBufPos);
+          DownstreamSerial.write('\n');
+        }
       }
 
       // Reset buffer for next line
@@ -453,6 +464,18 @@ void handleWebSocketCommand(char *cmd, size_t length){
   if (length == 1){
     // regular single-character command
     processSingleCharCommand(cmd[0]);
+  } else if (length == 2 && cmd[0] == 'm') {
+    // synth mode command
+    if (cmd[1] == '0') {
+      currentSynthMode = SYNTH_ADDITIVE;
+      LOGLN("[CMD] Received: Set Synth Mode -> Additive");
+    } else if (cmd[1] == '1') {
+      currentSynthMode = SYNTH_KARPLUS_STRONG;
+      LOGLN("[CMD] Received: Set Synth Mode -> Karplus-Strong");
+    }
+    // Broadcast to downstream modules
+    DownstreamSerial.write((uint8_t*)cmd, length);
+    DownstreamSerial.write('\n');
   } else if (length > 1){
     // sequence command; string of characters
     handleSequenceCommand(cmd);

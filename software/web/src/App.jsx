@@ -210,8 +210,9 @@ export default function App() {
   const [dbSeqError, setDbSeqError] = useState('');
   const [dbActionBusy, setDbActionBusy] = useState(false);
 
-  // Per-chain selected sequence (moduleIp -> sequenceId)
+  // Per-chain  // Used to map IP -> last selected sequence
   const [chainSequences, setChainSequences] = useState({});
+  const [chainSynthModes, setChainSynthModes] = useState({});
   // Per-chain cached full sequence data (moduleIp -> { steps: [...] })
   const [chainSeqData, setChainSeqData] = useState({});
 
@@ -337,6 +338,21 @@ export default function App() {
     }
     return items;
   }, [logs, logsPrefixedOnly, logsSearch]);
+
+  // ============ API MUTATIONS ============
+
+  async function changeSynthMode(ip, mode) {
+    try {
+      setDbActionBusy(true);
+      await apiPost(`/api/modules/${encodeURIComponent(ip)}/synth-mode`, { mode });
+      setChainSynthModes(prev => ({ ...prev, [ip]: mode }));
+    } catch (e) {
+      console.error(e);
+      alert(`Failed to set synth mode: ${e.message}`);
+    } finally {
+      setDbActionBusy(false);
+    }
+  }
 
   // ============ API FUNCTIONS ============
 
@@ -1223,6 +1239,20 @@ export default function App() {
                       {s.name} ({s.stepCount} steps)
                     </option>
                   ))}
+              </select>
+            </div>
+
+            <div className="row" style={{ gap: 10, alignItems: 'center', flexWrap: 'wrap', justifyContent: 'flex-start', width: '100%', marginTop: 8 }}>
+              <label className="label" style={{ marginBottom: 0 }}>Synth Mode</label>
+              <select
+                className="input"
+                style={{ maxWidth: 300 }}
+                value={chainSynthModes[mod.ip] || 'karplus-strong'}
+                onChange={(e) => changeSynthMode(mod.ip, e.target.value)}
+                disabled={dbActionBusy || !mod.connected}
+              >
+                <option value="karplus-strong">Piano / Clavinet</option>
+                <option value="additive">Sine Wave Synth</option>
               </select>
             </div>
           </div>
