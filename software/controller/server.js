@@ -1052,40 +1052,35 @@ app.post('/api/modules/:ip/control', (req, res) => {
     }
 });
 
-// POST /api/modules/:ip/octave-offset — set chain octave offset on a specific module
-// app.post('/api/modules/:ip/octave-offset', (req, res) => {
-//     try {
-//         const ip = req.params.ip;
-//         const body = req.body || {};
-//         const rawOffset = body.octaveOffset;
-//         const octaveOffset = Number(rawOffset);
+// POST /api/modules/:ip/configure-octave — set chain absolute octave on a specific module
+app.post('/api/modules/:ip/configure-octave', (req, res) => {
+    try {
+        const ip = req.params.ip;
+        const body = req.body || {};
+        const targetModule = Number(body.moduleIndex);
+        const targetOctave = Number(body.targetOctave);
 
-//         if (!Number.isInteger(octaveOffset)) {
-//             res.status(400).json({ ok: false, error: 'octaveOffset must be an integer' });
-//             return;
-//         }
+        if (!Number.isInteger(targetModule) || !Number.isInteger(targetOctave)) {
+            res.status(400).json({ ok: false, error: 'moduleIndex and targetOctave must be integers' });
+            return;
+        }
 
-//         if (octaveOffset < 0 || octaveOffset > 2) {
-//             res.status(400).json({ ok: false, error: 'octaveOffset must be between 0 and 2' });
-//             return;
-//         }
+        if (targetOctave < 1 || targetOctave > 7) {
+            res.status(400).json({ ok: false, error: 'targetOctave must be between 1 and 7' });
+            return;
+        }
 
-//         const result = sendToModule(ip, `O v=${octaveOffset}`);
-//         if (result.error) {
-//             res.status(400).json({ ok: false, error: result.error });
-//             return;
-//         }
+        const result = sendToModule(ip, `o${targetModule}.${targetOctave}`);
+        if (result.error) {
+            res.status(400).json({ ok: false, error: result.error });
+            return;
+        }
 
-//         const entry = modules.get(ip);
-//         if (entry) {
-//             entry.octaveOffset = octaveOffset; // octave offset
-//         }
-
-//         res.json({ ok: true, module: ip, octaveOffset, result });
-//     } catch (e) {
-//         res.status(500).json({ ok: false, error: e.message });
-//     }
-// });
+        res.json({ ok: true, module: ip, targetModule, targetOctave, result });
+    } catch (e) {
+        res.status(500).json({ ok: false, error: e.message });
+    }
+});
 
 // midi import
 // POST /api/midi/import — upload a MIDI file and convert it into an Open Octave
