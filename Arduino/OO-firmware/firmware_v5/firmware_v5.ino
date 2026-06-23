@@ -75,18 +75,28 @@ unsigned long timeLastHeartbeatReceived = 0;
 unsigned long timeLastHeartbeatReplyReceived = 0;
 
 bool uploadingSequence = false;
-uint8_t uploadStepCount = 0;
 Sequence uploadSequenceBuffer;
 
 SequenceMode currentSequenceMode;
 Sequence currentSequence;
 bool sequenceRunning = false;
-int currentSequenceStepIndex = 0;
-unsigned long currentStepStartTime = 0;
 unsigned long lastSequenceButtonPressTime = 0;
 unsigned long promotionSuppressionTime = 0;  // suppress buttons briefly after promotion
-#define CURRENT_STEP currentSequence.steps[currentSequenceStepIndex]
-#define PREVIOUS_STEP currentSequence.steps[currentSequenceStepIndex - 1]
+
+// ---- Polyphonic playback state ----
+unsigned long sequenceStartTime = 0;            // millis() when sequence began
+uint16_t uploadNoteCount = 0;                   // notes received so far this upload
+bool noteStarted[MAX_SEQUENCE_NOTES];           // has this note been triggered?
+bool noteActive[MAX_SEQUENCE_NOTES];            // is this note currently sounding?
+uint16_t notesCompleted = 0;                    // count of released/finished notes
+unsigned long keyLastReleaseTime[MAX_TOTAL_KEYS]; // per-key servo-release tracking
+
+// ---- Guided-mode moment tracking ----
+uint16_t guidedMomentStart = 0;        // index of first note in current moment
+uint8_t  guidedMomentSize = 0;         // number of notes in current moment
+uint16_t guidedMomentHoldDuration = 0; // longest duration among moment notes
+bool     guidedMomentPresented = false;// have this moment's LEDs been lit?
+unsigned long guidedMomentPresentedTime = 0; // millis() when moment was lit
 
 // To keep track of key presses across other chained modules for the 
 // master to handle sequences
@@ -94,11 +104,9 @@ bool globalKeyIsPressed[MAX_TOTAL_KEYS] = {false};
 unsigned long globalKeyPressTime[MAX_TOTAL_KEYS] = {0};
 unsigned long toneStartTime[MAX_TOTAL_KEYS] = {0};
 
-bool waitingForServoRelease = false;
-unsigned long servoReleaseStartTime = 0;
-
 bool recording = false;
-uint8_t recStepCount = 0;
+uint16_t recNoteCount = 0;
+unsigned long recStartTime = 0;   // millis() captured at startRecording()
 // Per-key recording state — each slot tracks one independently-held key.
 // A slot is allocated on press and freed (after committing a step) on release.
 struct RecKeyState {
@@ -114,7 +122,6 @@ uint16_t testLogEventId = 0;
 int8_t testLogLastManualKey = -1;
 unsigned long testLogLastManualTime = 0;
 uint8_t testLogManualRepeatStreak = 0;
-unsigned long testLogExpectedNextStepStartTime = 0;
 int8_t testLogLastAutoKey = -1;
 uint8_t testLogAutoRepeatStreak = 0;
 
@@ -168,7 +175,7 @@ void setup() {
 
   LOGLN("[SETUP] Loading default sequence... ");
   loadDefaultSequence();
-  LOGF("OK (\"%s\", %d steps)\n", currentSequence.name, currentSequence.length);
+  LOGF("OK (\"%s\", %d notes)\n", currentSequence.name, currentSequence.noteCount);
 
   // ===== INITIALIZATION =====
   LOG("[SETUP] Configuring speaker... ");
