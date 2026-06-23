@@ -175,7 +175,7 @@ void playPressedKeys() {
     for (int h = 0; h < NUM_HARMONICS; h++) totalHarmonicWeight += HARMONICS[h][1];
     voiceVolume = VOLUME / (maxPolyphony * totalHarmonicWeight);
   } else {
-    // We boost the volume to a middle ground (1.8x). 
+    // We boost the volume to a middle ground
     // This provides a loud baseline while keeping the tanh() soft-clipping 
     // in its gentle "transparent" range, avoiding overdrive distortion on chords.
     voiceVolume = (VOLUME * 2.3f) / maxPolyphony;
