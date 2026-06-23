@@ -91,8 +91,8 @@ describe('generateUploadLinesFromData', () => {
     expect(result.ok).toBe(true);
     expect(result.lines).toEqual([
       'U i=12 n=Ode-To-Joy s=2',
-      'S k=0 c=0000FF d=400',
-      'S k=1 c=00FF00 d=500',
+      'S k=0 c=0000FF t=0 d=400',
+      'S k=1 c=00FF00 t=400 d=500',
       'E i=12'
     ]);
   });
@@ -114,8 +114,10 @@ describe('generateUploadLinesFromData', () => {
 
     expect(result.ok).toBe(true);
     expect(result.lines).toEqual([
-      'U i=7 n=Chord-Test s=1',
-      'S k=0.4.7 c=0000FF.00FF00.FFFF00 d=600',
+      'U i=7 n=Chord-Test s=3',
+      'S k=0 c=0000FF t=0 d=600',
+      'S k=4 c=00FF00 t=0 d=600',
+      'S k=7 c=FFFF00 t=0 d=600',
       'E i=7'
     ]);
   });
@@ -134,7 +136,7 @@ describe('generateUploadLinesFromData', () => {
     expect(result.ok).toBe(true);
     expect(result.lines).toEqual([
       'U i=3 n=Legacy-Song s=1',
-      'S k=2 c=0000FF d=300',
+      'S k=2 c=0000FF t=0 d=300',
       'E i=3'
     ]);
   });
@@ -288,11 +290,11 @@ describe('generateUploadLinesFromData', () => {
 
     expect(result.ok).toBe(true);
     expect(result.lines[1]).not.toContain('0000FF.00FF00');
-    expect(result.lines[1]).toMatch(/^S k=0\.1 c=/);
+    expect(result.lines[1]).toMatch(/^S k=0 c=/);
   });
 
   it('rejects sequences longer than firmware max', () => {
-    const steps = Array.from({ length: 129 }, () => ({
+    const steps = Array.from({ length: 513 }, () => ({
       keys: [0],
       colors: ['0000FF'],
       duration: 100
@@ -301,7 +303,7 @@ describe('generateUploadLinesFromData', () => {
     const result = sqlite.generateUploadLinesFromData(2, 'Too Long', { steps });
 
     expect(result.ok).toBeUndefined();
-    expect(result.error).toMatch(/only accepts up to 128 steps/i);
+    expect(result.error).toMatch(/only accepts up to 512 notes/i);
   });
 });
 

@@ -56,7 +56,7 @@ if (COLORS.alternativePalettes?.colorblind) {
 }
 
 // Firmware v5 hard-limits uploads to MAX_SEQUENCE_LENGTH (see firmware_V5_config.h).
-const FIRMWARE_MAX_SEQUENCE_LENGTH = 256;
+const FIRMWARE_MAX_SEQUENCE_NOTES = 512;
 
 // Firmware v5 parses `i=` (sequence id) using atoi(), so it must be numeric.
 const FIRMWARE_SEQUENCE_ID_REGEX = /^\d+$/;
@@ -318,20 +318,10 @@ function generateUploadLinesFromData(id, name, data, colorMode = 'default') {
     return { error: 'Sequence data.steps must be an array' };
   }
 
-  if (steps.length > FIRMWARE_MAX_SEQUENCE_LENGTH) {
-    return {
-      error:
-        `Sequence has ${steps.length} steps but firmware v5 only accepts up to ${FIRMWARE_MAX_SEQUENCE_LENGTH} steps per upload.`
-    };
-  }
-
-  const lines = [];
-  lines.push(`U i=${cleanId} n=${cleanName} s=${steps.length}`);
-
+  let tempNotes = [];
+  let currentStartTime = 0;
   for (let stepIndex = 0; stepIndex < steps.length; stepIndex++) {
     const step = steps[stepIndex];
-
-    // Support both new format (keys/colors/duration) and legacy (k/c/d)
     const keys = Array.isArray(step.keys) ? step.keys : (step.k !== undefined ? [step.k] : undefined);
     const colors = Array.isArray(step.colors) ? step.colors : (step.c !== undefined ? [step.c] : undefined);
     let duration = step.duration !== undefined ? step.duration : step.d;
@@ -341,12 +331,9 @@ function generateUploadLinesFromData(id, name, data, colorMode = 'default') {
     if (duration === undefined) return { error: `Step ${stepIndex}: missing duration` };
     if (keys.length !== colors.length) return { error: `Step ${stepIndex}: keys and colors arrays must have same length` };
 
-    // Clamp duration to firmware bounds to prevent "invalid duration" rejections
     if (duration < 300) duration = 300;
     if (duration > 10000) duration = 10000;
 
-    // Validate and remap colors
-    const finalColors = [];
     for (let ci = 0; ci < colors.length; ci++) {
       const colorHex = String(colors[ci]).trim().toUpperCase();
       if (!ALLOWED_COLORS.has(colorHex)) {
@@ -356,19 +343,29 @@ function generateUploadLinesFromData(id, name, data, colorMode = 'default') {
         };
       }
 
-      // Normalise legacy branded hex → current solid defaults first
       const normColor = LEGACY_COLOR_REMAP[colorHex] || colorHex;
       const finalColor = (colorMode === 'colorblind' && CB_COLOR_REMAP[normColor])
         ? CB_COLOR_REMAP[normColor]
         : normColor;
-      finalColors.push(finalColor);
+      
+      tempNotes.push({ key: keys[ci], color: finalColor, t: currentStartTime, d: duration });
     }
+    
+    currentStartTime += duration;
+  }
 
-    // Dot-separated keys and colors for multi-key steps
-    const keysStr = keys.join('.');
-    const colorsStr = finalColors.join('.');
+  if (tempNotes.length > FIRMWARE_MAX_SEQUENCE_NOTES) {
+    return {
+      error:
+        `Sequence has ${tempNotes.length} notes but firmware v5 only accepts up to ${FIRMWARE_MAX_SEQUENCE_NOTES} notes per upload.`
+    };
+  }
 
-    lines.push(`S k=${keysStr} c=${colorsStr} d=${duration}`);
+  const lines = [];
+  lines.push(`U i=${cleanId} n=${cleanName} s=${tempNotes.length}`);
+
+  for (const n of tempNotes) {
+    lines.push(`S k=${n.key} c=${n.color} t=${n.t} d=${n.d}`);
   }
 
   lines.push(`E i=${cleanId}`);
