@@ -1070,7 +1070,7 @@ app.post('/api/modules/:ip/configure-octave', (req, res) => {
             return;
         }
 
-        const result = sendToModule(ip, `o${targetModule}.${targetOctave}`);
+        const result = sendToModule(ip, `p${targetModule}.${targetOctave}`);
         if (result.error) {
             res.status(400).json({ ok: false, error: result.error });
             return;

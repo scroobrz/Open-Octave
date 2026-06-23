@@ -151,7 +151,7 @@ void handleCommandsFromUpstream(){
           DownstreamSerial.write((uint8_t *)upstreamSerialBuf, upstreamSerialBufPos);
           DownstreamSerial.write('\n');
         }
-        else if (cmdType == 'o') {
+        else if (cmdType == 'p') {
           char *endPtr;
           int targetModule = (int)strtol(&upstreamSerialBuf[1], &endPtr, 10);
           if (*endPtr == '.') {
@@ -416,7 +416,7 @@ void handleUsbSerialCommands() {
       if (serialBufPos == 0) {
         // ignore empty lines / trailing CR
         continue;
-      } else if (serialBuf[0] == 'o' && serialBufPos > 2) {
+      } else if (serialBuf[0] == 'p' && serialBufPos > 2) {
         serialBuf[serialBufPos] = '\0';
         handleOctaveCommand(serialBuf);
       } else if (serialBufPos == 1) {
@@ -483,7 +483,7 @@ void handleWebSocketCommand(char *cmd, size_t length){
     return;
   }
 
-  if (length > 2 && cmd[0] == 'o') {
+  if (length > 2 && cmd[0] == 'p') {
     handleOctaveCommand(cmd);
   } else if (length == 1){
     // regular single-character command
@@ -502,14 +502,14 @@ void handleOctaveCommand(char *cmd) {
     if (targetModule == moduleChainIndex) {
       currentOctave = targetOctave;
       configureNotes();
-      LOGF("ACK cmd=o ok=1 module=%d octave=%d\n", targetModule, targetOctave);
+      LOGF("ACK cmd=p ok=1 module=%d octave=%d\n", targetModule, targetOctave);
     } else {
       DownstreamSerial.write((uint8_t *)cmd, strlen(cmd));
       DownstreamSerial.write('\n');
-      LOGF("ACK cmd=o ok=1 module=%d forwarded\n", targetModule);
+      LOGF("ACK cmd=p ok=1 module=%d forwarded\n", targetModule);
     }
   } else {
-    LOGLN("ERR cmd=o reason=invalid_format");
+    LOGLN("ERR cmd=p reason=invalid_format");
   }
 }
 
