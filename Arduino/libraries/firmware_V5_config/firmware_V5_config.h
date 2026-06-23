@@ -171,7 +171,8 @@ enum SequenceMode {
 enum SynthMode {
   SYNTH_ADDITIVE,
   SYNTH_KARPLUS_STRONG,
-  SYNTH_KS_OVERDRIVE
+  SYNTH_KS_OVERDRIVE,
+  SYNTH_KS_HARPSICHORD
 };
 
 struct Key {

@@ -117,7 +117,7 @@ void playPressedKeys() {
     if (pressedSnapshot[i] && !envelopes[i].wasPressed) {
       envelopes[i].value = 0.0f;
       
-      if (currentSynthMode == SYNTH_KARPLUS_STRONG) {
+      if (currentSynthMode == SYNTH_KARPLUS_STRONG || currentSynthMode == SYNTH_KS_OVERDRIVE || currentSynthMode == SYNTH_KS_HARPSICHORD) {
         // Initialize Karplus-Strong buffer with a shaped excitation
         int delayLen = (int)(SAMPLE_RATE / (float)freqSnapshot[i]);
         if (delayLen > KS_MAX_DELAY) delayLen = KS_MAX_DELAY;
@@ -127,21 +127,31 @@ void playPressedKeys() {
         for(int j = 0; j < delayLen; j++) {
            float phase = (float)j / (float)delayLen; // 0.0 to 1.0
            
-           // Generate a Triangle wave for acoustic warmth (fundamental body)
-           float tri = (phase < 0.5f) ? (4.0f * phase - 1.0f) : (3.0f - 4.0f * phase);
-           
-           // Generate a Sawtooth wave for the "clavinet buzz" overtones
-           float saw = 2.0f * phase - 1.0f;
+           if (currentSynthMode == SYNTH_KS_HARPSICHORD) {
+             float sqr = (phase < 0.5f) ? 1.0f : -1.0f;
+             float noise = ((float)random(20000) / 10000.0f) - 1.0f;
+             ksDelayLines[i][j] = (sqr * 0.7f) + (noise * 0.3f);
+           } else {
+             // Generate a Triangle wave for acoustic warmth (fundamental body)
+             float tri = (phase < 0.5f) ? (4.0f * phase - 1.0f) : (3.0f - 4.0f * phase);
+             
+             // Generate a Sawtooth wave for the "clavinet buzz" overtones
+             float saw = 2.0f * phase - 1.0f;
 
-           // Generate soft filtered noise for the mechanical hammer strike
-           float noise = ((float)random(20000) / 10000.0f) - 1.0f;
-           float hammerNoise = 0.3f * noise + 0.7f * prevNoise;
-           prevNoise = hammerNoise;
-           
-           // Mix them together: 60% Triangle, 20% Sawtooth, 20% Hammer Noise
-           ksDelayLines[i][j] = (tri * 0.6f) + (saw * 0.2f) + (hammerNoise * 0.2f);
+             // Generate soft filtered noise for the mechanical hammer strike
+             float noise = ((float)random(20000) / 10000.0f) - 1.0f;
+             float hammerNoise = 0.3f * noise + 0.7f * prevNoise;
+             prevNoise = hammerNoise;
+             
+             // Mix them together: 60% Triangle, 20% Sawtooth, 20% Hammer Noise
+             ksDelayLines[i][j] = (tri * 0.6f) + (saw * 0.2f) + (hammerNoise * 0.2f);
+           }
         }
-        ksDelayPointers[i] = 0;
+        if (currentSynthMode == SYNTH_KS_HARPSICHORD) {
+           ksDelayPointers[i] = random(0, 4) % delayLen;
+        } else {
+           ksDelayPointers[i] = 0;
+        }
       }
     }
     // Update wasPressed from snapshot — consistent with what we just used
@@ -177,6 +187,8 @@ void playPressedKeys() {
   } else if (currentSynthMode == SYNTH_KS_OVERDRIVE) {
     // Overdrive adds a lot of energy, keep volume slightly lower
     voiceVolume = (VOLUME * 1.2f) / maxPolyphony;
+  } else if (currentSynthMode == SYNTH_KS_HARPSICHORD) {
+    voiceVolume = (VOLUME * 2.0f) / maxPolyphony;
   } else {
     // We boost the volume to a middle ground
     // This provides a loud baseline while keeping the tanh() soft-clipping 
@@ -189,7 +201,7 @@ void playPressedKeys() {
     for (int i = 0; i < activeCount; i++) {
       int keyIdx = activeIndices[i];
       if (pressedSnapshot[keyIdx]) {
-        if (currentSynthMode == SYNTH_KARPLUS_STRONG || currentSynthMode == SYNTH_KS_OVERDRIVE) {
+        if (currentSynthMode == SYNTH_KARPLUS_STRONG || currentSynthMode == SYNTH_KS_OVERDRIVE || currentSynthMode == SYNTH_KS_HARPSICHORD) {
           // Fast attack (takes ~200 samples / 5ms to reach 1.0) to remove the hard click 
           // of an instant start, mimicking a felt hammer pushing the string.
           envelopes[keyIdx].value = min(1.0f, envelopes[keyIdx].value + 0.005f);
@@ -220,7 +232,7 @@ void playPressedKeys() {
 
           noteSample += sineTable[(int)phaseAccumulators[keyIdx][h]] * HARMONICS[h][1];
         }
-      } else if (currentSynthMode == SYNTH_KARPLUS_STRONG || currentSynthMode == SYNTH_KS_OVERDRIVE) {
+      } else if (currentSynthMode == SYNTH_KARPLUS_STRONG || currentSynthMode == SYNTH_KS_OVERDRIVE || currentSynthMode == SYNTH_KS_HARPSICHORD) {
         int delayLen = (int)(SAMPLE_RATE / freq);
         if (delayLen > KS_MAX_DELAY) delayLen = KS_MAX_DELAY;
         if (delayLen < 1) delayLen = 1;

@@ -182,6 +182,8 @@ void handleCommandsFromUpstream(){
             currentSynthMode = SYNTH_KARPLUS_STRONG;
           } else if (upstreamSerialBuf[1] == '2') {
             currentSynthMode = SYNTH_KS_OVERDRIVE;
+          } else if (upstreamSerialBuf[1] == '3') {
+            currentSynthMode = SYNTH_KS_HARPSICHORD;
           }
           // Pass the message further down the chain
           DownstreamSerial.write((uint8_t *)upstreamSerialBuf, upstreamSerialBufPos);
@@ -413,6 +415,9 @@ void handleUsbSerialCommands() {
         } else if (serialBuf[1] == '2') {
           currentSynthMode = SYNTH_KS_OVERDRIVE;
           LOGLN("[CMD] Received: Set Synth Mode -> Overdrive");
+        } else if (serialBuf[1] == '3') {
+          currentSynthMode = SYNTH_KS_HARPSICHORD;
+          LOGLN("[CMD] Received: Set Synth Mode -> Harpsichord");
         }
         // Broadcast down the chain
         DownstreamSerial.write((uint8_t*)serialBuf, serialBufPos);
@@ -492,6 +497,9 @@ void handleWebSocketCommand(char *cmd, size_t length){
     } else if (cmd[1] == '2') {
       currentSynthMode = SYNTH_KS_OVERDRIVE;
       LOGLN("[CMD] Received: Set Synth Mode -> Overdrive");
+    } else if (cmd[1] == '3') {
+      currentSynthMode = SYNTH_KS_HARPSICHORD;
+      LOGLN("[CMD] Received: Set Synth Mode -> Harpsichord");
     }
     // Broadcast to downstream modules
     DownstreamSerial.write((uint8_t*)cmd, length);
