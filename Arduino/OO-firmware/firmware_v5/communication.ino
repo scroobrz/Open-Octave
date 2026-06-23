@@ -91,6 +91,7 @@ void handleSerialFromUpstream(){
 
       UpstreamSerial.read(); // conusme
       handleHeartbeatFromUpstream(UpstreamSerial.read());
+      upstreamSerialBufPos = 0; // Clear any accumulated noise from cable insertion
     } else {
       handleCommandsFromUpstream();
     }
@@ -255,8 +256,9 @@ void handleSerialFromDownstream(){
         return;
       }
 
-      DownstreamSerial.read(); // consume
+      DownstreamSerial.read(); // consume heartbeat
       handleHeartbeatFromDownstream(DownstreamSerial.read());
+      downstreamSerialBufPos = 0; // Clear any accumulated noise from cable insertion
     } else {
       handleCommandsFromDownstream();
     }
@@ -497,7 +499,7 @@ void handleWebSocketCommand(char *cmd, size_t length){
   if (length == 1){
     // regular single-character command
     processSingleCharCommand(cmd[0]);
-  } else if (length == 2 && cmd[0] == 'm') {
+  } else if ((length == 2 || length == 3) && cmd[0] == 'm') {
     // synth mode command
     if (cmd[1] == '0') {
       currentSynthMode = SYNTH_ADDITIVE;
