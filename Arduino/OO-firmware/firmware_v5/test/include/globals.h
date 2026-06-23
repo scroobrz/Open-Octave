@@ -15,6 +15,7 @@ extern uint8_t numModulesInChain;
 extern uint8_t currentOctave;
 extern uint8_t currentEffectiveOctave;
 extern uint8_t broadcastMasterOctave;
+extern uint8_t upstreamEffectiveOctaveCache;
 
 // Key array (defined in firmware)
 extern struct Key keys[NUM_KEYS];

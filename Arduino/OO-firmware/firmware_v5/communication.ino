@@ -90,8 +90,10 @@ void handleSerialFromUpstream(){
         return;
       }
 
-      UpstreamSerial.read(); // consume
-      handleHeartbeatFromUpstream(UpstreamSerial.read(), UpstreamSerial.read());
+      UpstreamSerial.read(); // consume CHAIN_HEARTBEAT_BYTE
+      uint8_t heartbeatNum = UpstreamSerial.read();
+      uint8_t heartbeatOctave = UpstreamSerial.read();
+      handleHeartbeatFromUpstream(heartbeatNum, heartbeatOctave);
     } else {
       handleCommandsFromUpstream();
     }
@@ -233,10 +235,8 @@ void handleHeartbeatFromUpstream(uint8_t num, uint8_t upstreamEffectiveOctave){
 
   bool octaveChanged = false;
   if (currentOctave == 0 && upstreamEffectiveOctave != 0) {
-    uint8_t newOctave = upstreamEffectiveOctave + 1;
-    if (newOctave > 7) newOctave = 7;
-    if (currentEffectiveOctave != newOctave) {
-      currentOctave = newOctave;
+    if (upstreamEffectiveOctaveCache != upstreamEffectiveOctave) {
+      upstreamEffectiveOctaveCache = upstreamEffectiveOctave;
       octaveChanged = true;
     }
   }

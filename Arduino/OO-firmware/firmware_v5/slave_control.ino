@@ -44,8 +44,12 @@ void configureNotes(){
     } else if (currentOctave != 0) {
         currentEffectiveOctave = currentOctave;
     } else {
-        // Fallback: Default to Octave 4 + index
-        currentEffectiveOctave = 4 + moduleChainIndex;
+        if (!isMaster && upstreamEffectiveOctaveCache != 0) {
+            currentEffectiveOctave = upstreamEffectiveOctaveCache + 1;
+        } else {
+            // Fallback: Default to Octave 4 + index
+            currentEffectiveOctave = 4 + moduleChainIndex;
+        }
         // Cap at 7
         if (currentEffectiveOctave > 7) currentEffectiveOctave = 7;
     }

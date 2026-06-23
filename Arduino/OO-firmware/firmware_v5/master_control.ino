@@ -11,6 +11,7 @@ void promoteToMaster(){
     isMaster = true;
     moduleChainIndex = 0;
     currentOctave = 0;
+    upstreamEffectiveOctaveCache = 0;
     configureNotes();
     numModulesInChain = 1;
 

@@ -73,6 +73,7 @@ uint8_t numModulesInChain = 1;
 uint8_t currentOctave = 0;
 uint8_t currentEffectiveOctave = 4;
 uint8_t broadcastMasterOctave = 4;
+uint8_t upstreamEffectiveOctaveCache = 0;
 
 unsigned long timeLastHeartbeatSent = 0;
 unsigned long timeLastHeartbeatReceived = 0;
