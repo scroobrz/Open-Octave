@@ -5,7 +5,7 @@
 Allows the user to record key presses into a sequence via a physical button
 (RECORD_BUTTON_PIN on the PCA9555 I/O expander). Pressing the button toggles
 recording on/off. While recording, each key press is tracked independently:
-press time is captured on the down-stroke and a single-key SequenceStep is
+press time is captured on the down-stroke and a single-key SequenceNote is
 committed with the exact hold duration on the up-stroke. Keys still held when
 recording stops are also committed, using millis() as the implied release time.
 
@@ -33,9 +33,9 @@ void handleRecordButton() {
 
 void startRecording() {
   recording = true;
-  recStepCount = 0;
+  recNoteCount = 0;
+  recStartTime = millis();          // NEW: epoch for note startTimes
 
-  // Clear all per-key tracking slots
   for (uint8_t i = 0; i < MAX_REC_ACTIVE_KEYS; i++) {
     recActiveKeys[i].active = false;
   }
@@ -45,36 +45,50 @@ void startRecording() {
 }
 
 void stopRecording() {
-  // Flush any keys still physically held when the user stops recording.
-  // Each gets a step committed with millis() as the implied release time.
   for (uint8_t i = 0; i < MAX_REC_ACTIVE_KEYS; i++) {
     if (!recActiveKeys[i].active) continue;
-    if (recStepCount >= MAX_SEQUENCE_LENGTH) break;
+    if (recNoteCount >= MAX_SEQUENCE_NOTES) break;
 
-    unsigned long duration = millis() - recActiveKeys[i].pressTime;
+    unsigned long pressTime = recActiveKeys[i].pressTime;
+    unsigned long duration  = millis() - pressTime;
     if (duration < MIN_STEP_DURATION) duration = MIN_STEP_DURATION;
     if (duration > MAX_STEP_DURATION) duration = MAX_STEP_DURATION;
 
-    SequenceStep* step = &currentSequence.steps[recStepCount];
-    step->numKeys   = 1;
-    step->keys[0]   = recActiveKeys[i].globalKey;
-    step->colors[0] = COLOR_PINK;
-    step->duration  = (uint16_t)duration;
+    SequenceNote* note = &currentSequence.notes[recNoteCount];
+    note->startTime = (uint32_t)(pressTime - recStartTime);
+    note->duration  = (uint16_t)duration;
+    note->globalKey = recActiveKeys[i].globalKey;
+    note->_pad      = 0;
+    note->color     = COLOR_PINK;
 
-    LOGF("[REC] Step %d (flush): key=%d, %dms\n", recStepCount + 1, recActiveKeys[i].globalKey, (int)duration);
-    recStepCount++;
+    LOGF("[REC] Note %d (flush): key=%d, t=%lu, %dms\n",
+         recNoteCount + 1, recActiveKeys[i].globalKey,
+         (unsigned long)note->startTime, (int)duration);
+    recNoteCount++;
     recActiveKeys[i].active = false;
   }
 
   recording = false;
 
-  if (recStepCount > 0) {
+  if (recNoteCount > 0) {
     currentSequence.id = 0;
     strncpy(currentSequence.name, "Recorded", sizeof(currentSequence.name));
-    currentSequence.length = recStepCount;
-    // Steps were written directly into currentSequence.steps during recording
 
-    LOGF("[REC] Recording saved: %d steps\n", recStepCount);
+    // Keys may release in a different order than pressed, so notes can be out of
+    // startTime order. The playback engine REQUIRES notes sorted by startTime
+    // (guided-mode moment grouping depends on it). Insertion sort (fine for <=512).
+    for (uint16_t a = 1; a < recNoteCount; a++) {
+      SequenceNote key = currentSequence.notes[a];
+      int b = a - 1;
+      while (b >= 0 && currentSequence.notes[b].startTime > key.startTime) {
+        currentSequence.notes[b + 1] = currentSequence.notes[b];
+        b--;
+      }
+      currentSequence.notes[b + 1] = key;
+    }
+
+    currentSequence.noteCount = recNoteCount;
+    LOGF("[REC] Recording saved: %d notes\n", recNoteCount);
   } else {
     LOGLN("[REC] No notes recorded, sequence unchanged");
   }
@@ -86,7 +100,7 @@ void stopRecording() {
 // Called when a key is pressed during recording.
 // Finds a free slot in recActiveKeys and stores the press timestamp.
 void recordKeyPress(int globalKey) {
-  if (recStepCount >= MAX_SEQUENCE_LENGTH) {
+  if (recNoteCount >= MAX_SEQUENCE_NOTES) {
     LOGLN("[REC] Max sequence length reached, stopping recording");
     stopRecording();
     return;
@@ -116,32 +130,36 @@ void recordKeyPress(int globalKey) {
 }
 
 // Called when a key is released during recording.
-// Finds the matching slot, commits a single-key SequenceStep with the hold
+// Finds the matching slot, commits a single-key SequenceNote with the hold
 // duration, and frees the slot.
 void recordKeyRelease(int globalKey) {
   for (uint8_t i = 0; i < MAX_REC_ACTIVE_KEYS; i++) {
     if (!recActiveKeys[i].active || recActiveKeys[i].globalKey != (uint8_t)globalKey) continue;
 
-    if (recStepCount >= MAX_SEQUENCE_LENGTH) {
+    if (recNoteCount >= MAX_SEQUENCE_NOTES) {
       LOGLN("[REC] Max sequence length reached, stopping recording");
       recActiveKeys[i].active = false;
       stopRecording();
       return;
     }
 
-    unsigned long duration = millis() - recActiveKeys[i].pressTime;
+    unsigned long pressTime = recActiveKeys[i].pressTime;
+    unsigned long duration  = millis() - pressTime;
     if (duration < MIN_STEP_DURATION) duration = MIN_STEP_DURATION;
     if (duration > MAX_STEP_DURATION) duration = MAX_STEP_DURATION;
 
-    SequenceStep* step = &currentSequence.steps[recStepCount];
-    step->numKeys   = 1;
-    step->keys[0]   = (uint8_t)globalKey;
-    step->colors[0] = COLOR_PINK;
-    step->duration  = (uint16_t)duration;
+    SequenceNote* note = &currentSequence.notes[recNoteCount];
+    note->startTime = (uint32_t)(pressTime - recStartTime);
+    note->duration  = (uint16_t)duration;
+    note->globalKey = (uint8_t)globalKey;
+    note->_pad      = 0;
+    note->color     = COLOR_PINK;
 
-    LOGF("[REC] Step %d: key=%d, %dms\n", recStepCount + 1, globalKey, (int)duration);
+    LOGF("[REC] Note %d: key=%d, t=%lu, %dms\n",
+         recNoteCount + 1, globalKey,
+         (unsigned long)note->startTime, (int)duration);
 
-    recStepCount++;
+    recNoteCount++;
     recActiveKeys[i].active = false;
     return;
   }
