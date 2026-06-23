@@ -21,7 +21,6 @@ void testLogStart() {
   testLogLastManualTime = 0;
   testLogManualRepeatStreak = 0;
 
-  testLogExpectedNextStepStartTime = 0;
   testLogLastAutoKey = -1;
   testLogAutoRepeatStreak = 0;
 
@@ -65,7 +64,8 @@ void testLogLogManualPress(int keyIndex, unsigned long pressDetectedMs, unsigned
   Serial.println(TESTLOG_OK);
 }
 
-void testLogLogAutoStep(int keyIndex, long timingErrorMs, unsigned long ledCmdMs, unsigned long servoCmdMs, uint16_t stepDurationMs, bool nextIsSameKey) {
+void testLogLogAutoNote(int keyIndex, long timingErrorMs,
+                        unsigned long ledCmdMs, unsigned long servoCmdMs) {
   if (!testLogEnabled) return;
 
   if (keyIndex == testLogLastAutoKey) testLogAutoRepeatStreak++;
@@ -77,7 +77,7 @@ void testLogLogAutoStep(int keyIndex, long timingErrorMs, unsigned long ledCmdMs
   Serial.print(testLogRunId); Serial.print(",");
   Serial.print(testLogEventId); Serial.print(",");
   Serial.print(getCurrentSequenceModeString()); Serial.print(",");
-  Serial.print(F("AUTO_STEP")); Serial.print(",");
+  Serial.print(F("AUTO_STEP")); Serial.print(",");   // event_type kept for CSV compatibility
   Serial.print(keyIndex); Serial.print(",");
   Serial.print(testLogAutoRepeatStreak); Serial.print(",");
   Serial.print(-1); Serial.print(",");
@@ -86,12 +86,6 @@ void testLogLogAutoStep(int keyIndex, long timingErrorMs, unsigned long ledCmdMs
   Serial.print((long)timingErrorMs); Serial.print(",");
   Serial.print(1); Serial.print(",");
   Serial.println(TESTLOG_OK);
-
-  // Update expected time for next step (includes same-key release delay)
-  testLogExpectedNextStepStartTime = testLogExpectedNextStepStartTime + (unsigned long)stepDurationMs;
-  if (nextIsSameKey) {
-    testLogExpectedNextStepStartTime = testLogExpectedNextStepStartTime + SERVO_RELEASE_DELAY;
-  }
 }
 
 void testLogLogError(uint8_t errorCode, const __FlashStringHelper* eventType) {
