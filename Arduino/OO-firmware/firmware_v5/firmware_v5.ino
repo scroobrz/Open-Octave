@@ -99,9 +99,14 @@ unsigned long servoReleaseStartTime = 0;
 
 bool recording = false;
 uint8_t recStepCount = 0;
-uint8_t recChordKeys[MAX_KEYS_PER_STEP];
-uint8_t recChordNumKeys = 0;
-unsigned long recChordStartTime = 0;
+// Per-key recording state — each slot tracks one independently-held key.
+// A slot is allocated on press and freed (after committing a step) on release.
+struct RecKeyState {
+  uint8_t globalKey;        // which key is held
+  unsigned long pressTime;  // when it was pressed (ms)
+  bool active;              // whether this slot is in use
+};
+RecKeyState recActiveKeys[MAX_REC_ACTIVE_KEYS];
 
 bool testLogEnabled = false;
 uint16_t testLogRunId = 0;

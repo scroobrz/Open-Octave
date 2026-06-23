@@ -13,8 +13,8 @@ const MAX_SUPPORTED_MIDI = MIDI_C4 + MAX_SUPPORTED_KEY;   // B5
 const MAX_IMPORTABLE_SPAN_SEMITONES = MAX_SUPPORTED_KEY;  // 23 semitones inclusive span = 24 keys
 const MAX_RAW_MIDI_SPAN_SEMITONES = 48; // midi import: reject very wide/full-arrangement MIDI early
 const MAX_IMPORTABLE_NOTE_COUNT = 2000;
-const MAX_SEQUENCE_LENGTH = 128; // midi import: allow longer beginner songs while staying within current firmware limits
-const MAX_KEYS_PER_STEP = 4;
+const MAX_SEQUENCE_LENGTH = 256; // midi import: allow longer beginner songs while staying within current firmware limits
+const MAX_KEYS_PER_STEP = 8;
 const MIN_NOTE_DURATION_MS = 300; // must match firmware MIN_STEP_DURATION
 const MAX_NOTE_DURATION_MS = 10000;
 

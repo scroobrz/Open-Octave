@@ -26,8 +26,9 @@
 #define HEARTBEAT_TIMEOUT 2000
 #define CHAIN_HEARTBEAT_BYTE 0xFE
 
-#define MAX_SEQUENCE_LENGTH 128
-#define MAX_KEYS_PER_STEP 4
+#define MAX_SEQUENCE_LENGTH 256
+#define MAX_KEYS_PER_STEP 8
+#define MAX_REC_ACTIVE_KEYS 8   // Max keys tracked simultaneously during recording
 
 #define MIN_STEP_DURATION 300    // minimum recorded sequence step duration (ms)
 #define MAX_STEP_DURATION 10000  // maximum recorded sequence step duration (ms)
@@ -36,7 +37,7 @@
 
 #define BUTTON_DEBOUNCE_DELAY 50
 #define SERVO_RELEASE_DELAY 120   // ms to wait for servo to physically release
-#define CHORD_WINDOW_MS 40        // ms window for grouping simultaneous presses into a chord
+// CHORD_WINDOW_MS removed — recording now tracks each key press independently
 
 #define SERVO_FREQ 50
 #define SERVO_REST_ANGLE 0
