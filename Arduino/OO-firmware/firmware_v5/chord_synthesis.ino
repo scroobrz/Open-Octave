@@ -9,6 +9,11 @@
 #define SINE_TABLE_SIZE 1024
 #define NUM_HARMONICS 5
 
+const int baseNoteFreqs[NUM_KEYS] = {
+    KEY0_NOTE, KEY1_NOTE, KEY2_NOTE, KEY3_NOTE, KEY4_NOTE, KEY5_NOTE,
+    KEY6_NOTE, KEY7_NOTE, KEY8_NOTE, KEY9_NOTE, KEY10_NOTE, KEY11_NOTE
+};
+
 const float HARMONICS[NUM_HARMONICS][2] = {
   {1.0f, 1.0f},
   {2.0f, 0.5f},
@@ -36,6 +41,27 @@ void buildSineTable() {
   for (int i = 0; i < SINE_TABLE_SIZE; i++) {
     sineTable[i] = sinf(2.0f * M_PI * i / SINE_TABLE_SIZE);
   }
+}
+
+void configureNotes(){
+    if (isMaster || (sequenceRunning && currentSequenceMode == BROADCAST)) {
+        currentOctave = chainBaseOctave;
+    } else {
+        currentOctave = chainBaseOctave + moduleChainIndex;
+        if (currentOctave > 7) currentOctave = 7;
+    }
+
+    LOGF("[SETUP] Configuring notes for module index %d (effective octave: %d)\n", moduleChainIndex, currentOctave);
+    
+    int8_t shift = (int8_t)currentOctave - DEFAULT_OCTAVE;
+
+    for (int i = 0; i < NUM_KEYS; i++) {
+        if (shift < 0) {
+            keys[i].noteFreq = baseNoteFreqs[i] >> (-shift);
+        } else {
+            keys[i].noteFreq = baseNoteFreqs[i] << shift;
+        }
+    }
 }
 
 void noteSetup() {

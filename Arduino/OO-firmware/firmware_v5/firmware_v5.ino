@@ -70,9 +70,8 @@ bool isMaster = true;
 uint8_t moduleChainIndex = 0;
 uint8_t numModulesInChain = 1;
 
-uint8_t currentEffectiveOctave = 4;
-uint8_t broadcastMasterOctave = 4;
-uint8_t chainBaseOctave = 4;
+uint8_t currentOctave = DEFAULT_OCTAVE;
+uint8_t chainBaseOctave = DEFAULT_OCTAVE;
 
 unsigned long timeLastHeartbeatSent = 0;
 unsigned long timeLastHeartbeatReceived = 0;

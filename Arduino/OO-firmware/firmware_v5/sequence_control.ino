@@ -192,7 +192,7 @@ void startSequence(SequenceMode mode) {
     executeCurrentSequenceStep();
   } else {
     char bCmd[16];
-    snprintf(bCmd, sizeof(bCmd), "b%d\n", currentEffectiveOctave);
+    snprintf(bCmd, sizeof(bCmd), "b%d\n", currentOctave);
     DownstreamSerial.write((uint8_t*)bCmd, strlen(bCmd));
   }
 }

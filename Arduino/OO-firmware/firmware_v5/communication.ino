@@ -145,7 +145,7 @@ void handleCommandsFromUpstream(){
           char *endPtr;
           int parsedOctave = (int)strtol(&upstreamSerialBuf[1], &endPtr, 10);
           if (endPtr != &upstreamSerialBuf[1]) {
-            broadcastMasterOctave = parsedOctave;
+            chainBaseOctave = parsedOctave;
           }
           currentSequenceMode = BROADCAST;
           sequenceRunning = true;
@@ -212,16 +212,14 @@ void handleHeartbeatFromUpstream(uint8_t num, uint8_t masterOctave){
   }
 
   timeLastHeartbeatReceived = millis();
-
   numModulesInChain = num + 1;
+  bool needsReconfigure = (moduleChainIndex != num) || (chainBaseOctave != masterOctave);
+  moduleChainIndex = num;
+  chainBaseOctave = masterOctave;
 
   if (isMaster){
     demoteToSlave();
   }
-
-  bool needsReconfigure = (moduleChainIndex != num) || (chainBaseOctave != masterOctave);
-  moduleChainIndex = num;
-  chainBaseOctave = masterOctave;
 
   if (needsReconfigure) {
     configureNotes();

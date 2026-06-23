@@ -112,7 +112,7 @@ TEST_F(SlaveControlTest, ConfigureNotes_SlaveDerivesFromChainBase) {
     configureNotes();
     
     // Slave should be at octave 6 (5 + 1), shift = +2 from base octave 4
-    ASSERT_EQ(currentEffectiveOctave, 6);
+    ASSERT_EQ(currentOctave, 6);
     ASSERT_EQ(keys[0].noteFreq, 262 << 2);
 }
 
@@ -123,7 +123,7 @@ TEST_F(SlaveControlTest, ConfigureNotes_SlaveOctaveCappedAt7) {
     
     configureNotes();
     
-    ASSERT_EQ(currentEffectiveOctave, 7);
+    ASSERT_EQ(currentOctave, 7);
     ASSERT_EQ(keys[0].noteFreq, 262 << 3);  // shift = 7 - 4 = 3
 }
 
@@ -135,7 +135,7 @@ TEST_F(SlaveControlTest, ConfigureNotes_MasterUsesChainBase) {
     configureNotes();
     
     // Master's effective octave should equal the chain base
-    ASSERT_EQ(currentEffectiveOctave, 3);
+    ASSERT_EQ(currentOctave, 3);
     ASSERT_EQ(keys[0].noteFreq, 262 >> 1);  // shift = 3 - 4 = -1
 }
 

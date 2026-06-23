@@ -32,6 +32,8 @@
 #define MIN_STEP_DURATION 300    // minimum recorded sequence step duration (ms)
 #define MAX_STEP_DURATION 10000  // maximum recorded sequence step duration (ms)
 
+#define DEFAULT_OCTAVE 4
+
 // ============ HARDWARE CONFIG ============
 
 #define BUTTON_DEBOUNCE_DELAY 50

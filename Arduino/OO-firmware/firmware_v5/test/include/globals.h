@@ -12,8 +12,7 @@ extern bool isMaster;
 extern uint8_t moduleChainIndex;
 extern uint8_t numModulesInChain;
 
-extern uint8_t currentEffectiveOctave;
-extern uint8_t broadcastMasterOctave;
+extern uint8_t currentOctave;
 extern uint8_t chainBaseOctave;
 
 // Key array (defined in firmware)
