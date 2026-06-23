@@ -26,8 +26,7 @@
 #define HEARTBEAT_TIMEOUT 2000
 #define CHAIN_HEARTBEAT_BYTE 0xFE
 
-#define MAX_SEQUENCE_LENGTH 256
-#define MAX_KEYS_PER_STEP 8
+#define MAX_SEQUENCE_NOTES 512
 #define MAX_REC_ACTIVE_KEYS 8   // Max keys tracked simultaneously during recording
 
 #define MIN_STEP_DURATION 300    // minimum recorded sequence step duration (ms)
@@ -177,17 +176,18 @@ struct Key {
   bool isPressed;
 };
 
-struct SequenceStep {
-  uint8_t numKeys;                       // Number of keys to activate
-  uint8_t keys[MAX_KEYS_PER_STEP];       // Which keys to activate
-  uint32_t colors[MAX_KEYS_PER_STEP];    // LED color
-  uint16_t duration;                     // How long to hold (ms)
-};
+struct SequenceNote {
+  uint32_t startTime;   // ms from sequence start (first note = 0)
+  uint16_t duration;    // ms hold time
+  uint8_t  globalKey;   // 0..MAX_TOTAL_KEYS-1 (0-47 across up to 4 modules)
+  uint8_t  _pad;        // alignment padding (set to 0)
+  uint32_t color;       // LED color 0xRRGGBB
+};                      // 12 bytes per note
 
 struct Sequence {
   int id;
-  SequenceStep steps[MAX_SEQUENCE_LENGTH];
-  uint8_t length;
+  SequenceNote notes[MAX_SEQUENCE_NOTES];  // was: steps[MAX_SEQUENCE_LENGTH]
+  uint16_t noteCount;                      // was: uint8_t length
   char name[32];
 };
 
