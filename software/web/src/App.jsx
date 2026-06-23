@@ -1252,6 +1252,7 @@ export default function App() {
                 disabled={dbActionBusy || !mod.connected}
               >
                 <option value="karplus-strong">Piano / Clavinet</option>
+                <option value="ks-overdrive">Overdriven Lead</option>
                 <option value="additive">Sine Wave Synth</option>
               </select>
             </div>

@@ -174,6 +174,9 @@ void playPressedKeys() {
     float totalHarmonicWeight = 0.0f;
     for (int h = 0; h < NUM_HARMONICS; h++) totalHarmonicWeight += HARMONICS[h][1];
     voiceVolume = VOLUME / (maxPolyphony * totalHarmonicWeight);
+  } else if (currentSynthMode == SYNTH_KS_OVERDRIVE) {
+    // Overdrive adds a lot of energy, keep volume slightly lower
+    voiceVolume = (VOLUME * 1.2f) / maxPolyphony;
   } else {
     // We boost the volume to a middle ground
     // This provides a loud baseline while keeping the tanh() soft-clipping 
@@ -186,7 +189,7 @@ void playPressedKeys() {
     for (int i = 0; i < activeCount; i++) {
       int keyIdx = activeIndices[i];
       if (pressedSnapshot[keyIdx]) {
-        if (currentSynthMode == SYNTH_KARPLUS_STRONG) {
+        if (currentSynthMode == SYNTH_KARPLUS_STRONG || currentSynthMode == SYNTH_KS_OVERDRIVE) {
           // Fast attack (takes ~200 samples / 5ms to reach 1.0) to remove the hard click 
           // of an instant start, mimicking a felt hammer pushing the string.
           envelopes[keyIdx].value = min(1.0f, envelopes[keyIdx].value + 0.005f);
@@ -217,7 +220,7 @@ void playPressedKeys() {
 
           noteSample += sineTable[(int)phaseAccumulators[keyIdx][h]] * HARMONICS[h][1];
         }
-      } else if (currentSynthMode == SYNTH_KARPLUS_STRONG) {
+      } else if (currentSynthMode == SYNTH_KARPLUS_STRONG || currentSynthMode == SYNTH_KS_OVERDRIVE) {
         int delayLen = (int)(SAMPLE_RATE / freq);
         if (delayLen > KS_MAX_DELAY) delayLen = KS_MAX_DELAY;
         if (delayLen < 1) delayLen = 1;
@@ -231,6 +234,13 @@ void playPressedKeys() {
         // Low pass filter + longer sustain for piano strings (99.8% retention instead of 99.5%)
         float newVal = 0.998f * 0.5f * (currentVal + prevVal);
         
+        if (currentSynthMode == SYNTH_KS_OVERDRIVE) {
+          // Hard clipping inside the feedback loop to create distortion
+          newVal = newVal * 1.5f;
+          if (newVal > 1.0f) newVal = 1.0f;
+          else if (newVal < -1.0f) newVal = -1.0f;
+        }
+
         ksDelayLines[keyIdx][p] = newVal;
         ksDelayPointers[keyIdx] = (p + 1) % delayLen;
         

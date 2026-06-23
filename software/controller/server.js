@@ -1063,8 +1063,10 @@ app.post('/api/modules/:ip/synth-mode', (req, res) => {
             serialCmd = 'm0';
         } else if (mode === 'karplus-strong') {
             serialCmd = 'm1';
+        } else if (mode === 'ks-overdrive') {
+            serialCmd = 'm2';
         } else {
-            res.status(400).json({ ok: false, error: 'mode must be additive or karplus-strong' });
+            res.status(400).json({ ok: false, error: 'invalid synth mode' });
             return;
         }
 

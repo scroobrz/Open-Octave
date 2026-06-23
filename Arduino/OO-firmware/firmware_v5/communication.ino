@@ -175,12 +175,13 @@ void handleCommandsFromUpstream(){
             DownstreamSerial.write('\n');
           }
         }
-        // Is it a synth mode command (m0, m1)?
         else if (cmdType == 'm' && upstreamSerialBuf[1] != '\0') {
           if (upstreamSerialBuf[1] == '0') {
             currentSynthMode = SYNTH_ADDITIVE;
           } else if (upstreamSerialBuf[1] == '1') {
             currentSynthMode = SYNTH_KARPLUS_STRONG;
+          } else if (upstreamSerialBuf[1] == '2') {
+            currentSynthMode = SYNTH_KS_OVERDRIVE;
           }
           // Pass the message further down the chain
           DownstreamSerial.write((uint8_t *)upstreamSerialBuf, upstreamSerialBufPos);
@@ -409,6 +410,9 @@ void handleUsbSerialCommands() {
         } else if (serialBuf[1] == '1') {
           currentSynthMode = SYNTH_KARPLUS_STRONG;
           LOGLN("[CMD] Received: Set Synth Mode -> Karplus-Strong");
+        } else if (serialBuf[1] == '2') {
+          currentSynthMode = SYNTH_KS_OVERDRIVE;
+          LOGLN("[CMD] Received: Set Synth Mode -> Overdrive");
         }
         // Broadcast down the chain
         DownstreamSerial.write((uint8_t*)serialBuf, serialBufPos);
@@ -485,6 +489,9 @@ void handleWebSocketCommand(char *cmd, size_t length){
     } else if (cmd[1] == '1') {
       currentSynthMode = SYNTH_KARPLUS_STRONG;
       LOGLN("[CMD] Received: Set Synth Mode -> Karplus-Strong");
+    } else if (cmd[1] == '2') {
+      currentSynthMode = SYNTH_KS_OVERDRIVE;
+      LOGLN("[CMD] Received: Set Synth Mode -> Overdrive");
     }
     // Broadcast to downstream modules
     DownstreamSerial.write((uint8_t*)cmd, length);
