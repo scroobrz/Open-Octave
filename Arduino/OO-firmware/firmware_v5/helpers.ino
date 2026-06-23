@@ -145,7 +145,7 @@ void toLowercase(char &c) {
 
 void emitStatus() {
   LOGF("STATUS power=%d running=%d seq=%d step=%d mode=%s\n",
-       on, sequenceRunning, currentSequence.id, 
-       (sequenceRunning ? currentSequenceStepIndex : -1), 
+       on, sequenceRunning, currentSequence.id,
+       (sequenceRunning ? notesCompleted : -1),
        (sequenceRunning ? getCurrentSequenceModeString() : "N/A"));
 }

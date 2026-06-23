@@ -10,8 +10,8 @@ bool validateHardwareInit() {
     return false;
   }
 
-  if (MAX_SEQUENCE_LENGTH <= 0) {
-    LOGF("[ERROR] Invalid MAX_SEQUENCE_LENGTH: %d", MAX_SEQUENCE_LENGTH);
+  if (MAX_SEQUENCE_NOTES <= 0) {
+    LOGF("[ERROR] Invalid MAX_SEQUENCE_NOTES: %d", MAX_SEQUENCE_NOTES);
     return false;
   }
 
