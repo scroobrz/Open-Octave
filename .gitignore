@@ -9,4 +9,4 @@ software/controller/database/*.sqlite3*
 .clangd
 .claude
 Arduino/audio_test
-Arduino/servo_resetCLAUDE.md
+Arduino/servo_reset
