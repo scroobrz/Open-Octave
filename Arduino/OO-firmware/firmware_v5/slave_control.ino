@@ -11,7 +11,6 @@ void demoteToSlave(){
 
     // Notify controller over USB Serial before going silent
     sendByeToController();
-
     isMaster = false;
 
     // Flush serial buffers to discard any UART noise accumulated during
@@ -30,17 +29,4 @@ void demoteToSlave(){
 
     // Reset heartbeat timer to avoid immediate timeout due to disconnectWifi blocking
     timeLastHeartbeatReceived = millis();
-}
-
-const int baseNoteFreqs[NUM_KEYS] = {
-    KEY0_NOTE, KEY1_NOTE, KEY2_NOTE, KEY3_NOTE, KEY4_NOTE, KEY5_NOTE,
-    KEY6_NOTE, KEY7_NOTE, KEY8_NOTE, KEY9_NOTE, KEY10_NOTE, KEY11_NOTE
-};
-
-void configureNotes(){
-    uint8_t indexToUse = (sequenceRunning && currentSequenceMode == BROADCAST) ? 0 : moduleChainIndex;
-    LOGF("[SETUP] Configuring notes for module index %d (octave shift: %d)\n", moduleChainIndex, indexToUse);
-    for (int i = 0; i < NUM_KEYS; i++) {
-        keys[i].noteFreq = baseNoteFreqs[i] << indexToUse;
-    }
 }

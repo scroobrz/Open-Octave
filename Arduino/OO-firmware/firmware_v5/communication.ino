@@ -48,6 +48,7 @@ void sendHeartbeat() {
   if (isMaster && millis() - timeLastHeartbeatSent >= HEARTBEAT_INTERVAL) {
     DownstreamSerial.write(CHAIN_HEARTBEAT_BYTE);
     DownstreamSerial.write(moduleChainIndex + 1);
+    DownstreamSerial.write(chainBaseOctave);
     timeLastHeartbeatSent = millis();
   }
 }
@@ -84,13 +85,15 @@ void handleSerialFromUpstream(){
     uint8_t byte = UpstreamSerial.peek();
 
     if (byte == CHAIN_HEARTBEAT_BYTE){
-      // wait for both bytes
-      if (UpstreamSerial.available() < 2) {
+      // wait for all 3 bytes
+      if (UpstreamSerial.available() < 3) {
         return;
       }
 
-      UpstreamSerial.read(); // conusme
-      handleHeartbeatFromUpstream(UpstreamSerial.read());
+      UpstreamSerial.read(); // consume CHAIN_HEARTBEAT_BYTE
+      uint8_t heartbeatNum = UpstreamSerial.read();
+      uint8_t heartbeatOctave = UpstreamSerial.read();
+      handleHeartbeatFromUpstream(heartbeatNum, heartbeatOctave);
       upstreamSerialBufPos = 0; // Clear any accumulated noise from cable insertion
     } else {
       handleCommandsFromUpstream();
@@ -126,26 +129,30 @@ void handleCommandsFromUpstream(){
         upstreamSerialBuf[upstreamSerialBufPos] = '\0';
         char cmdType = upstreamSerialBuf[0];
 
-        // Is it a single-char slave command (x, b)?
-        // We ensure there are no extra parameters by checking if the next character is the null terminator or a trailing carriage return.
-        if ((upstreamSerialBuf[1] == '\0' || upstreamSerialBuf[1] == '\r') && (cmdType == 'x' || cmdType == 'b')) {
-          if (cmdType == 'x') {
-            for (int i = 0; i < NUM_KEYS; i++) {
-              resetKey(i);
-            }
-            
-            if (sequenceRunning && currentSequenceMode == BROADCAST) {
-              sequenceRunning = false;
-              configureNotes();
-            }
-
-            DownstreamSerial.write("x\n", 2);
-          } else if (cmdType == 'b') {
-            currentSequenceMode = BROADCAST;
-            sequenceRunning = true;
-            configureNotes();
-            DownstreamSerial.write("b\n", 2);
+        // Is it a single-char slave command (x)?
+        if ((upstreamSerialBuf[1] == '\0' || upstreamSerialBuf[1] == '\r') && cmdType == 'x') {
+          for (int i = 0; i < NUM_KEYS; i++) {
+            resetKey(i);
           }
+          
+          if (sequenceRunning && currentSequenceMode == BROADCAST) {
+            sequenceRunning = false;
+            configureNotes();
+          }
+
+          DownstreamSerial.write("x\n", 2);
+        }
+        else if (cmdType == 'b') {
+          char *endPtr;
+          int parsedOctave = (int)strtol(&upstreamSerialBuf[1], &endPtr, 10);
+          if (endPtr != &upstreamSerialBuf[1]) {
+            chainBaseOctave = parsedOctave;
+          }
+          currentSequenceMode = BROADCAST;
+          sequenceRunning = true;
+          configureNotes();
+          DownstreamSerial.write((uint8_t *)upstreamSerialBuf, upstreamSerialBufPos);
+          DownstreamSerial.write('\n');
         }
         // Is it a slave hardware-override command (t, g, r)?
         else if (cmdType == 't' || cmdType == 'g' || cmdType == 'r') {
@@ -216,7 +223,7 @@ void handleCommandsFromUpstream(){
   }
 }
 
-void handleHeartbeatFromUpstream(uint8_t num){
+void handleHeartbeatFromUpstream(uint8_t num, uint8_t masterOctave){
   // Reject implausible chain indices — likely UART noise during cable insertion
   if (num >= MAX_MODULES) {
     LOGF("[CHAIN] Ignoring bogus upstream heartbeat: index=%d (max=%d)\n", num, MAX_MODULES - 1);
@@ -224,21 +231,23 @@ void handleHeartbeatFromUpstream(uint8_t num){
   }
 
   timeLastHeartbeatReceived = millis();
-
   numModulesInChain = num + 1;
+  bool needsReconfigure = (moduleChainIndex != num) || (chainBaseOctave != masterOctave);
+  moduleChainIndex = num;
+  chainBaseOctave = masterOctave;
 
   if (isMaster){
     demoteToSlave();
   }
 
-  if (moduleChainIndex != num) {
-    moduleChainIndex = num;
+  if (needsReconfigure) {
     configureNotes();
   }
 
-  // Forward heartbeat downstream
+  // Forward heartbeat downstream (pass chainBaseOctave through unchanged)
   DownstreamSerial.write(CHAIN_HEARTBEAT_BYTE);
   DownstreamSerial.write(moduleChainIndex + 1);
+  DownstreamSerial.write(chainBaseOctave);
 
   // Reply upstream
   UpstreamSerial.write(CHAIN_HEARTBEAT_BYTE);
@@ -407,6 +416,9 @@ void handleUsbSerialCommands() {
       if (serialBufPos == 0) {
         // ignore empty lines / trailing CR
         continue;
+      } else if (serialBuf[0] == 'p' && serialBufPos > 1) {
+        serialBuf[serialBufPos] = '\0';
+        handleOctaveCommand(serialBuf);
       } else if (serialBufPos == 1) {
         // regular single-character command
         processSingleCharCommand(serialBuf[0]);
@@ -496,7 +508,9 @@ void handleWebSocketCommand(char *cmd, size_t length){
     return;
   }
 
-  if (length == 1){
+  if (length > 1 && cmd[0] == 'p') {
+    handleOctaveCommand(cmd);
+  } else if (length == 1){
     // regular single-character command
     processSingleCharCommand(cmd[0]);
   } else if ((length == 2 || length == 3) && cmd[0] == 'm') {
@@ -526,6 +540,17 @@ void handleWebSocketCommand(char *cmd, size_t length){
   } else if (length > 1){
     // sequence command; string of characters
     handleSequenceCommand(cmd);
+  }
+}
+
+void handleOctaveCommand(char *cmd) {
+  int targetOctave = (int)strtol(&cmd[1], NULL, 10);
+  if (targetOctave >= 1 && targetOctave <= 7) {
+    chainBaseOctave = targetOctave;
+    configureNotes();
+    LOGF("ACK cmd=p ok=1 octave=%d\n", targetOctave);
+  } else {
+    LOGLN("ERR cmd=p reason=invalid_octave");
   }
 }
 
