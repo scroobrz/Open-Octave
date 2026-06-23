@@ -362,6 +362,7 @@ void handleHeartbeatFromDownstream(uint8_t num){
     if (isMaster) {
       sendHelloToController();
       updateDefaultSequenceForChainSize();
+      broadcastSynthMode();
     }
   }
 
@@ -1044,6 +1045,19 @@ void sendHelloToController() {
 void sendByeToController() {
   Serial.println(F("BYE"));
   LOGLN("[CTRL] Sent: BYE (demoted to slave)");
+}
+
+void broadcastSynthMode() {
+  char cmd[4];
+  if (currentSynthMode == SYNTH_ADDITIVE) snprintf(cmd, sizeof(cmd), "m0\n");
+  else if (currentSynthMode == SYNTH_KARPLUS_STRONG) snprintf(cmd, sizeof(cmd), "m1\n");
+  else if (currentSynthMode == SYNTH_KS_OVERDRIVE) snprintf(cmd, sizeof(cmd), "m2\n");
+  else if (currentSynthMode == SYNTH_KS_HARPSICHORD) snprintf(cmd, sizeof(cmd), "m3\n");
+  else if (currentSynthMode == SYNTH_HAMMOND_ORGAN) snprintf(cmd, sizeof(cmd), "m4\n");
+  else if (currentSynthMode == SYNTH_SYNTH_BRASS) snprintf(cmd, sizeof(cmd), "m5\n");
+  
+  DownstreamSerial.write((uint8_t*)cmd, strlen(cmd));
+  LOGLN("[CHAIN] Broadcasted current synth mode downstream");
 }
 
 void chainSendKeyCmd(HardwareSerial &serialPort, char cmd, int key) {
