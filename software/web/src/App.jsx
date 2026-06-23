@@ -1254,6 +1254,7 @@ export default function App() {
                 <option value="karplus-strong">Piano / Clavinet</option>
                 <option value="ks-overdrive">Overdriven Lead</option>
                 <option value="ks-harpsichord">Harpsichord</option>
+                <option value="hammond-organ">Hammond Organ</option>
                 <option value="additive">Sine Wave Synth</option>
               </select>
             </div>

@@ -180,9 +180,19 @@ void playPressedKeys() {
   float voiceVolume = 0.0f;
   float maxPolyphony = 4.0f; // Typical max simultaneous keys per step
   
-  if (currentSynthMode == SYNTH_ADDITIVE) {
+  if (currentSynthMode == SYNTH_ADDITIVE || currentSynthMode == SYNTH_HAMMOND_ORGAN) {
     float totalHarmonicWeight = 0.0f;
-    for (int h = 0; h < NUM_HARMONICS; h++) totalHarmonicWeight += HARMONICS[h][1];
+    for (int h = 0; h < NUM_HARMONICS; h++) {
+      float weight = HARMONICS[h][1];
+      if (currentSynthMode == SYNTH_HAMMOND_ORGAN) {
+        if (h == 0) weight = 0.8f;
+        else if (h == 1) weight = 1.0f;
+        else if (h == 2) weight = 0.6f;
+        else if (h == 3) weight = 0.5f;
+        else if (h == 4) weight = 0.4f;
+      }
+      totalHarmonicWeight += weight;
+    }
     voiceVolume = VOLUME / (maxPolyphony * totalHarmonicWeight);
   } else if (currentSynthMode == SYNTH_KS_OVERDRIVE) {
     // Overdrive adds a lot of energy, keep volume slightly lower
@@ -221,16 +231,26 @@ void playPressedKeys() {
       float freq = (float)freqSnapshot[keyIdx];
       float noteSample = 0.0f;
 
-      if (currentSynthMode == SYNTH_ADDITIVE) {
+      if (currentSynthMode == SYNTH_ADDITIVE || currentSynthMode == SYNTH_HAMMOND_ORGAN) {
         for (int h = 0; h < NUM_HARMONICS; h++) {
-          float harmonicFreq = freq * HARMONICS[h][0];
+          float mult = HARMONICS[h][0];
+          float weight = HARMONICS[h][1];
+          if (currentSynthMode == SYNTH_HAMMOND_ORGAN) {
+             if (h == 0) { mult = 0.5f; weight = 0.8f; } // Sub-octave
+             else if (h == 1) { mult = 1.0f; weight = 1.0f; } // Fundamental
+             else if (h == 2) { mult = 2.0f; weight = 0.6f; } // Octave
+             else if (h == 3) { mult = 3.0f; weight = 0.5f; } // Octave + Fifth
+             else if (h == 4) { mult = 4.0f; weight = 0.4f; } // Two octaves
+          }
+          
+          float harmonicFreq = freq * mult;
           if (harmonicFreq >= SAMPLE_RATE / 2) continue;
 
           phaseAccumulators[keyIdx][h] += (float)SINE_TABLE_SIZE * harmonicFreq / SAMPLE_RATE;
           if (phaseAccumulators[keyIdx][h] >= SINE_TABLE_SIZE)
             phaseAccumulators[keyIdx][h] -= SINE_TABLE_SIZE;
 
-          noteSample += sineTable[(int)phaseAccumulators[keyIdx][h]] * HARMONICS[h][1];
+          noteSample += sineTable[(int)phaseAccumulators[keyIdx][h]] * weight;
         }
       } else if (currentSynthMode == SYNTH_KARPLUS_STRONG || currentSynthMode == SYNTH_KS_OVERDRIVE || currentSynthMode == SYNTH_KS_HARPSICHORD) {
         int delayLen = (int)(SAMPLE_RATE / freq);
