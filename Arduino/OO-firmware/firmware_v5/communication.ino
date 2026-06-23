@@ -400,6 +400,19 @@ void handleUsbSerialCommands() {
       } else if (serialBufPos == 1) {
         // regular single-character command
         processSingleCharCommand(serialBuf[0]);
+      } else if (serialBufPos == 2 && serialBuf[0] == 'm') {
+        // synth mode command
+        serialBuf[serialBufPos] = '\0';
+        if (serialBuf[1] == '0') {
+          currentSynthMode = SYNTH_ADDITIVE;
+          LOGLN("[CMD] Received: Set Synth Mode -> Additive");
+        } else if (serialBuf[1] == '1') {
+          currentSynthMode = SYNTH_KARPLUS_STRONG;
+          LOGLN("[CMD] Received: Set Synth Mode -> Karplus-Strong");
+        }
+        // Broadcast down the chain
+        DownstreamSerial.write((uint8_t*)serialBuf, serialBufPos);
+        DownstreamSerial.write('\n');
       } else {
         // sequence command; string of characters
         serialBuf[serialBufPos] = '\0';
