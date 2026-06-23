@@ -48,7 +48,7 @@ void sendHeartbeat() {
   if (isMaster && millis() - timeLastHeartbeatSent >= HEARTBEAT_INTERVAL) {
     DownstreamSerial.write(CHAIN_HEARTBEAT_BYTE);
     DownstreamSerial.write(moduleChainIndex + 1);
-    DownstreamSerial.write(currentEffectiveOctave);
+    DownstreamSerial.write(chainBaseOctave);
     timeLastHeartbeatSent = millis();
   }
 }
@@ -153,20 +153,6 @@ void handleCommandsFromUpstream(){
           DownstreamSerial.write((uint8_t *)upstreamSerialBuf, upstreamSerialBufPos);
           DownstreamSerial.write('\n');
         }
-        else if (cmdType == 'p') {
-          char *endPtr;
-          int targetModule = (int)strtol(&upstreamSerialBuf[1], &endPtr, 10);
-          if (*endPtr == '.') {
-            int targetOctave = (int)strtol(endPtr + 1, NULL, 10);
-            if (targetModule == moduleChainIndex) {
-              currentOctave = targetOctave;
-              configureNotes();
-            } else if (targetModule > moduleChainIndex) {
-              DownstreamSerial.write((uint8_t *)upstreamSerialBuf, upstreamSerialBufPos);
-              DownstreamSerial.write('\n');
-            }
-          }
-        }
         // Is it a slave hardware-override command (t, g, r)?
         else if (cmdType == 't' || cmdType == 'g' || cmdType == 'r') {
           int targetModule, targetKey;
@@ -218,7 +204,7 @@ void handleCommandsFromUpstream(){
   }
 }
 
-void handleHeartbeatFromUpstream(uint8_t num, uint8_t upstreamEffectiveOctave){
+void handleHeartbeatFromUpstream(uint8_t num, uint8_t masterOctave){
   // Reject implausible chain indices — likely UART noise during cable insertion
   if (num >= MAX_MODULES) {
     LOGF("[CHAIN] Ignoring bogus upstream heartbeat: index=%d (max=%d)\n", num, MAX_MODULES - 1);
@@ -233,23 +219,18 @@ void handleHeartbeatFromUpstream(uint8_t num, uint8_t upstreamEffectiveOctave){
     demoteToSlave();
   }
 
-  bool octaveChanged = false;
-  if (currentOctave == 0 && upstreamEffectiveOctave != 0) {
-    if (upstreamEffectiveOctaveCache != upstreamEffectiveOctave) {
-      upstreamEffectiveOctaveCache = upstreamEffectiveOctave;
-      octaveChanged = true;
-    }
-  }
+  bool needsReconfigure = (moduleChainIndex != num) || (chainBaseOctave != masterOctave);
+  moduleChainIndex = num;
+  chainBaseOctave = masterOctave;
 
-  if (moduleChainIndex != num || octaveChanged) {
-    moduleChainIndex = num;
+  if (needsReconfigure) {
     configureNotes();
   }
 
-  // Forward heartbeat downstream
+  // Forward heartbeat downstream (pass chainBaseOctave through unchanged)
   DownstreamSerial.write(CHAIN_HEARTBEAT_BYTE);
   DownstreamSerial.write(moduleChainIndex + 1);
-  DownstreamSerial.write(currentEffectiveOctave);
+  DownstreamSerial.write(chainBaseOctave);
 
   // Reply upstream
   UpstreamSerial.write(CHAIN_HEARTBEAT_BYTE);
@@ -495,21 +476,13 @@ void handleWebSocketCommand(char *cmd, size_t length){
 }
 
 void handleOctaveCommand(char *cmd) {
-  char *endPtr;
-  int targetModule = (int)strtol(&cmd[1], &endPtr, 10);
-  if (*endPtr == '.') {
-    int targetOctave = (int)strtol(endPtr + 1, NULL, 10);
-    if (targetModule == moduleChainIndex) {
-      currentOctave = targetOctave;
-      configureNotes();
-      LOGF("ACK cmd=p ok=1 module=%d octave=%d\n", targetModule, targetOctave);
-    } else {
-      DownstreamSerial.write((uint8_t *)cmd, strlen(cmd));
-      DownstreamSerial.write('\n');
-      LOGF("ACK cmd=p ok=1 module=%d forwarded\n", targetModule);
-    }
+  int targetOctave = (int)strtol(&cmd[1], NULL, 10);
+  if (targetOctave >= 1 && targetOctave <= 7) {
+    chainBaseOctave = targetOctave;
+    configureNotes();
+    LOGF("ACK cmd=p ok=1 octave=%d\n", targetOctave);
   } else {
-    LOGLN("ERR cmd=p reason=invalid_format");
+    LOGLN("ERR cmd=p reason=invalid_octave");
   }
 }
 

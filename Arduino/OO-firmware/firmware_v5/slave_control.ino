@@ -13,7 +13,6 @@ void demoteToSlave(){
     sendByeToController();
 
     isMaster = false;
-    currentOctave = 0;
 
     // Flush serial buffers to discard any UART noise accumulated during
     // the physical cable insertion that triggered this role change.
@@ -41,16 +40,12 @@ const int baseNoteFreqs[NUM_KEYS] = {
 void configureNotes(){
     if (sequenceRunning && currentSequenceMode == BROADCAST) {
         currentEffectiveOctave = broadcastMasterOctave;
-    } else if (currentOctave != 0) {
-        currentEffectiveOctave = currentOctave;
+    } else if (isMaster) {
+        // Master's effective octave IS the chain base octave
+        currentEffectiveOctave = chainBaseOctave;
     } else {
-        if (!isMaster && upstreamEffectiveOctaveCache != 0) {
-            currentEffectiveOctave = upstreamEffectiveOctaveCache + 1;
-        } else {
-            // Fallback: Default to Octave 4 + index
-            currentEffectiveOctave = 4 + moduleChainIndex;
-        }
-        // Cap at 7
+        // Slave: derive from chain base + position in chain
+        currentEffectiveOctave = chainBaseOctave + moduleChainIndex;
         if (currentEffectiveOctave > 7) currentEffectiveOctave = 7;
     }
 

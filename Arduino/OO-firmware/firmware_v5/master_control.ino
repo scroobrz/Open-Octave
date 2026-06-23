@@ -10,8 +10,7 @@ void promoteToMaster(){
     stopSequence();
     isMaster = true;
     moduleChainIndex = 0;
-    currentOctave = 0;
-    upstreamEffectiveOctaveCache = 0;
+    chainBaseOctave = 4;
     configureNotes();
     numModulesInChain = 1;
 

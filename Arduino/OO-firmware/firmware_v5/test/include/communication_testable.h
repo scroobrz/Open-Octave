@@ -10,7 +10,7 @@ void checkHeartbeat();
 void checkHeartbeatReply();
 void handleSerialFromUpstream();
 void handleCommandsFromUpstream();
-void handleHeartbeatFromUpstream(uint8_t num);
+void handleHeartbeatFromUpstream(uint8_t num, uint8_t masterOctave);
 void handleSerialFromDownstream();
 void handleCommandsFromDownstream();
 void handleHeartbeatFromDownstream(uint8_t num);

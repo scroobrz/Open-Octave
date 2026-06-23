@@ -1052,16 +1052,15 @@ app.post('/api/modules/:ip/control', (req, res) => {
     }
 });
 
-// POST /api/modules/:ip/configure-octave — set chain absolute octave on a specific module
+// POST /api/modules/:ip/configure-octave — set chain base octave (master only)
 app.post('/api/modules/:ip/configure-octave', (req, res) => {
     try {
         const ip = req.params.ip;
         const body = req.body || {};
-        const targetModule = Number(body.moduleIndex);
         const targetOctave = Number(body.targetOctave);
 
-        if (!Number.isInteger(targetModule) || !Number.isInteger(targetOctave)) {
-            res.status(400).json({ ok: false, error: 'moduleIndex and targetOctave must be integers' });
+        if (!Number.isInteger(targetOctave)) {
+            res.status(400).json({ ok: false, error: 'targetOctave must be an integer' });
             return;
         }
 
@@ -1070,13 +1069,13 @@ app.post('/api/modules/:ip/configure-octave', (req, res) => {
             return;
         }
 
-        const result = sendToModule(ip, `p${targetModule}.${targetOctave}`);
+        const result = sendToModule(ip, `p${targetOctave}`);
         if (result.error) {
             res.status(400).json({ ok: false, error: result.error });
             return;
         }
 
-        res.json({ ok: true, module: ip, targetModule, targetOctave, result });
+        res.json({ ok: true, module: ip, targetOctave, result });
     } catch (e) {
         res.status(500).json({ ok: false, error: e.message });
     }

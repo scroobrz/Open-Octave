@@ -214,7 +214,7 @@ export default function App() {
   const [chainSequences, setChainSequences] = useState({});
   // Per-chain cached full sequence data (moduleIp -> { steps: [...] })
   const [chainSeqData, setChainSeqData] = useState({});
-  // Per-chain manual octave settings (moduleIp_moduleIndex -> targetOctave)
+  // Per-chain base octave setting (moduleIp -> targetOctave)
   const [chainOctaves, setChainOctaves] = useState({});
 
   // ============ SEQUENCE EDITOR STATE ============
@@ -509,15 +509,14 @@ export default function App() {
     }
   }
 
-  async function setModuleOctave(moduleIp, moduleIndex, targetOctave) {
+  async function setModuleOctave(moduleIp, targetOctave) {
     try {
       await apiPost(`/api/modules/${encodeURIComponent(moduleIp)}/configure-octave`, {
-        moduleIndex,
         targetOctave
       });
       setChainOctaves(prev => ({
         ...prev,
-        [`${moduleIp}_${moduleIndex}`]: targetOctave
+        [moduleIp]: targetOctave
       }));
     } catch (e) {
       setDbSeqError(`Octave configuration failed: ${e.message}`);
@@ -1156,18 +1155,20 @@ export default function App() {
             <div className="octave-group" key={gi} style={{ minWidth: 560, flex: '0 0 auto' }}>
               <div className="octave-label" style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', paddingRight: 10 }}>
                 <span>Module {group.moduleNum}</span>
-                <select
-                  className="input input-small"
-                  style={{ width: 'auto', padding: '2px 6px', fontSize: '0.8em' }}
-                  value={chainOctaves[`${mod.ip}_${group.moduleNum - 1}`] || ''}
-                  onChange={(e) => setModuleOctave(mod.ip, group.moduleNum - 1, Number(e.target.value))}
-                  disabled={!mod.connected}
-                >
-                  <option value="">Auto Octave</option>
-                  {[1,2,3,4,5,6,7].map(o => (
-                    <option key={o} value={o}>Octave {o}</option>
-                  ))}
-                </select>
+                {gi === 0 && (
+                  <select
+                    className="input input-small"
+                    style={{ width: 'auto', padding: '2px 6px', fontSize: '0.8em' }}
+                    value={chainOctaves[mod.ip] || ''}
+                    onChange={(e) => setModuleOctave(mod.ip, Number(e.target.value))}
+                    disabled={!mod.connected}
+                  >
+                    <option value="">Default (Octave 4)</option>
+                    {[1,2,3,4,5,6,7].map(o => (
+                      <option key={o} value={o}>Octave {o}</option>
+                    ))}
+                  </select>
+                )}
               </div>
               <div className="keyboard-vis" style={{ width: '100%', minWidth: 560 }}>
                 {group.keys.filter(k => !k.isBlack).map(k => {
