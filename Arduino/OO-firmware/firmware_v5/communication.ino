@@ -395,7 +395,7 @@ void handleUsbSerialCommands() {
       if (serialBufPos == 0) {
         // ignore empty lines / trailing CR
         continue;
-      } else if (serialBuf[0] == 'p' && serialBufPos > 2) {
+      } else if (serialBuf[0] == 'p' && serialBufPos > 1) {
         serialBuf[serialBufPos] = '\0';
         handleOctaveCommand(serialBuf);
       } else if (serialBufPos == 1) {
@@ -462,7 +462,7 @@ void handleWebSocketCommand(char *cmd, size_t length){
     return;
   }
 
-  if (length > 2 && cmd[0] == 'p') {
+  if (length > 1 && cmd[0] == 'p') {
     handleOctaveCommand(cmd);
   } else if (length == 1){
     // regular single-character command
