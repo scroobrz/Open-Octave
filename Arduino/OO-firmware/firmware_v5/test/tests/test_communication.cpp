@@ -47,9 +47,9 @@ TEST_F(CommunicationTest, HandleCommandsFromUpstream_CompletesWithoutError) {
 }
 
 TEST_F(CommunicationTest, HandleHeartbeatFromUpstream_ValidInput) {
- handleHeartbeatFromUpstream(0, 4);
- handleHeartbeatFromUpstream(1, 5);
- handleHeartbeatFromUpstream(255, 4);
+ handleHeartbeatFromUpstream(0, 4, 0);
+ handleHeartbeatFromUpstream(1, 5, 1);
+ handleHeartbeatFromUpstream(255, 4, 0);
  SUCCEED();
 }
 
@@ -134,7 +134,7 @@ TEST_F(CommunicationTest, UpstreamDownstreamCombined) {
 TEST_F(CommunicationTest, HeartbeatCascade) {
  checkHeartbeat();
  checkHeartbeatReply();
- handleHeartbeatFromUpstream(1, 5);
+ handleHeartbeatFromUpstream(1, 5, 0);
  handleHeartbeatFromDownstream(2);
  SUCCEED();
 }
