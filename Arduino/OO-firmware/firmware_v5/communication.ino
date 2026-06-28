@@ -752,7 +752,7 @@ bool processSequenceNoteCommand(uint16_t noteIndex, char *cmd) {
   while (cmd[i] != '\n' && cmd[i] != '\0') {
     if (cmd[i+1] != '\0' && cmd[i+1] != '\n' &&
         cmd[i+2] != '\0' && cmd[i+2] != '\n') {
-      if ((i == 0 || cmd[i-1] == ' ') && cmd[i+1] == ''='') {
+      if ((i == 0 || cmd[i-1] == ' ') && cmd[i+1] == '=') {
         toLowercase(cmd[i]);
         switch (cmd[i]) {
           case 'k': {
@@ -822,7 +822,7 @@ bool processSequenceEndCommand(char *cmd) {
   int endSeqId = -1;
   int i = 0;
   while (cmd[i] != '\n' && cmd[i] != '\0') {
-    if ((i == 0 || cmd[i-1] == ' ') && cmd[i+1] == ''='') {
+    if ((i == 0 || cmd[i-1] == ' ') && cmd[i+1] == '=') {
       toLowercase(cmd[i]);
       if (cmd[i] == 'i') endSeqId = atoi(&cmd[i+2]);
     }
