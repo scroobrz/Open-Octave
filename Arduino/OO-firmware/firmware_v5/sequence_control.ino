@@ -120,8 +120,9 @@ void handleTeachingModePlayback() {
 }
 
 // Lights the LEDs for the moment beginning at guidedMomentStart and records its
-// size and required hold duration. A "moment" = the contiguous run of notes that
-// share the same startTime (notes are sorted by startTime).
+// size and required hold duration. A "moment" = the contiguous run of notes whose
+// startTime falls within GUIDED_MOMENT_TOLERANCE of the first (notes are sorted by
+// startTime), so a human-recorded chord's slightly-staggered presses group as one.
 void presentGuidedMoment() {
   uint32_t momentTime = currentSequence.notes[guidedMomentStart].startTime;
   guidedMomentSize = 0;
@@ -129,7 +130,7 @@ void presentGuidedMoment() {
 
   for (uint16_t i = guidedMomentStart;
        i < currentSequence.noteCount &&
-       currentSequence.notes[i].startTime == momentTime; i++) {
+       currentSequence.notes[i].startTime <= momentTime + GUIDED_MOMENT_TOLERANCE; i++) {
     const SequenceNote &n = currentSequence.notes[i];
     activateNoteKey(n.globalKey, n.color, GUIDED);   // LED only (no servo in guided)
     guidedMomentSize++;

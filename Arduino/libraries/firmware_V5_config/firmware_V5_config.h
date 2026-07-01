@@ -32,6 +32,12 @@
 #define MIN_STEP_DURATION 300    // minimum recorded sequence step duration (ms)
 #define MAX_STEP_DURATION 10000  // maximum recorded sequence step duration (ms)
 
+// Guided-mode chord grouping window: notes whose startTime falls within this many
+// ms of the moment's first note are treated as one chord. Absorbs the timing jitter
+// of a human pressing chord keys "together" when recording. Keep below the fastest
+// intended melody-note spacing, or fast passages start merging into chords.
+#define GUIDED_MOMENT_TOLERANCE 40
+
 // ============ HARDWARE CONFIG ============
 
 #define BUTTON_DEBOUNCE_DELAY 50
