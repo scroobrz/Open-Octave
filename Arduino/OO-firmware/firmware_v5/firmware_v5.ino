@@ -70,6 +70,9 @@ bool isMaster = true;
 uint8_t moduleChainIndex = 0;
 uint8_t numModulesInChain = 1;
 
+uint8_t currentOctave = DEFAULT_OCTAVE;
+uint8_t chainBaseOctave = DEFAULT_OCTAVE;
+
 unsigned long timeLastHeartbeatSent = 0;
 unsigned long timeLastHeartbeatReceived = 0;
 unsigned long timeLastHeartbeatReplyReceived = 0;
@@ -81,6 +84,8 @@ SequenceMode currentSequenceMode;
 Sequence currentSequence;
 bool sequenceRunning = false;
 unsigned long lastSequenceButtonPressTime = 0;
+
+SynthMode currentSynthMode = SYNTH_KARPLUS_STRONG;
 unsigned long promotionSuppressionTime = 0;  // suppress buttons briefly after promotion
 
 // ---- Polyphonic playback state ----

@@ -221,7 +221,9 @@ void startSequence(SequenceMode mode) {
   }
 
   if (currentSequenceMode == BROADCAST) {
-    DownstreamSerial.write("b\n", 2);
+    char bCmd[16];
+    snprintf(bCmd, sizeof(bCmd), "b%d\n", currentOctave);
+    DownstreamSerial.write((uint8_t*)bCmd, strlen(bCmd));
   }
   // TEACHING / GUIDED: the first notes/moment trigger on the next
   // handleSequencePlayback() iteration (elapsed >= 0 / moment not yet presented).

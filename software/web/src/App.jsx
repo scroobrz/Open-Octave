@@ -210,10 +210,13 @@ export default function App() {
   const [dbSeqError, setDbSeqError] = useState('');
   const [dbActionBusy, setDbActionBusy] = useState(false);
 
-  // Per-chain selected sequence (moduleIp -> sequenceId)
+  // Per-chain  // Used to map IP -> last selected sequence
   const [chainSequences, setChainSequences] = useState({});
+  const [chainSynthModes, setChainSynthModes] = useState({});
   // Per-chain cached full sequence data (moduleIp -> { steps: [...] })
   const [chainSeqData, setChainSeqData] = useState({});
+  // Per-chain base octave setting (moduleIp -> targetOctave)
+  const [chainOctaves, setChainOctaves] = useState({});
 
   // ============ SEQUENCE EDITOR STATE ============
   const [editorOpen, setEditorOpen] = useState(false);
@@ -337,6 +340,21 @@ export default function App() {
     }
     return items;
   }, [logs, logsPrefixedOnly, logsSearch]);
+
+  // ============ API MUTATIONS ============
+
+  async function changeSynthMode(ip, mode) {
+    try {
+      setDbActionBusy(true);
+      await apiPost(`/api/modules/${encodeURIComponent(ip)}/synth-mode`, { mode });
+      setChainSynthModes(prev => ({ ...prev, [ip]: mode }));
+    } catch (e) {
+      console.error(e);
+      alert(`Failed to set synth mode: ${e.message}`);
+    } finally {
+      setDbActionBusy(false);
+    }
+  }
 
   // ============ API FUNCTIONS ============
 
@@ -507,16 +525,19 @@ export default function App() {
     }
   }
 
-  // async function setModuleOctaveOffset(moduleIp, octaveOffset) {
-  //   try {
-  //     await apiPost(`/api/modules/${encodeURIComponent(moduleIp)}/octave-offset`, {
-  //       octaveOffset
-  //     });
-  //     await refreshModules();
-  //   } catch (e) {
-  //     setDbSeqError(`Octave offset update failed: ${e.message}`);
-  //   }
-  // }
+  async function setModuleOctave(moduleIp, targetOctave) {
+    try {
+      await apiPost(`/api/modules/${encodeURIComponent(moduleIp)}/configure-octave`, {
+        targetOctave
+      });
+      setChainOctaves(prev => ({
+        ...prev,
+        [moduleIp]: targetOctave
+      }));
+    } catch (e) {
+      setDbSeqError(`Octave configuration failed: ${e.message}`);
+    }
+  }
 
   async function sendAllControl(cmd, mode) {
     try {
@@ -1148,7 +1169,23 @@ export default function App() {
         <div className="chain-keyboard-row" style={{ overflowX: 'auto'}}>
           {octaveGroups.map((group, gi) => (
             <div className="octave-group" key={gi} style={{ minWidth: 560, flex: '0 0 auto' }}>
-              <div className="octave-label">Module {group.moduleNum}</div>
+              <div className="octave-label" style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', paddingRight: 10 }}>
+                <span>Module {group.moduleNum}</span>
+                {gi === 0 && (
+                  <select
+                    className="input input-small"
+                    style={{ width: 'auto', padding: '2px 6px', fontSize: '0.8em' }}
+                    value={chainOctaves[mod.ip] || ''}
+                    onChange={(e) => setModuleOctave(mod.ip, Number(e.target.value))}
+                    disabled={!mod.connected}
+                  >
+                    <option value="">Default (Octave 4)</option>
+                    {[1,2,3,4,5,6,7].map(o => (
+                      <option key={o} value={o}>Octave {o}</option>
+                    ))}
+                  </select>
+                )}
+              </div>
               <div className="keyboard-vis" style={{ width: '100%', minWidth: 560 }}>
                 {group.keys.filter(k => !k.isBlack).map(k => {
                   const active = keyHits[k.globalIdx] > 0;
@@ -1223,6 +1260,24 @@ export default function App() {
                       {s.name} ({s.stepCount} steps)
                     </option>
                   ))}
+              </select>
+            </div>
+
+            <div className="row" style={{ gap: 10, alignItems: 'center', flexWrap: 'wrap', justifyContent: 'flex-start', width: '100%', marginTop: 8 }}>
+              <label className="label" style={{ marginBottom: 0 }}>Synth Mode</label>
+              <select
+                className="input"
+                style={{ maxWidth: 300 }}
+                value={chainSynthModes[mod.ip] || 'karplus-strong'}
+                onChange={(e) => changeSynthMode(mod.ip, e.target.value)}
+                disabled={dbActionBusy || !mod.connected}
+              >
+                <option value="karplus-strong">Piano / Clavinet</option>
+                <option value="ks-overdrive">Overdriven Lead</option>
+                <option value="ks-harpsichord">Harpsichord</option>
+                <option value="hammond-organ">Hammond Organ</option>
+                <option value="synth-brass">Synth Brass</option>
+                <option value="additive">Sine Wave Synth</option>
               </select>
             </div>
           </div>

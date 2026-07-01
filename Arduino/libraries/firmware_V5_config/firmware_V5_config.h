@@ -32,6 +32,8 @@
 #define MIN_STEP_DURATION 300    // minimum recorded sequence step duration (ms)
 #define MAX_STEP_DURATION 10000  // maximum recorded sequence step duration (ms)
 
+#define DEFAULT_OCTAVE 4
+
 // Guided-mode chord grouping window: notes whose startTime falls within this many
 // ms of the moment's first note are treated as one chord. Absorbs the timing jitter
 // of a human pressing chord keys "together" when recording. Keep below the fastest
@@ -172,6 +174,15 @@ enum SequenceMode {
   GUIDED,         // LEDs light up in sequence, user must press key to advance
   TEACHING,       // LEDs + servos play automatically
   BROADCAST       // Master module broadcasts local key presses downstream
+};
+
+enum SynthMode {
+  SYNTH_ADDITIVE,
+  SYNTH_KARPLUS_STRONG,
+  SYNTH_KS_OVERDRIVE,
+  SYNTH_KS_HARPSICHORD,
+  SYNTH_HAMMOND_ORGAN,
+  SYNTH_SYNTH_BRASS
 };
 
 struct Key {

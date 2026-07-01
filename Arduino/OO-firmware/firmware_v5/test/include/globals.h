@@ -12,6 +12,9 @@ extern bool isMaster;
 extern uint8_t moduleChainIndex;
 extern uint8_t numModulesInChain;
 
+extern uint8_t currentOctave;
+extern uint8_t chainBaseOctave;
+
 // Key array (defined in firmware)
 extern struct Key keys[NUM_KEYS];
 
@@ -29,6 +32,8 @@ extern bool sequenceRunning;
 extern int currentSequenceStepIndex;
 extern unsigned long currentStepStartTime;
 extern unsigned long lastSequenceButtonPressTime;
+
+extern SynthMode currentSynthMode;
 
 extern bool globalKeyIsPressed[MAX_TOTAL_KEYS];
 extern unsigned long globalKeyPressTime[MAX_TOTAL_KEYS];

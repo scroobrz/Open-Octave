@@ -6,11 +6,12 @@
 void handleChainCommunication();
 void handleControllerCommunication();
 void sendHeartbeat();
+void forceHeartbeat();
 void checkHeartbeat();
 void checkHeartbeatReply();
 void handleSerialFromUpstream();
 void handleCommandsFromUpstream();
-void handleHeartbeatFromUpstream(uint8_t num);
+void handleHeartbeatFromUpstream(uint8_t num, uint8_t masterOctave, uint8_t masterSynthMode);
 void handleSerialFromDownstream();
 void handleCommandsFromDownstream();
 void handleHeartbeatFromDownstream(uint8_t num);

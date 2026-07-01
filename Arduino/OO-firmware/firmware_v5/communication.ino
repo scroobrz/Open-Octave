@@ -43,13 +43,30 @@ void handleControllerCommunication(){
     handleUsbSerialCommands();
 }
 
-// Masters begin the heartbeat chain
+// Masters begin the heartbeat chain.
+// The packet is 4 bytes: [0xFE, chainIndex+1, chainBaseOctave, currentSynthMode]
+// Slaves use this to self-configure and propagate state down the chain.
 void sendHeartbeat() {
   if (isMaster && millis() - timeLastHeartbeatSent >= HEARTBEAT_INTERVAL) {
     DownstreamSerial.write(CHAIN_HEARTBEAT_BYTE);
     DownstreamSerial.write(moduleChainIndex + 1);
+    DownstreamSerial.write(chainBaseOctave);
+    DownstreamSerial.write((uint8_t)currentSynthMode);
     timeLastHeartbeatSent = millis();
   }
+}
+
+// Force an immediate heartbeat. Call this after changing any master config
+// (synth mode, octave) so that slaves update without waiting for the next
+// HEARTBEAT_INTERVAL. The timer is reset so the next periodic heartbeat
+// is spaced normally after this forced one.
+void forceHeartbeat() {
+  if (!isMaster) return;
+  DownstreamSerial.write(CHAIN_HEARTBEAT_BYTE);
+  DownstreamSerial.write(moduleChainIndex + 1);
+  DownstreamSerial.write(chainBaseOctave);
+  DownstreamSerial.write((uint8_t)currentSynthMode);
+  timeLastHeartbeatSent = millis();
 }
 
 // Slaves check for upstream heartbeats and promote themselves if lost
@@ -84,13 +101,17 @@ void handleSerialFromUpstream(){
     uint8_t byte = UpstreamSerial.peek();
 
     if (byte == CHAIN_HEARTBEAT_BYTE){
-      // wait for both bytes
-      if (UpstreamSerial.available() < 2) {
+      // wait for all 4 bytes: [0xFE, index, octave, synthMode]
+      if (UpstreamSerial.available() < 4) {
         return;
       }
 
-      UpstreamSerial.read(); // conusme
-      handleHeartbeatFromUpstream(UpstreamSerial.read());
+      UpstreamSerial.read(); // consume CHAIN_HEARTBEAT_BYTE
+      uint8_t heartbeatNum = UpstreamSerial.read();
+      uint8_t heartbeatOctave = UpstreamSerial.read();
+      uint8_t heartbeatSynthMode = UpstreamSerial.read();
+      handleHeartbeatFromUpstream(heartbeatNum, heartbeatOctave, heartbeatSynthMode);
+      upstreamSerialBufPos = 0; // Clear any accumulated noise from cable insertion
     } else {
       handleCommandsFromUpstream();
     }
@@ -125,26 +146,30 @@ void handleCommandsFromUpstream(){
         upstreamSerialBuf[upstreamSerialBufPos] = '\0';
         char cmdType = upstreamSerialBuf[0];
 
-        // Is it a single-char slave command (x, b)?
-        // We ensure there are no extra parameters by checking if the next character is the null terminator or a trailing carriage return.
-        if ((upstreamSerialBuf[1] == '\0' || upstreamSerialBuf[1] == '\r') && (cmdType == 'x' || cmdType == 'b')) {
-          if (cmdType == 'x') {
-            for (int i = 0; i < NUM_KEYS; i++) {
-              resetKey(i);
-            }
-            
-            if (sequenceRunning && currentSequenceMode == BROADCAST) {
-              sequenceRunning = false;
-              configureNotes();
-            }
-
-            DownstreamSerial.write("x\n", 2);
-          } else if (cmdType == 'b') {
-            currentSequenceMode = BROADCAST;
-            sequenceRunning = true;
-            configureNotes();
-            DownstreamSerial.write("b\n", 2);
+        // Is it a single-char slave command (x)?
+        if ((upstreamSerialBuf[1] == '\0' || upstreamSerialBuf[1] == '\r') && cmdType == 'x') {
+          for (int i = 0; i < NUM_KEYS; i++) {
+            resetKey(i);
           }
+          
+          if (sequenceRunning && currentSequenceMode == BROADCAST) {
+            sequenceRunning = false;
+            configureNotes();
+          }
+
+          DownstreamSerial.write("x\n", 2);
+        }
+        else if (cmdType == 'b') {
+          char *endPtr;
+          int parsedOctave = (int)strtol(&upstreamSerialBuf[1], &endPtr, 10);
+          if (endPtr != &upstreamSerialBuf[1]) {
+            chainBaseOctave = parsedOctave;
+          }
+          currentSequenceMode = BROADCAST;
+          sequenceRunning = true;
+          configureNotes();
+          DownstreamSerial.write((uint8_t *)upstreamSerialBuf, upstreamSerialBufPos);
+          DownstreamSerial.write('\n');
         }
         // Is it a slave hardware-override command (t, g, r)?
         else if (cmdType == 't' || cmdType == 'g' || cmdType == 'r') {
@@ -197,7 +222,7 @@ void handleCommandsFromUpstream(){
   }
 }
 
-void handleHeartbeatFromUpstream(uint8_t num){
+void handleHeartbeatFromUpstream(uint8_t num, uint8_t masterOctave, uint8_t masterSynthMode){
   // Reject implausible chain indices — likely UART noise during cable insertion
   if (num >= MAX_MODULES) {
     LOGF("[CHAIN] Ignoring bogus upstream heartbeat: index=%d (max=%d)\n", num, MAX_MODULES - 1);
@@ -205,21 +230,25 @@ void handleHeartbeatFromUpstream(uint8_t num){
   }
 
   timeLastHeartbeatReceived = millis();
-
   numModulesInChain = num + 1;
+  bool needsReconfigure = (moduleChainIndex != num) || (chainBaseOctave != masterOctave);
+  moduleChainIndex = num;
+  chainBaseOctave = masterOctave;
+  currentSynthMode = (SynthMode)masterSynthMode;
 
   if (isMaster){
     demoteToSlave();
   }
 
-  if (moduleChainIndex != num) {
-    moduleChainIndex = num;
+  if (needsReconfigure) {
     configureNotes();
   }
 
-  // Forward heartbeat downstream
+  // Forward heartbeat downstream (state is passed through unchanged)
   DownstreamSerial.write(CHAIN_HEARTBEAT_BYTE);
   DownstreamSerial.write(moduleChainIndex + 1);
+  DownstreamSerial.write(chainBaseOctave);
+  DownstreamSerial.write((uint8_t)currentSynthMode);
 
   // Reply upstream
   UpstreamSerial.write(CHAIN_HEARTBEAT_BYTE);
@@ -237,8 +266,9 @@ void handleSerialFromDownstream(){
         return;
       }
 
-      DownstreamSerial.read(); // consume
+      DownstreamSerial.read(); // consume heartbeat
       handleHeartbeatFromDownstream(DownstreamSerial.read());
+      downstreamSerialBufPos = 0; // Clear any accumulated noise from cable insertion
     } else {
       handleCommandsFromDownstream();
     }
@@ -344,6 +374,10 @@ void handleHeartbeatFromDownstream(uint8_t num){
     if (isMaster) {
       sendHelloToController();
       updateDefaultSequenceForChainSize();
+      // Force an immediate heartbeat so the newly connected slave receives
+      // the master's current synth mode and octave without waiting for the
+      // next periodic heartbeat interval.
+      forceHeartbeat();
     }
   }
 
@@ -386,9 +420,36 @@ void handleUsbSerialCommands() {
       if (serialBufPos == 0) {
         // ignore empty lines / trailing CR
         continue;
+      } else if (serialBuf[0] == 'p' && serialBufPos > 1) {
+        serialBuf[serialBufPos] = '\0';
+        handleOctaveCommand(serialBuf);
       } else if (serialBufPos == 1) {
         // regular single-character command
         processSingleCharCommand(serialBuf[0]);
+      } else if (serialBufPos == 2 && serialBuf[0] == 'm') {
+        // synth mode command — update mode and force a heartbeat to propagate
+        // to all downstream slaves immediately.
+        serialBuf[serialBufPos] = '\0';
+        if (serialBuf[1] == '0') {
+          currentSynthMode = SYNTH_ADDITIVE;
+          LOGLN("[CMD] Received: Set Synth Mode -> Additive");
+        } else if (serialBuf[1] == '1') {
+          currentSynthMode = SYNTH_KARPLUS_STRONG;
+          LOGLN("[CMD] Received: Set Synth Mode -> Karplus-Strong");
+        } else if (serialBuf[1] == '2') {
+          currentSynthMode = SYNTH_KS_OVERDRIVE;
+          LOGLN("[CMD] Received: Set Synth Mode -> Overdrive");
+        } else if (serialBuf[1] == '3') {
+          currentSynthMode = SYNTH_KS_HARPSICHORD;
+          LOGLN("[CMD] Received: Set Synth Mode -> Harpsichord");
+        } else if (serialBuf[1] == '4') {
+          currentSynthMode = SYNTH_HAMMOND_ORGAN;
+          LOGLN("[CMD] Received: Set Synth Mode -> Hammond Organ");
+        } else if (serialBuf[1] == '5') {
+          currentSynthMode = SYNTH_SYNTH_BRASS;
+          LOGLN("[CMD] Received: Set Synth Mode -> Synth Brass");
+        }
+        forceHeartbeat();
       } else {
         // sequence command; string of characters
         serialBuf[serialBufPos] = '\0';
@@ -450,12 +511,50 @@ void handleWebSocketCommand(char *cmd, size_t length){
     return;
   }
 
-  if (length == 1){
+  if (length > 1 && cmd[0] == 'p') {
+    handleOctaveCommand(cmd);
+  } else if (length == 1){
     // regular single-character command
     processSingleCharCommand(cmd[0]);
+  } else if ((length == 2 || length == 3) && cmd[0] == 'm') {
+    // synth mode command — update mode and force a heartbeat to propagate
+    // to all downstream slaves immediately.
+    if (cmd[1] == '0') {
+      currentSynthMode = SYNTH_ADDITIVE;
+      LOGLN("[CMD] Received: Set Synth Mode -> Additive");
+    } else if (cmd[1] == '1') {
+      currentSynthMode = SYNTH_KARPLUS_STRONG;
+      LOGLN("[CMD] Received: Set Synth Mode -> Karplus-Strong");
+    } else if (cmd[1] == '2') {
+      currentSynthMode = SYNTH_KS_OVERDRIVE;
+      LOGLN("[CMD] Received: Set Synth Mode -> Overdrive");
+    } else if (cmd[1] == '3') {
+      currentSynthMode = SYNTH_KS_HARPSICHORD;
+      LOGLN("[CMD] Received: Set Synth Mode -> Harpsichord");
+    } else if (cmd[1] == '4') {
+      currentSynthMode = SYNTH_HAMMOND_ORGAN;
+      LOGLN("[CMD] Received: Set Synth Mode -> Hammond Organ");
+    } else if (cmd[1] == '5') {
+      currentSynthMode = SYNTH_SYNTH_BRASS;
+      LOGLN("[CMD] Received: Set Synth Mode -> Synth Brass");
+    }
+    forceHeartbeat();
   } else if (length > 1){
     // sequence command; string of characters
     handleSequenceCommand(cmd);
+  }
+}
+
+void handleOctaveCommand(char *cmd) {
+  int targetOctave = (int)strtol(&cmd[1], NULL, 10);
+  if (targetOctave >= 1 && targetOctave <= 7) {
+    chainBaseOctave = targetOctave;
+    configureNotes();
+    // Force a heartbeat so downstream slaves immediately adopt the new octave.
+    forceHeartbeat();
+    LOGF("ACK cmd=p ok=1 octave=%d\n", targetOctave);
+  } else {
+    LOGLN("ERR cmd=p reason=invalid_octave");
   }
 }
 
